@@ -286,6 +286,18 @@ export const langText = {
     `The mount is cleared when the page is refreshed, so you need to mount again.`,
     `ページを再読み込みするとマウントは解除されるため、あらためてマウントする必要があります。`,
   ],
+  _help_cache_6: [
+    `按「卸载」会清空下载区并释放内存，缓存本身会保留；下载中、暂停中或抓取中不能卸载。`,
+    `按「卸載」會清空下載區並釋放記憶體，快取本身會保留；下載中、暫停中或抓取中不能卸載。`,
+    `“Unmount” clears the download area and frees memory; the cache entry is kept. You can't unmount while a download is running or paused, or while crawling.`,
+    `「マウント解除」を押すとダウンロード領域が空になりメモリが解放されますが、キャッシュ自体は残ります。ダウンロード中・一時停止中・クロール中は解除できません。`,
+  ],
+  _help_cache_7: [
+    `在缓存卡片按「加入队列」，再到下载页的「下载队列」按「开始队列」，会依序挂载并下载每一条。有档案在自动重试后仍失败的会标成「部分失败」并接着下一条；手动停止下载会暂停队列。下载在这个分页进行，分页要一直开着，电脑也不能睡眠。`,
+    `在快取卡片按「加入佇列」，再到下載頁的「下載佇列」按「開始佇列」，會依序掛載並下載每一筆。有檔案在自動重試後仍失敗的會標成「部分失敗」並接著下一筆；手動停止下載會暫停佇列。下載在這個分頁進行，分頁要一直開著，電腦也不能睡眠。`,
+    `Click “Add to queue” on cache cards, then “Start queue” under “Download queue” on the Download page to mount and download each entry in turn. An entry whose files still fail after the automatic retries is marked “Partly failed” and the queue moves on; stopping the download by hand pauses the queue. Downloads run in this tab, so keep it open and keep the computer awake.`,
+    `キャッシュカードで「キューに追加」を押し、ダウンロードページの「ダウンロードキュー」で「キュー開始」を押すと、順番にマウントしてダウンロードします。自動再試行後も失敗したファイルがある項目は「一部失敗」となり、次の項目に進みます。手動でダウンロードを停止するとキューは一時停止します。ダウンロードはこのタブで行うため、タブを開いたままにし、パソコンをスリープさせないでください。`,
+  ],
   _help_preview_title: [
     `预览与快速下载`,
     `預覽與快速下載`,

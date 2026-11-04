@@ -35,6 +35,8 @@ const HELP_SECTIONS: Array<{ titleKey: LangTextKey; items: LangTextKey[] }> = [
       '_help_cache_3',
       '_help_cache_4',
       '_help_cache_5',
+      '_help_cache_6',
+      '_help_cache_7',
     ],
   },
   {

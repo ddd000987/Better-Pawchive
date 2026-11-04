@@ -4,6 +4,20 @@ English | [繁體中文](CHANGELOG.zh-TW.md)
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-11-04
+
+### Added
+
+- Download queue: queue several crawl caches and download them one after another, for example overnight. Use "Add to queue" on a cache card, then "Start queue" in the new Download queue section on the Download page, where items can also be reordered or removed. When a cache finishes, the next one is mounted and started. If some files still fail after the automatic retries, that cache is marked as partly failed and the queue moves on; files already saved are skipped on a rerun. Stopping the download pauses the queue; "Pause queue" lets the current cache finish without starting the next. The download runs in the tab, so keep the tab open and the computer awake.
+- An "Unmount" button on the mounted cache card and on the mount info card clears the download area and frees memory. The cache entry itself is kept.
+- When switching to an image that is still loading in the preview, the previous image is dimmed and a small "Loading…" line is shown over it, so it no longer looks as if the switch did nothing.
+
+### Fixed
+
+- Large images in the preview kept flashing on and off. The preview could cover the mouse pointer, which closed it and then reopened it. It is now placed on the side of the pointer with the most room and never covers the pointer or goes off screen.
+- With "Preview original image" turned off, the V key opened the thumbnail instead of the original image. V now always opens the original; the preview image is shown until the original has loaded.
+- Downloading a cache from a tab on the other site (for example a Pawchive cache from a Kemono tab) saved thumbnails instead of original images.
+
 ## [1.0.1] - 2026-10-28
 
 ### Added
