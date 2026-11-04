@@ -54,7 +54,8 @@
  *   CHANGED: fitImage → fitPreview（previewLayout.ts）：選游標右／左／下／上
  *           空間最大的一側再縮放，浮層不再蓋住游標（蓋住會觸發關閉→收斂迴圈
  *           重開的閃爍迴圈）；換圖改雙緩衝（新圖載完才換，載入超過 150ms
- *           時舊圖變暗並顯示「載入中」）。
+ *           時舊圖變暗並顯示「載入中」）；V 鍵一律開原圖
+ *           （current.originUrls），浮層那張當佔位。
  */
 
 import { EVT } from '../EVT'
@@ -78,7 +79,10 @@ interface CurrentPreview {
   postKey: string
   service: string
   data: PostApiResponse
+  /** 浮層顯示用（依 previewOriginalImage 設定） */
   urls: string[]
+  /** 與 urls 一一對應的原圖網址（V 鍵檢視器用，不看預覽設定） */
+  originUrls: string[]
   index: number
   mouseX: number
   mouseY: number
@@ -340,10 +344,15 @@ class PreviewWork {
       }
 
       const original = settings.get('previewOriginalImage')
-      const files = imageFiles(data)
-      const urls = files
-        .map((f) => imageUrl(f, data, original))
-        .filter((u) => u)
+      // 預覽網址與原圖網址同一次過濾，索引才對得上
+      const pairs = imageFiles(data)
+        .map((f) => ({
+          preview: imageUrl(f, data, original),
+          origin: imageUrl(f, data, true),
+        }))
+        .filter((p) => p.preview)
+      const urls = pairs.map((p) => p.preview)
+      const originUrls = pairs.map((p) => p.origin || p.preview)
       if (urls.length === 0) {
         this.failedKeys.add(postKey)
         this.setTip(lang.transl('_noPreviewImage'))
@@ -355,6 +364,7 @@ class PreviewWork {
         service: info.service,
         data,
         urls,
+        originUrls,
         index,
         mouseX,
         mouseY,
@@ -666,8 +676,11 @@ class PreviewWork {
       case 'v':
       case 'V':
         if (!hasModifier) {
+          // 一律開原圖（不看 previewOriginalImage）；先用浮層那張當佔位
+          const { urls, originUrls, index } = this.current
           EVT.fire('callShowOriginSizeImage', {
-            imageUrl: this.current.urls[this.current.index],
+            imageUrl: originUrls[index] || urls[index],
+            placeholderUrl: urls[index],
           })
         }
         break
