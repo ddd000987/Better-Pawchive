@@ -188,34 +188,48 @@ describe('resolveDownloadUrl', () => {
   const pThumb = 'https://img.pawchive.pw/thumbnail/data/a/a.png'
   it('kemono 縮圖網址換回 murmur fileserver 原圖', () => {
     expect(
-      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: false }, true, K_HOST)
+      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: false }, true)
     ).toBe(`${fileserverFor('/a/a.png')}/data/a/a.png`)
   })
   it('pawchive 縮圖網址換回 file. 原圖', () => {
     expect(
-      resolveDownloadUrl({ fileUrl: pThumb, previewOnly: false }, true, P_HOST)
+      resolveDownloadUrl({ fileUrl: pThumb, previewOnly: false }, true)
     ).toBe('https://file.pawchive.pw/data/a/a.png')
+  })
+  it('站點取自網址本身：不受目前分頁的站點影響', () => {
+    // 測試環境的 location.host 是 kemono.su：Pawchive 的縮圖也要換成 Pawchive 原圖
+    const k = 'https://img.kemono.cr/thumbnail/data/c/c.jpg'
+    const p = 'https://img.pawchive.pw/thumbnail/data/c/c.jpg'
+    expect(resolveDownloadUrl({ fileUrl: k, previewOnly: false }, true)).toBe(
+      `${fileserverFor('/c/c.jpg')}/data/c/c.jpg`
+    )
+    expect(resolveDownloadUrl({ fileUrl: p, previewOnly: false }, true)).toBe(
+      'https://file.pawchive.pw/data/c/c.jpg'
+    )
   })
   it('previewOnly 不換', () => {
     expect(
-      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: true }, true, K_HOST)
+      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: true }, true)
     ).toBe(kThumb)
     expect(
-      resolveDownloadUrl({ fileUrl: pThumb, previewOnly: true }, true, P_HOST)
+      resolveDownloadUrl({ fileUrl: pThumb, previewOnly: true }, true)
     ).toBe(pThumb)
   })
   it('非縮圖網址原樣返回', () => {
     const u = 'https://n1.kemono.cr/data/b/b.zip'
-    expect(
-      resolveDownloadUrl({ fileUrl: u, previewOnly: false }, true, K_HOST)
-    ).toBe(u)
-    expect(
-      resolveDownloadUrl({ fileUrl: '', previewOnly: false }, true, K_HOST)
-    ).toBe('')
+    expect(resolveDownloadUrl({ fileUrl: u, previewOnly: false }, true)).toBe(u)
+    expect(resolveDownloadUrl({ fileUrl: '', previewOnly: false }, true)).toBe(
+      ''
+    )
+    // 縮圖前綴後面不是路徑：不換
+    const odd = 'https://img.kemono.su/thumbnail/dataX'
+    expect(resolveDownloadUrl({ fileUrl: odd, previewOnly: false }, true)).toBe(
+      odd
+    )
   })
   it('original=false 原樣返回', () => {
     expect(
-      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: false }, false, K_HOST)
+      resolveDownloadUrl({ fileUrl: kThumb, previewOnly: false }, false)
     ).toBe(kThumb)
   })
 })

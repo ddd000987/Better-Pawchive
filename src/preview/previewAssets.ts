@@ -134,20 +134,23 @@ function downloadUrl(
   return pawchiveFullFile(file, original, host)
 }
 
+/** 縮圖網址：`https://img.{host}/thumbnail/data{path}` */
+const THUMB_RE = /^https:\/\/img\.([^/]+)\/thumbnail\/data(\/.*)$/
+
 /** 把已存的縮圖網址換回原圖網址。
  * 舊抓取結果／快取是在「預設縮圖」時算好的，下載時才依設定補救；
- * previewOnly 的檔案站方只給縮圖，不能換；非縮圖網址原樣返回。 */
+ * previewOnly 的檔案站方只給縮圖，不能換；非縮圖網址原樣返回。
+ * 站點從網址本身取，不看目前分頁：在 Kemono 分頁下載 Pawchive 的快取
+ * （下載佇列常見）也要換成 Pawchive 的原圖網址。 */
 function resolveDownloadUrl(
   result: { fileUrl: string; previewOnly: boolean },
-  original: boolean,
-  host = location.host
+  original: boolean
 ): string {
   const url = result.fileUrl
   if (!original || result.previewOnly) return url
-  const prefix = `https://img.${host}/thumbnail/data`
-  if (!url.startsWith(prefix)) return url
-  const path = url.slice(prefix.length)
-  if (!path.startsWith('/')) return url
+  const m = url.match(THUMB_RE)
+  if (!m) return url
+  const [, host, path] = m
   if (isKemonoHost(host)) return `${fileserverFor(path)}/data${path}`
   return `https://file.${host}/data${path}`
 }
