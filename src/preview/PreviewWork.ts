@@ -51,6 +51,10 @@
  *   本輪（用戶需求）: settings.keepPreviewOnFloatHover（預設 true＝現行行為）；
  *           false 時離開卡片即關（保留 120ms＋別卡接手檢查），浮層 mouseenter
  *           不再取消待關閉、scheduleClose 不再被浮層 hover 挽留。
+ *   CHANGED: fitImage → fitPreview（previewLayout.ts）：選游標右／左／下／上
+ *           空間最大的一側再縮放，浮層不再蓋住游標（蓋住會觸發關閉→收斂迴圈
+ *           重開的閃爍迴圈）；換圖改雙緩衝（新圖載完才換，載入超過 150ms
+ *           時舊圖變暗並顯示「載入中」）。
  */
 
 import { EVT } from '../EVT'
@@ -63,7 +67,7 @@ import { api } from '../kemono/api'
 import { isPendingPost, type PostApiResponse } from '../kemono/apiTypes'
 import { settings } from '../setting/Settings'
 import { states } from '../store/States'
-import { clampPreviewPosition } from './previewLayout'
+import { fitPreview } from './previewLayout'
 import { imageFiles, imageUrl, parsePostKey } from './previewAssets'
 import { buildPreviewInfoFields, composePreviewInfo } from './previewInfo'
 import { workThumbnail } from './WorkThumbnail'
@@ -89,6 +93,9 @@ const CLOSE_DELAY = 120
 /** 滾輪前這段時間內滑鼠移動超過設定的距離（wheelScrollPageMoveDistance），
  * 就當成「邊移動邊滾」，讓頁面捲動 */
 const POINTER_MOVING_MS = 200
+
+/** 換圖後多久還沒載完才顯示「載入中」（ms） */
+const BADGE_DELAY = 150
 
 class PreviewWork {
   private wrap: HTMLDivElement | null = null
@@ -121,6 +128,11 @@ class PreviewWork {
   private switchWheel: (dir: 1 | -1) => void
   /** 預覽顯示期間掛在 window 上的滾輪監聽（見 onWheelScroll） */
   private wheelBound = false
+  /** renderCurrent 的序號：較早發出、較晚載完的圖不可蓋掉較新的 */
+  private renderSeq = 0
+  /** 換圖載入中蓋在舊圖上的提示（雙緩衝期間舊圖還在，不提示會像沒切換） */
+  private badge: HTMLDivElement | null = null
+  private badgeTimer = 0
   private readonly onWheel = (ev: WheelEvent): void => this.onWheelScroll(ev)
 
   constructor() {
@@ -298,6 +310,7 @@ class PreviewWork {
     // 都先清掉，摘要條先置載入中
     this.current = null
     this.wrap?.querySelector('img')?.remove()
+    this.setBadge(null)
     this.setTip(lang.transl('_loading'))
 
     try {
@@ -362,7 +375,10 @@ class PreviewWork {
     // DOM 順序＝上列 → 圖片 → 下列（圖片由 insertImage 插在兩列之間）
     const tipTop = this.makeTipBar('previewWorkTipTop')
     const tipBottom = this.makeTipBar('previewWorkTipBottom')
-    wrap.append(tipTop, tipBottom)
+    // 絕對定位，不佔版面、不影響 fitImage 量測
+    const badge = document.createElement('div')
+    badge.className = 'pwpPreviewBadge'
+    wrap.append(tipTop, tipBottom, badge)
     wrap.addEventListener('click', () => {
       // 手動關閉：同 Esc，游標不動時不再自動重開
       this.dismiss()
@@ -380,7 +396,16 @@ class PreviewWork {
     this.wrap = wrap
     this.tipTop = tipTop
     this.tipBottom = tipBottom
+    this.badge = badge
     this.applyTipEnabled()
+  }
+
+  /** 舊圖上的提示：text 為 null 時收起。顯示時舊圖變暗，表示畫面還不是新的那張 */
+  private setBadge(text: string | null): void {
+    window.clearTimeout(this.badgeTimer)
+    if (!this.wrap || !this.badge) return
+    this.badge.textContent = text ?? ''
+    this.wrap.classList.toggle('pwpPreviewPending', text !== null)
   }
 
   private makeTipBar(id: string): HTMLDivElement {
@@ -411,15 +436,35 @@ class PreviewWork {
     this.setTip(tip)
   }
 
+  /** 顯示 current 的當前張。雙緩衝：新圖載完才換掉舊圖（封面佔位或上一張），
+   * 否則載入期間浮層會先縮成只剩資訊列、再被撐開，看起來像閃一下 */
   private renderCurrent(): void {
     if (!this.current || !this.wrap) return
-    const { urls, index } = this.current
-    states.indexRecord[this.current.postKey] = index
+    const cur = this.current
+    const { urls, index } = cur
+    states.indexRecord[cur.postKey] = index
+    const seq = ++this.renderSeq
+    const stale = () =>
+      seq !== this.renderSeq || this.current !== cur || !this.wrap
     const img = document.createElement('img')
+    img.onload = () => {
+      if (stale()) return
+      this.setBadge(null)
+      this.insertImage(img)
+      this.fitImage(img)
+    }
+    img.onerror = () => {
+      if (stale()) return
+      // 資訊列可能被關掉（showPreviewWorkTip=false），失敗也要在圖上看得到
+      this.setBadge(lang.transl('_imageLoadFailed'))
+      this.setTip(lang.transl('_imageLoadFailed'))
+    }
+    // 換掉上一張的提示；短延遲才顯示，已在快取的圖瞬間載完就不閃提示
+    this.setBadge(null)
+    this.badgeTimer = window.setTimeout(() => {
+      if (!stale()) this.setBadge(lang.transl('_loading'))
+    }, BADGE_DELAY)
     img.src = urls[index]
-    img.onload = () => this.fitImage(img)
-    img.onerror = () => this.setTip(lang.transl('_imageLoadFailed'))
-    this.insertImage(img)
     // 預載下一張（PBD 同策略）
     if (urls.length > 1) {
       const next = new Image()
@@ -428,32 +473,41 @@ class PreviewWork {
     this.updateTip()
   }
 
-  /** 等比縮放塞進視窗（留資訊列高度），並把浮層保持在可視區內。
-   * 有上下兩列後浮層總寬／總高不再等於圖片，故直接量測外框。 */
+  /** 選游標旁空間最大的一側，等比縮放塞進去（扣掉框線與資訊列），
+   * 浮層不會蓋住游標，也不會超出視窗（見 fitPreview）。 */
   private fitImage(img: HTMLImageElement): void {
-    // 佔位期（封面已載入、詳情未回）current 還是 null，仍要縮放並夾回視窗
-    if (!this.wrap) return
-    const maxW = window.innerWidth * 0.92
-    const maxH = window.innerHeight * 0.86
-    const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight)
-    const w = Math.max(1, Math.floor(img.naturalWidth * scale))
-    const h = Math.max(1, Math.floor(img.naturalHeight * scale))
-    img.style.width = `${w}px`
-    img.style.height = `${h}px`
-    const totalW = this.wrap.offsetWidth || w
-    const totalH = this.wrap.offsetHeight || h
-    const mouseX = this.current?.mouseX ?? this.anchorX
-    const mouseY = this.current?.mouseY ?? this.anchorY
-    const { x, y } = clampPreviewPosition(
-      mouseX,
-      mouseY,
-      totalW,
-      totalH,
-      window.innerWidth,
-      window.innerHeight
-    )
-    this.wrap.style.left = `${x}px`
-    this.wrap.style.top = `${y}px`
+    // 佔位期（封面已載入、詳情未回）current 還是 null，仍要縮放並定位
+    if (!this.wrap || img.parentElement !== this.wrap) return
+    if (!img.naturalWidth || !img.naturalHeight) return
+    const wrap = this.wrap
+    const bars = [this.tipTop, this.tipBottom]
+    // 框線＋資訊列（單行 nowrap，高度與寬度無關，可直接量）
+    const chromeW = wrap.offsetWidth - wrap.clientWidth
+    const chromeH =
+      wrap.offsetHeight -
+      wrap.clientHeight +
+      bars.reduce((sum, bar) => sum + (bar?.offsetHeight ?? 0), 0)
+    const fit = fitPreview({
+      mouseX: this.current?.mouseX ?? this.anchorX,
+      mouseY: this.current?.mouseY ?? this.anchorY,
+      naturalW: img.naturalWidth,
+      naturalH: img.naturalHeight,
+      chromeW,
+      chromeH,
+      viewW: window.innerWidth,
+      viewH: window.innerHeight,
+    })
+    img.style.width = `${fit.imgW}px`
+    img.style.height = `${fit.imgH}px`
+    // CSS 的 92vw/86vh 封頂只給 fit 前的佔位用；fit 後以計算值為準
+    img.style.maxWidth = 'none'
+    img.style.maxHeight = 'none'
+    // 資訊列不可比圖片寬，否則浮層被撐寬後可能壓到游標
+    for (const bar of bars) {
+      if (bar) bar.style.maxWidth = `${fit.imgW}px`
+    }
+    wrap.style.left = `${fit.x}px`
+    wrap.style.top = `${fit.y}px`
   }
 
   /** 顯示當前帖的欄位（清掉狀態訊息） */
@@ -645,6 +699,8 @@ class PreviewWork {
     this.wrap = null
     this.tipTop = null
     this.tipBottom = null
+    window.clearTimeout(this.badgeTimer)
+    this.badge = null
     states.previewWorkIsShow = false
     this.bindWheel(false)
   }

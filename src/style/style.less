@@ -699,6 +699,36 @@
   max-height: 86vh;
 }
 
+// 換圖載入中：舊圖變暗＋置中提示（JS 只切 .pwpPreviewPending 與文字）
+#previewWorkWrap img {
+  transition: opacity 0.15s;
+}
+
+#previewWorkWrap.pwpPreviewPending img {
+  opacity: 0.6;
+}
+
+// 一行小字，置中疊在舊圖上（不是彈窗）
+.pwpPreviewBadge {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#previewWorkWrap.pwpPreviewPending .pwpPreviewBadge {
+  display: block;
+}
+
 .pwpPreviewTip {
   padding: 6px 10px;
   font-size: 12px;
