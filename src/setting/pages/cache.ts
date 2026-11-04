@@ -1,7 +1,8 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
-/* 設定中心：抓取頁下方的抓取快取區塊（自動掛載開關、快取列表、掛載／卸載／重新命名／刪除） */
+/* 設定中心：抓取頁下方的抓取快取區塊（自動掛載開關、快取列表、掛載／卸載／重新命名／加入佇列／刪除） */
 
 import { crawlCache } from '../../download/CrawlCache'
+import { downloadQueue } from '../../download/DownloadQueue'
 import { lang } from '../../Language'
 import { LangTextKey } from '../../langText'
 import { states } from '../../store/States'
@@ -101,8 +102,16 @@ export class CacheView {
         }
         row.append(unmountBtn)
       }
+      let queueBtn: HTMLButtonElement
+      if (downloadQueue.has(e.id)) {
+        queueBtn = mkBtn('_queueQueued', () => {})
+        queueBtn.disabled = true
+      } else {
+        queueBtn = mkBtn('_queueAdd', () => void downloadQueue.add(e.id))
+      }
       row.append(
         mkBtn('_cacheRename', () => this.promptRenameCache(e.id, e.title)),
+        queueBtn,
         delBtn
       )
       card.append(head, meta, row)

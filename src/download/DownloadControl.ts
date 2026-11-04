@@ -531,8 +531,8 @@ class DownloadControl {
     }
   }
 
-  // 停止下載
-  public stopDownload() {
+  /** 停止下載。quiet：不彈「停止後不保留中斷點」提示（下載佇列換下一筆時用） */
+  public stopDownload(opts: { quiet?: boolean } = {}) {
     // 沒有下載任務時不處理，避免把已完成的進度歸零
     if (store.result.length === 0 || this.stop || !states.hasDownloadTask) {
       return
@@ -552,7 +552,7 @@ class DownloadControl {
     store.remainingDownload = store.result.length
     progressBar.clear()
     // 停止後不保留中斷點：再次開始會重新處理未完成項目，明確提示用戶
-    toast.warning(lang.transl('_downloadStopNoResume'))
+    if (!opts.quiet) toast.warning(lang.transl('_downloadStopNoResume'))
   }
 
   private downloadError(id: string) {
@@ -760,6 +760,8 @@ class DownloadControl {
         log.error(
           lang.transl('_retryGiveUp', String(DownloadControl.ERROR_RETRY_MAX))
         )
+        // 下載佇列靠這個事件換下一筆（否則整晚卡在這一筆）
+        EVT.fire('downloadGiveUp')
         return
       }
       // 退避重試：常態 429 下固定 2 秒重開等於無限迴圈，這裡按次數退避

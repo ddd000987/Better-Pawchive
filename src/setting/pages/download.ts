@@ -8,6 +8,7 @@ import type { CenterContext } from './context'
 import { DownloadControls } from './downloadControls'
 import { LogView } from './log'
 import { MountInfoView } from './mountInfo'
+import { QueueView } from './queue'
 import { StatusRows } from './status'
 
 export function buildDownload(
@@ -17,6 +18,7 @@ export function buildDownload(
     status: StatusRows
     mountInfo: MountInfoView
     dlControls: DownloadControls
+    queue: QueueView
     logView: LogView
   }
 ): void {
@@ -50,5 +52,6 @@ export function buildDownload(
   progressBar.attach(progressHost)
   const downloadStatus = views.status.createDownload()
   body.appendChild(downloadStatus)
+  views.queue.build(host)
   views.logView.build(host)
 }

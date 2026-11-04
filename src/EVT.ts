@@ -65,6 +65,10 @@ class EVENT {
     saveFileError: 'saveFileError',
     /** 全部下載完成 */
     downloadComplete: 'downloadComplete',
+    /** 自動重試用完、仍有檔案失敗（本批到此為止，任務停在下載中） */
+    downloadGiveUp: 'downloadGiveUp',
+    /** 下載佇列內容或執行狀態變化 */
+    queueChange: 'queueChange',
     /** 向瀏覽器發起下載請求時觸發（看門狗用） */
     sendBrowserDownload: 'sendBrowserDownload',
     /** 網路請求異常 data: {status, url} */

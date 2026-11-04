@@ -36,6 +36,7 @@ import { LogView } from './pages/log'
 import { MountInfoView } from './pages/mountInfo'
 import { NamingView } from './pages/naming'
 import { buildPreview } from './pages/preview'
+import { QueueView } from './pages/queue'
 import { StatusRows } from './pages/status'
 
 /** 設定中心的側欄分頁 */
@@ -83,6 +84,7 @@ class SettingsCenter {
   private readonly logView = new LogView()
   private readonly naming = new NamingView()
   private readonly cache = new CacheView(this.ctx)
+  private readonly queue = new QueueView(this.ctx)
   /** 懸停介紹浮層（body 層單例，避免被面板捲動裁掉） */
   private descTip!: HTMLDivElement
   private descTimer = 0
@@ -272,6 +274,7 @@ class SettingsCenter {
       status: this.status,
       mountInfo: this.mountInfo,
       dlControls: this.dlControls,
+      queue: this.queue,
       logView: this.logView,
     })
     this.naming.build(this.pageEls.get('naming')!)
@@ -605,6 +608,17 @@ class SettingsCenter {
     EVT.on(EVT.list.readyDownload, () => this.open('download'))
     // 快取異動時重繪快取列表
     EVT.on(EVT.list.cacheChange, () => this.cache.render())
+    EVT.on(EVT.list.queueChange, () => this.cache.render())
+    for (const ev of [
+      EVT.list.queueChange,
+      EVT.list.cacheChange,
+      EVT.list.mountChange,
+      EVT.list.downloadStart,
+      EVT.list.downloadStop,
+      EVT.list.downloadComplete,
+    ]) {
+      EVT.on(ev, () => this.queue.render())
+    }
     // 日誌區內容變化：節流後重繪
     EVT.on(EVT.list.logAdd, () => this.logView.scheduleRender())
     // 掛載狀態或下載任務狀態變化：快取列表按鈕（可否掛載）與掛載詳情卡一起重繪
@@ -634,6 +648,7 @@ class SettingsCenter {
       this.refreshStatus()
       this.naming.refresh()
       this.cache.render()
+      this.queue.render()
       this.mountInfo.refresh()
       this.logView.render()
       this.crawlProgress.render()

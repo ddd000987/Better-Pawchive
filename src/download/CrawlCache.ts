@@ -299,9 +299,23 @@ class CrawlCache {
     return true
   }
 
+  /** 單筆摘要（不深拷貝大陣列）；不存在回 null */
+  public summary(id: string): CacheSummary | null {
+    const e = this.entries.find((x) => x.id === id)
+    if (!e) return null
+    const { results: _r, metas: _m, ...summary } = e
+    return summary
+  }
+
   /** 掛載：載入 store 當作目前下載目標，不自動開始下載。
-   * 下載中（含暫停）／抓取中拒絕；目前掛載的是未存入快取的結果時先確認 */
-  public async mount(id: string): Promise<boolean> {
+   * 下載中（含暫停）／抓取中拒絕；目前掛載的是未存入快取的結果時先確認。
+   * auto：下載佇列自動掛載——不確認（佇列開始時已確認過）、不彈成功提示、
+   * 不把面板帶到下載頁 */
+  public async mount(
+    id: string,
+    opts: { auto?: boolean } = {}
+  ): Promise<boolean> {
+    const auto = !!opts.auto
     await this.ensureLoaded()
     const entry = this.entries.find((e) => e.id === id)
     if (!entry || entry.results.length === 0) {
@@ -313,10 +327,10 @@ class CrawlCache {
       return false
     }
     if (this.mountedId === id) {
-      toast.show(lang.transl('_alreadyMounted'))
+      if (!auto) toast.show(lang.transl('_alreadyMounted'))
       return true
     }
-    if (this.mountedUnsaved && store.result.length > 0) {
+    if (!auto && this.mountedUnsaved && store.result.length > 0) {
       if (!window.confirm(lang.transl('_mountReplaceUnsaved'))) {
         return false
       }
@@ -326,8 +340,8 @@ class CrawlCache {
     this.applyToStore(entry.results, entry.metas, entry.title, false)
     this.mountedId = id
     this.mountedUnsaved = false
-    this.fireMountChange(true)
-    toast.success(lang.transl('_mounted', entry.title))
+    this.fireMountChange(!auto)
+    if (!auto) toast.success(lang.transl('_mounted', entry.title))
     return true
   }
 
