@@ -578,6 +578,7 @@ class SettingsCenter {
       EVT.list.crawlEmpty,
       EVT.list.resultChange,
       EVT.list.readyDownload,
+      EVT.list.mountChange,
       EVT.list.langChange,
     ]) {
       EVT.on(ev, () => this.dlControls.refresh())

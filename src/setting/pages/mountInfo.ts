@@ -109,6 +109,22 @@ export class MountInfoView {
         div.textContent = line.text
         box.appendChild(div)
       }
+      if (mounted) {
+        // 卸載鈕：下載中（含暫停）／抓取中不可用
+        const row = document.createElement('div')
+        // 帶 pwpSC-status：搜尋時跟著詳情卡一起顯示，不被過濾掉
+        row.className = 'pwpSC-row pwpSC-status pwpSC-btnRow'
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.textContent = lang.transl('_unmount')
+        if (states.busy || states.hasDownloadTask) {
+          btn.disabled = true
+          btn.title = lang.transl('_unmountBusy')
+        }
+        btn.addEventListener('click', () => void crawlCache.unmount())
+        row.appendChild(btn)
+        box.appendChild(row)
+      }
     }
   }
 }

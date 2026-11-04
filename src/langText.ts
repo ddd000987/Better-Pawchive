@@ -822,6 +822,25 @@ export const langText = {
   ],
   _mount: [`挂载`, `掛載`, `Mount`, `マウント`],
   _mountedLabel: [`已挂载`, `已掛載`, `Mounted`, `マウント済み`],
+  _unmount: [`卸载`, `卸載`, `Unmount`, `マウント解除`],
+  _unmounted: [
+    `已卸载，下载区已清空（快取仍保留）`,
+    `已卸載，下載區已清空（快取仍保留）`,
+    `Unmounted. The download area is cleared; the cache is kept`,
+    `マウントを解除しました。ダウンロード領域は空になりました（キャッシュは残ります）`,
+  ],
+  _unmountBusy: [
+    `下载进行中（含暂停）或抓取中不能卸载，请先停止或等完成`,
+    `下載進行中（含暫停）或抓取中不能卸載，請先停止或等完成`,
+    `Cannot unmount while a download is running or paused, or while crawling; stop it or wait until it finishes`,
+    `ダウンロード中（一時停止を含む）またはクロール中はマウントを解除できません。先に停止するか、完了をお待ちください`,
+  ],
+  _unmountUnsavedConfirm: [
+    `目前挂载的是未存入快取的抓取结果，卸载后这些结果会遗失，确定吗？`,
+    `目前掛載的是未存入快取的抓取結果，卸載後這些結果會遺失，確定嗎？`,
+    `The mounted results are not saved to the cache and will be lost if you unmount them. Continue?`,
+    `現在マウントされているのはキャッシュに保存されていないクロール結果です。マウントを解除するとこの結果は失われます。続行しますか？`,
+  ],
   _mountBusy: [
     `下载进行中（含暂停）不能挂载其他快取，请先停止或等下载完成`,
     `下載進行中（含暫停）不能掛載其他快取，請先停止或等下載完成`,

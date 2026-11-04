@@ -267,6 +267,41 @@ describe('crawlCache', () => {
     expect(crawlCache.isMounted(e.id)).toBe(true)
   })
 
+  it('卸載：清空 store、保留快取、發 mountChange(manual=false)', async () => {
+    seedStore()
+    await crawlCache.autoSave()
+    const [e] = crawlCache.list()
+    await crawlCache.mount(e.id)
+    const events: any[] = []
+    const off = (ev: any) => events.push(ev.detail.data)
+    EVT.on('mountChange', off)
+    expect(await crawlCache.unmount()).toBe(true)
+    EVT.off('mountChange', off)
+    expect(store.result).toHaveLength(0)
+    expect(store.resultMeta).toHaveLength(0)
+    expect(crawlCache.getMounted()).toBeNull()
+    expect(crawlCache.list()).toHaveLength(1)
+    expect(events).toEqual([{ manual: false }])
+  })
+
+  it('卸載：沒有掛載時回 false', async () => {
+    expect(await crawlCache.unmount()).toBe(false)
+  })
+
+  it('卸載：下載中、暫停中、抓取中拒絕', async () => {
+    seedStore()
+    await crawlCache.autoSave()
+    const [e] = crawlCache.list()
+    await crawlCache.mount(e.id)
+    for (const key of ['downloading', 'downloadPaused', 'busy'] as const) {
+      states[key] = true
+      expect(await crawlCache.unmount()).toBe(false)
+      states[key] = false
+    }
+    expect(store.result).toHaveLength(2)
+    expect(crawlCache.isMounted(e.id)).toBe(true)
+  })
+
   it('改名掛載中的快取：同步 store.title', async () => {
     seedStore()
     await crawlCache.autoSave()
@@ -459,6 +494,22 @@ describe('crawlComplete 掛載決策', () => {
     expect(await cache.mount(id)).toBe(true)
     expect(sto.result[0].creator).toBe('saved')
     expect(cache.getMounted()?.unsaved).toBe(false)
+  })
+
+  it('未存入的掛載：卸載前要確認，拒絕則不動', async () => {
+    const { st, sto, cache } = await fresh()
+    st.quickCrawl = true
+    seed(sto, 'quick', 1)
+    fire('crawlComplete')
+    await flush()
+    expect(cache.getMounted()?.unsaved).toBe(true)
+    ;(globalThis as any).window.confirm = () => false
+    expect(await cache.unmount()).toBe(false)
+    expect(sto.result).toHaveLength(1)
+    ;(globalThis as any).window.confirm = () => true
+    expect(await cache.unmount()).toBe(true)
+    expect(sto.result).toHaveLength(0)
+    expect(cache.getMounted()).toBeNull()
   })
 
   it('空結果：不掛載，交給 readyDownload 收尾', async () => {

@@ -1,5 +1,5 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
-/* 設定中心：抓取頁下方的抓取快取區塊（自動掛載開關、快取列表、掛載／重新命名／刪除） */
+/* 設定中心：抓取頁下方的抓取快取區塊（自動掛載開關、快取列表、掛載／卸載／重新命名／刪除） */
 
 import { crawlCache } from '../../download/CrawlCache'
 import { lang } from '../../Language'
@@ -92,8 +92,16 @@ export class CacheView {
         delBtn.disabled = true
         delBtn.title = lang.transl('_cacheDeleteMountedBusy')
       }
+      row.append(mountBtn)
+      if (mountedHere) {
+        const unmountBtn = mkBtn('_unmount', () => void crawlCache.unmount())
+        if (locked) {
+          unmountBtn.disabled = true
+          unmountBtn.title = lang.transl('_unmountBusy')
+        }
+        row.append(unmountBtn)
+      }
       row.append(
-        mountBtn,
         mkBtn('_cacheRename', () => this.promptRenameCache(e.id, e.title)),
         delBtn
       )

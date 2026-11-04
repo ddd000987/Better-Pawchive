@@ -331,6 +331,31 @@ class CrawlCache {
     return true
   }
 
+  /** 卸載：清空下載區（快取本身保留），釋放記憶體。
+   * 下載中（含暫停）／抓取中拒絕；未存入快取的結果卸載後就沒了，先確認 */
+  public async unmount(): Promise<boolean> {
+    await this.ensureLoaded()
+    if (!this.mountedId && !(this.mountedUnsaved && store.result.length > 0)) {
+      return false
+    }
+    if (states.busy || states.hasDownloadTask) {
+      toast.error(lang.transl('_unmountBusy'))
+      return false
+    }
+    if (this.mountedUnsaved && store.result.length > 0) {
+      if (!window.confirm(lang.transl('_unmountUnsavedConfirm'))) {
+        return false
+      }
+    }
+    this.applyToStore([], [], document.title, false)
+    this.mountedId = null
+    this.mountedUnsaved = false
+    // manual=false：manual 會把面板帶到下載頁，卸載不需要
+    this.fireMountChange(false)
+    toast.show(lang.transl('_unmounted'))
+    return true
+  }
+
   private persist(): void {
     window.clearTimeout(this.saveTimer)
     this.saveTimer = window.setTimeout(() => {
