@@ -49,6 +49,95 @@ describe('downloadStates 增量對帳', () => {
   })
 })
 
+describe('downloadStates failed items', () => {
+  beforeEach(() => {
+    store.result = [result('a#0'), result('b#0'), result('c#0')]
+    downloadStates.clear()
+    downloadStates.init()
+  })
+
+  it('isSettled is true for done, true for a failed id at state 0, false otherwise', () => {
+    downloadStates.setState(0, 1)
+    downloadStates.setState(1, 0)
+    downloadStates.setState(2, 0)
+    downloadStates.markFailedById('b#0')
+
+    expect(downloadStates.isSettled(0)).toBe(true)
+    expect(downloadStates.isSettled(1)).toBe(true)
+    expect(downloadStates.isSettled(2)).toBe(false)
+    expect(downloadStates.states[1]).toBe(0)
+    expect(downloadStates.isSettled(5)).toBe(false)
+  })
+
+  it('markFailedById ignores ids that are not in the result', () => {
+    downloadStates.markFailedById('missing#0')
+    store.result = [
+      result('a#0'),
+      result('b#0'),
+      result('c#0'),
+      result('missing#0'),
+    ]
+    downloadStates.reconcile()
+
+    expect(downloadStates.isSettled(3)).toBe(false)
+  })
+
+  it('init() clears failed ids', () => {
+    downloadStates.setState(1, 0)
+    downloadStates.markFailedById('b#0')
+    downloadStates.init()
+    downloadStates.setState(1, 0)
+
+    expect(downloadStates.isSettled(1)).toBe(false)
+  })
+
+  it('resume() clears failed ids and resets them to -1', () => {
+    downloadStates.setState(1, 0)
+    downloadStates.markFailedById('b#0')
+    downloadStates.resume()
+
+    expect(downloadStates.states[1]).toBe(-1)
+    expect(downloadStates.isSettled(1)).toBe(false)
+    downloadStates.setState(1, 0)
+    expect(downloadStates.isSettled(1)).toBe(false)
+  })
+
+  it('reconcile keeps the failed flag on the item when indices move', () => {
+    downloadStates.setState(1, 0)
+    downloadStates.markFailedById('b#0')
+    store.result = [result('c#0'), result('b#0'), result('a#0')]
+    downloadStates.reconcile()
+
+    expect(downloadStates.isSettled(0)).toBe(false)
+    expect(downloadStates.isSettled(1)).toBe(true)
+    expect(downloadStates.isSettled(2)).toBe(false)
+
+    store.result = [result('b#0'), result('c#0'), result('a#0')]
+    downloadStates.reconcile()
+    expect(downloadStates.isSettled(0)).toBe(true)
+    expect(downloadStates.isSettled(1)).toBe(false)
+  })
+
+  it('reconcile drops failed ids that were removed, so a reused id is not settled', () => {
+    downloadStates.setState(1, 0)
+    downloadStates.markFailedById('b#0')
+    store.result = [result('a#0'), result('c#0')]
+    downloadStates.reconcile()
+    store.result = [result('a#0'), result('c#0'), result('b#0')]
+    downloadStates.reconcile()
+
+    expect(downloadStates.isSettled(2)).toBe(false)
+  })
+
+  it('replace() clears failed ids', () => {
+    downloadStates.setState(1, 0)
+    downloadStates.markFailedById('b#0')
+    downloadStates.replace([-1, 0, -1])
+
+    expect(downloadStates.isSettled(1)).toBe(false)
+  })
+})
+
 describe('isNonRetryableStatus', () => {
   it('429 與 408 可重試，其他 4xx 不重試', async () => {
     const { isNonRetryableStatus } =

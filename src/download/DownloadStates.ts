@@ -37,6 +37,11 @@ class DownloadStates {
   /** 上次對帳時的 result id 順序，與 states 一一對應 */
   private resultIds: string[] = []
 
+  /** Ids that exhausted their retries in the current round. Id-based because
+   * reconcile can reorder indices. Cleared whenever states are rebuilt or
+   * errored items are reset to -1 (init/resume/replace/clear). */
+  private failedIds = new Set<string>()
+
   private bindEvents() {
     // 新一輪抓取：完整重建
     EVT.on(EVT.list.crawlComplete, () => {
@@ -52,6 +57,7 @@ class DownloadStates {
   public init() {
     this.resultIds = store.result.map((r) => r.id)
     this.states = new Array(this.resultIds.length).fill(-1)
+    this.failedIds.clear()
   }
 
   // 按 id 把舊狀態搬到新結果的索引；長度對不上時退回完整重建
@@ -59,10 +65,33 @@ class DownloadStates {
     const newIds = store.result.map((r) => r.id)
     if (this.states.length !== this.resultIds.length) {
       this.states = new Array(newIds.length).fill(-1)
+      this.failedIds.clear()
     } else {
       this.states = reconcileStates(this.resultIds, this.states, newIds)
+      // Drop failed ids that no longer exist so a stale id cannot settle anything
+      const present = new Set(newIds)
+      for (const id of this.failedIds) {
+        if (!present.has(id)) this.failedIds.delete(id)
+      }
     }
     this.resultIds = newIds
+  }
+
+  /** Mark an item as failed for this round (its state stays 0). */
+  public markFailedById(id: string) {
+    if (this.findIndexById(id) !== -1) {
+      this.failedIds.add(id)
+    }
+  }
+
+  /** True when the item at index is done/skipped, or has failed for good this
+   * round. Used by ordered downloads so a failed file does not block the next. */
+  public isSettled(index: number) {
+    if (this.states[index] === 1) {
+      return true
+    }
+    const id = this.resultIds[index]
+    return id !== undefined && this.failedIds.has(id)
   }
 
   /** 依 id 找目前索引（找不到回傳 -1） */
@@ -96,6 +125,7 @@ class DownloadStates {
   // 目前只有在恢復下載的時候使用
   public replace(states: DLStatesI) {
     this.states = states
+    this.failedIds.clear()
   }
 
   // 恢復之前的下載任務
@@ -107,6 +137,8 @@ class DownloadStates {
         this.setState(i, -1)
       }
     }
+    // Errored items are -1 again and will be retried: they block successors again
+    this.failedIds.clear()
   }
 
   // 獲取第一個“未開始下載”標記的索引
@@ -129,6 +161,7 @@ class DownloadStates {
   public clear() {
     this.states = []
     this.resultIds = []
+    this.failedIds.clear()
   }
 }
 

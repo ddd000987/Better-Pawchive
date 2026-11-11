@@ -49,6 +49,8 @@ vi.mock('../src/store/States', () => ({ states: m.states }))
 import { Config } from '../src/Config'
 import { EVT, type eventNames } from '../src/EVT'
 import { Download } from '../src/download/Download'
+import { downloadStates } from '../src/download/DownloadStates'
+import { store } from '../src/store/Store'
 
 // ---- 輔助 ----
 const g = globalThis as any
@@ -576,5 +578,47 @@ describe('Download：取消', () => {
 
     expect(sendMessage).not.toHaveBeenCalled()
     expect(events.skipDownload).toHaveLength(0)
+  })
+})
+
+describe('Download: ordered downloads', () => {
+  const orderedSetup = () => {
+    m.settings.get.mockImplementation(
+      (k: string) => k === 'setFileDownloadOrder'
+    )
+    store.result = [result({ id: 'a#0' }), result({ id: 'b#0' })]
+    downloadStates.init()
+    downloadStates.setState(0, 0)
+    downloadStates.setState(1, 0)
+    setFetch(okFetch())
+  }
+  const startSecond = () => {
+    const r = store.result[1]
+    new Download(0, arg({ id: r.id, result: r, index: 1 }), 1)
+  }
+
+  afterEach(() => {
+    store.result = []
+    downloadStates.clear()
+  })
+
+  it('waits while the previous file is still in progress', async () => {
+    orderedSetup()
+    startSecond()
+    await tick(1000)
+
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('proceeds once the previous file is marked failed', async () => {
+    orderedSetup()
+    startSecond()
+    await tick(1000)
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    downloadStates.markFailedById('a#0')
+    await tick(200)
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 })

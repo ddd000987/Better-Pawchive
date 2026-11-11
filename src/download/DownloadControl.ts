@@ -571,6 +571,8 @@ class DownloadControl {
       return
     }
     this.errorIdList.push(id)
+    // Let ordered downloads move past this file instead of waiting forever
+    downloadStates.markFailedById(id)
 
     // 是否繼續下載
     const no = task.progressBarIndex

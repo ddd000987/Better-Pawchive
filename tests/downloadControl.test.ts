@@ -610,3 +610,58 @@ describe('DownloadControl：失敗批次自動重試', () => {
     )
   })
 })
+
+describe('DownloadControl: failed file in ordered mode', () => {
+  it('downloadError marks the file failed; the batch then reaches the retry path and clears the mark', async () => {
+    m.settingValues.setFileDownloadOrder = true
+    await startWith(3)
+    const batch = m.downloads[0].data.taskBatch
+    expect(m.downloads).toHaveLength(3)
+
+    mods.EVT.fire('downloadError', id(0))
+
+    // The file stays "in progress" but no longer blocks its successor
+    expect(mods.downloadStates.states[0]).toBe(0)
+    expect(mods.downloadStates.isSettled(0)).toBe(true)
+    expect(mods.downloadStates.isSettled(1)).toBe(false)
+
+    onMessage(downloaded(1, batch))
+    onMessage(downloaded(2, batch))
+    await tick(0)
+
+    // downloaded (2) + errors (1) === total (3): error-completion path runs
+    expect(events.downloadPause).toHaveLength(1)
+    expect(m.log.log).toHaveBeenCalledWith(
+      expect.stringContaining('_retryFailedIn|1|')
+    )
+
+    // The auto-retry resets the file to -1 and clears the failed mark
+    await tick(30_001)
+    expect(mods.downloadStates.isSettled(0)).toBe(false)
+    expect(mods.downloadStates.states[0]).not.toBe(1)
+  })
+
+  it('a stale downloadError for a removed file does not mark anything failed', async () => {
+    await startWith(3)
+    mods.store.result = results(3).slice(1)
+    mods.EVT.fire('resultChange')
+
+    mods.EVT.fire('downloadError', id(0))
+
+    expect(mods.downloadStates.isSettled(0)).toBe(false)
+    expect(mods.downloadStates.isSettled(1)).toBe(false)
+  })
+
+  it('manual resume after a pause clears the failed mark', async () => {
+    m.settingValues.setFileDownloadOrder = true
+    await startWith(3)
+    mods.EVT.fire('downloadError', id(0))
+    expect(mods.downloadStates.isSettled(0)).toBe(true)
+
+    mods.downloadControl.pauseDownload()
+    await mods.downloadControl.startDownload()
+    await tick(1)
+
+    expect(mods.downloadStates.isSettled(0)).toBe(false)
+  })
+})

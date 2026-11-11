@@ -491,7 +491,7 @@ class Download {
       }
       if (
         this.downloadStatesIndex === 0 ||
-        downloadStates.states[this.downloadStatesIndex - 1] === 1
+        downloadStates.isSettled(this.downloadStatesIndex - 1)
       ) {
         return
       }
