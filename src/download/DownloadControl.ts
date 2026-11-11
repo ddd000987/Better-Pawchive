@@ -48,6 +48,22 @@ class DownloadControl {
   /** 有檔案下載失敗時，保存 id */
   private errorIdList: string[] = []
 
+  /**
+   * Consecutive saveRequestFailed replies in the current batch. Three in a row
+   * look systemic (e.g. the naming rule makes every name illegal), so the
+   * batch pauses instead of skipping everything.
+   */
+  private saveRequestFailStreak = 0
+  /**
+   * Files given up on in the current batch (browser refused to save them,
+   * save dialog cancelled, HTTP 4xx). They count as finished, but the
+   * completion message must say they were not saved. Survives pause, resume
+   * and auto-retry rounds; cleared when a new batch begins.
+   */
+  private failedSkipCount = 0
+  /** Max consecutive saveRequestFailed replies before the batch pauses */
+  private static readonly SAVE_REQUEST_FAIL_MAX = 3
+
   /** 失敗批次的自動重試次數（退避重試，見 checkCompleteWithError） */
   private errorRetryCount = 0
   /** 自動重試的最大次數 */
@@ -87,6 +103,7 @@ class DownloadControl {
       this.reset()
       // 新抓取 → 重試計數歸零（reset 不再清它，見 checkCompleteWithError）
       this.errorRetryCount = 0
+      this.resetFailureCounters()
     })
 
     // 抓取被停止時，下載管線也停：不再接受新任務。
@@ -95,6 +112,7 @@ class DownloadControl {
     EVT.on(EVT.list.stopCrawl, () => {
       this.stop = true
       this.pause = false
+      this.resetFailureCounters()
       if (states.downloading) {
         EVT.fire('downloadStop')
       }
@@ -118,6 +136,14 @@ class DownloadControl {
     EVT.on(EVT.list.skipDownload, (ev: CustomEventInit) => {
       // 跳過下載的檔案不會觸發 downloadSuccess 事件
       const data = ev.detail.data as DownloadSkipData
+      // A skip caused by a failure (not a duplicate/excluded/size skip) was
+      // not saved, so the completion message must report it
+      if (
+        this.taskList[data.id] &&
+        DownloadControl.FAILURE_SKIP_REASONS.includes(data.reason)
+      ) {
+        this.failedSkipCount++
+      }
       this.downloadOrSkipAFile(data)
     })
 
@@ -217,6 +243,7 @@ class DownloadControl {
         try {
           // 發送下載成功的事件
           EVT.fire('downloadSuccess', msg.data)
+          this.saveRequestFailStreak = 0
           this.downloadOrSkipAFile(msg.data)
         } catch (error) {
           console.error('downloaded 分支執行出錯', error)
@@ -224,7 +251,9 @@ class DownloadControl {
       } else if (msg.msg === 'download_err') {
         // 瀏覽器把檔案保存到本地失敗
 
-        // 無效檔名等建立請求時的錯誤不會因重試消失，直接暫停
+        // The request to save was refused (illegal or too-long name, bad URL).
+        // Retrying cannot help, so give up on this file and carry on. Several
+        // in a row look systemic: pause so the user can fix the setting.
         if (msg.saveRequestFailed) {
           log.error(
             lang.transl(
@@ -232,8 +261,17 @@ class DownloadControl {
               msg.runtimeError || msg.err || 'unknown'
             )
           )
-          EVT.fire('saveFileError')
-          this.pauseDownload()
+          this.saveRequestFailStreak++
+          if (
+            this.saveRequestFailStreak >= DownloadControl.SAVE_REQUEST_FAIL_MAX
+          ) {
+            // A resumed batch gets a fresh allowance
+            this.saveRequestFailStreak = 0
+            EVT.fire('saveFileError')
+            this.pauseDownload()
+            return
+          }
+          this.skipFailedFile(msg.data)
           return
         }
 
@@ -243,7 +281,7 @@ class DownloadControl {
             lang.transl('_userCanceledSave', msg.data.id),
             'userCanceledSave'
           )
-          this.downloadOrSkipAFile(msg.data, false)
+          this.skipFailedFile(msg.data)
           return
         }
 
@@ -272,9 +310,21 @@ class DownloadControl {
         if (store.waitingIdList.length === 0 && !store.waitingFullCrawl) {
           // 有結果才提示「下載完畢」：零結果（crawlEmpty）時不提示，避免誤解
           if (store.result.length > 0) {
-            toast.success(lang.transl('_downloadFinishedToast'), {
-              position: 'center',
-            })
+            // failedSkipCount is not cleared by reset(), so it still holds this
+            // batch's count here (the event fires after reset)
+            if (this.failedSkipCount > 0) {
+              toast.warning(
+                lang.transl(
+                  '_downloadFinishedWithFailed',
+                  String(this.failedSkipCount)
+                ),
+                { position: 'center' }
+              )
+            } else {
+              toast.success(lang.transl('_downloadFinishedToast'), {
+                position: 'center',
+              })
+            }
           }
 
           // 通知後台清除保存的此標籤頁的 idList
@@ -286,6 +336,35 @@ class DownloadControl {
         }
       })
     })
+  }
+
+  /** Skip reasons that mean the file was not saved because of a failure */
+  private static readonly FAILURE_SKIP_REASONS: DownloadSkipData['reason'][] = [
+    '4xx',
+    '404',
+    '500',
+    'noUrl',
+  ]
+
+  /** A new batch begins (or the batch is abandoned): forget failure counts */
+  private resetFailureCounters() {
+    this.saveRequestFailStreak = 0
+    this.failedSkipCount = 0
+  }
+
+  /**
+   * Give up on a file the browser could not save: mark it finished without a
+   * dedupe record and count it, so the batch moves on and the completion
+   * message reports it.
+   */
+  private skipFailedFile(data: DownloadSuccessData) {
+    // Stale receipts are dropped by downloadOrSkipAFile; do not count them
+    if (!this.taskList[data.id]) {
+      return
+    }
+    // Count first: downloadOrSkipAFile may complete the batch
+    this.failedSkipCount++
+    this.downloadOrSkipAFile(data, false)
   }
 
   private clearSaveTimer(id: string | undefined) {
@@ -407,6 +486,7 @@ class DownloadControl {
     } else {
       // 重新下載：初始化下載狀態列表
       downloadStates.init()
+      this.resetFailureCounters()
       // A fresh start drops force mode. Resuming a paused batch keeps it, so
       // a paused "restart all" does not fall back to skipping duplicates.
       this.forceBatch = false
@@ -425,6 +505,7 @@ class DownloadControl {
 
     // 無條件初始化狀態列表：已完成的 1 也回到 -1
     downloadStates.init()
+    this.resetFailureCounters()
 
     // 手動全部重下：重試計數歸零，本批跳過下載記錄去重
     this.errorRetryCount = 0
@@ -549,6 +630,7 @@ class DownloadControl {
     // 停止＝徹底停下：批次作廢（在途任務變成舊批次，遲到的回執不再動進度），
     // 狀態與進度全部歸零
     this.taskBatch = 0
+    this.resetFailureCounters()
     downloadStates.init()
     this.downloaded = 0
     store.remainingDownload = store.result.length
@@ -593,7 +675,16 @@ class DownloadControl {
 
     // 所有檔案正常下載完畢（跳過下載的檔案也算正常下載）
     if (this.downloaded === store.result.length) {
-      log.success(lang.transl('_downloadFinished'))
+      if (this.failedSkipCount > 0) {
+        log.warning(
+          lang.transl(
+            '_downloadFinishedWithFailed',
+            String(this.failedSkipCount)
+          )
+        )
+      } else {
+        log.success(lang.transl('_downloadFinished'))
+      }
 
       window.setTimeout(() => {
         // 延後觸發下載完成的事件（派生事件晚於上游事件）

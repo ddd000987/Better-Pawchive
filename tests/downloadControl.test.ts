@@ -501,7 +501,7 @@ describe('DownloadControl：download_err 回執', () => {
     expect(m.downloads).toHaveLength(4)
   })
 
-  it('saveRequestFailed → 暫停下載並發 saveFileError', async () => {
+  it('saveRequestFailed → skips that file, does not pause, starts the next one', async () => {
     await startWith(5)
     const batch = m.downloads[0].data.taskBatch
 
@@ -512,9 +512,71 @@ describe('DownloadControl：download_err 回執', () => {
       })
     )
 
+    expect(mods.downloadStates.states[0]).toBe(1) // finished as skipped
+    expect(m.record.addRecord).not.toHaveBeenCalled()
+    expect(events.downloadPause).toHaveLength(0)
+    expect(events.saveFileError).toHaveLength(0)
+    expect(m.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('_saveRequestFailed|Invalid filename')
+    )
+    expect(m.downloads).toHaveLength(4)
+    expect(m.downloads[3]).toMatchObject({ progressBarIndex: 0, index: 3 })
+  })
+
+  it('the third consecutive saveRequestFailed pauses the batch and fires saveFileError', async () => {
+    await startWith(8)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { saveRequestFailed: true }))
+    onMessage(downloadErr(1, batch, { saveRequestFailed: true }))
+    expect(events.downloadPause).toHaveLength(0)
+    onMessage(downloadErr(2, batch, { saveRequestFailed: true }))
+
     expect(events.saveFileError).toHaveLength(1)
     expect(events.downloadPause).toHaveLength(1)
-    expect(mods.downloadStates.states[0]).toBe(0) // 沒標完成
+    // The file that tripped the limit stays unfinished, as before
+    expect(mods.downloadStates.states[2]).toBe(0)
+    expect(mods.downloadStates.states[0]).toBe(1)
+    expect(mods.downloadStates.states[1]).toBe(1)
+  })
+
+  it('a successful save resets the streak: 2 failures, 1 success, 2 failures do not pause', async () => {
+    await startWith(10)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { saveRequestFailed: true }))
+    onMessage(downloadErr(1, batch, { saveRequestFailed: true }))
+    onMessage(downloaded(2, batch))
+    onMessage(downloadErr(3, batch, { saveRequestFailed: true }))
+    onMessage(downloadErr(4, batch, { saveRequestFailed: true }))
+
+    expect(events.downloadPause).toHaveLength(0)
+    expect(events.saveFileError).toHaveLength(0)
+  })
+
+  it('a resumed batch gets a fresh streak allowance after the pause', async () => {
+    await startWith(10)
+    const batch = m.downloads[0].data.taskBatch
+    for (const i of [0, 1, 2]) {
+      onMessage(downloadErr(i, batch, { saveRequestFailed: true }))
+    }
+    expect(events.downloadPause).toHaveLength(1)
+
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+    const batch2 = m.downloads[m.downloads.length - 1].data.taskBatch
+    expect(batch2).not.toBe(batch)
+
+    // Two more failures in the resumed batch: still below the limit
+    const resumed = m.downloads.filter((d) => d.data.taskBatch === batch2)
+    onMessage(
+      downloadErr(resumed[0].index, batch2, { saveRequestFailed: true })
+    )
+    onMessage(
+      downloadErr(resumed[1].index, batch2, { saveRequestFailed: true })
+    )
+    expect(events.downloadPause).toHaveLength(1)
   })
 
   it('其他保存失敗 → 3 秒後把該檔復位並用同一條進度條重新下載', async () => {
@@ -663,5 +725,126 @@ describe('DownloadControl: failed file in ordered mode', () => {
     await tick(1)
 
     expect(mods.downloadStates.isSettled(0)).toBe(false)
+  })
+})
+
+describe('DownloadControl: batches that skipped files', () => {
+  it('a batch ending with one failed skip warns with the count and not the plain success line', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { saveRequestFailed: true }))
+    onMessage(downloaded(1, batch))
+    await tick(1)
+
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+    expect(m.log.success).not.toHaveBeenCalledWith('_downloadFinished')
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(m.toast.warning).toHaveBeenCalledWith(
+      '_downloadFinishedWithFailed|1',
+      expect.anything()
+    )
+    expect(m.toast.success).not.toHaveBeenCalled()
+  })
+
+  it('a clean batch still logs the plain success line', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloaded(0, batch))
+    onMessage(downloaded(1, batch))
+    await tick(1)
+
+    expect(m.log.success).toHaveBeenCalledWith('_downloadFinished')
+    expect(m.log.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('_downloadFinishedWithFailed')
+    )
+    expect(m.toast.success).toHaveBeenCalledWith(
+      '_downloadFinishedToast',
+      expect.anything()
+    )
+  })
+
+  it('a USER_CANCELED skip is counted', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { err: 'USER_CANCELED' }))
+    onMessage(downloaded(1, batch))
+    await tick(1)
+
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+    expect(m.log.success).not.toHaveBeenCalledWith('_downloadFinished')
+  })
+
+  it('an HTTP 4xx skip is counted; a duplicate skip is not', async () => {
+    await startWith(3)
+    const batch = m.downloads[0].data.taskBatch
+
+    mods.EVT.fire('skipDownload', { id: id(0), reason: 'duplicate' })
+    mods.EVT.fire('skipDownload', { id: id(1), reason: '4xx' })
+    onMessage(downloaded(2, batch))
+    await tick(1)
+
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+  })
+
+  it('the count survives pause and resume within one batch', async () => {
+    await startWith(4)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloadErr(0, batch, { saveRequestFailed: true }))
+
+    mods.downloadControl.pauseDownload()
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+
+    const batch2 = m.downloads[m.downloads.length - 1].data.taskBatch
+    expect(batch2).not.toBe(batch)
+    for (const i of [1, 2, 3]) onMessage(downloaded(i, batch2))
+    await tick(1)
+
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+  })
+
+  it('the count does not leak into the next fresh batch', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloadErr(0, batch, { saveRequestFailed: true }))
+    onMessage(downloaded(1, batch))
+    await tick(1)
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+    m.log.warning.mockClear()
+    m.log.success.mockClear()
+
+    vi.setSystemTime(Date.now() + 5000)
+    await startWith(2)
+    const batch2 = m.downloads[m.downloads.length - 1].data.taskBatch
+    onMessage(downloaded(0, batch2))
+    onMessage(downloaded(1, batch2))
+    await tick(1)
+
+    expect(m.log.success).toHaveBeenCalledWith('_downloadFinished')
+    expect(m.log.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('_downloadFinishedWithFailed')
+    )
+  })
+
+  it('stopping the download forgets the count', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloadErr(0, batch, { err: 'USER_CANCELED' }))
+    mods.downloadControl.stopDownload()
+
+    vi.setSystemTime(Date.now() + 5000)
+    mods.states.busy = false
+    await mods.downloadControl.startDownload()
+    await tick(1)
+    const batch2 = m.downloads[m.downloads.length - 1].data.taskBatch
+    onMessage(downloaded(0, batch2))
+    onMessage(downloaded(1, batch2))
+    await tick(1)
+
+    expect(m.log.success).toHaveBeenCalledWith('_downloadFinished')
   })
 })

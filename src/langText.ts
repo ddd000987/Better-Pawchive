@@ -1648,6 +1648,12 @@ export const langText = {
     `✅Download complete`,
     `✅ダウンロード完了`,
   ],
+  _downloadFinishedWithFailed: [
+    `下载完毕，但有 {} 个文件未能保存，详见日志`,
+    `下載完畢，但有 {} 個檔案未能儲存，詳見日誌`,
+    `Download finished, but {} files could not be saved. See the log for details.`,
+    `ダウンロードは完了しましたが、{} 件のファイルを保存できませんでした。詳細はログを確認してください`,
+  ],
   _downloadFinishedToast: [
     `下载完毕`,
     `下載完畢`,
