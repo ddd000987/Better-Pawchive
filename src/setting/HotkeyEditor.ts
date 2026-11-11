@@ -22,32 +22,9 @@ import {
   HotkeyCombo,
   HotkeyCommand,
 } from './Settings'
+import { isHotkeyMainKey, isReservedHotkey } from './hotkeyRules'
 
-/** Ctrl 下瀏覽器不允許頁面攔截的按鍵（Ctrl+T/W/N/Q/Tab；其餘頁面可攔截） */
-const RESERVED_CTRL_KEYS = new Set(['KeyT', 'KeyW', 'KeyN', 'KeyQ', 'Tab'])
-/** Ctrl+Shift 下瀏覽器不允許頁面攔截的按鍵（重開／新視窗／關閉視窗） */
-const RESERVED_CTRL_SHIFT_KEYS = new Set(['KeyT', 'KeyN', 'KeyW'])
-
-/** 是否為瀏覽器／系統保留組合（設了也不會到達頁面 keydown） */
-export function isReservedHotkey(combo: HotkeyCombo): boolean {
-  // Ctrl（Mac 為 Cmd）的保留鍵；Shift 要納入判斷，否則 Ctrl+Shift+X 會被誤擋
-  const primary = combo.ctrl || combo.meta
-  if (primary && !(combo.ctrl && combo.meta) && !combo.alt) {
-    const keys = combo.shift ? RESERVED_CTRL_SHIFT_KEYS : RESERVED_CTRL_KEYS
-    if (keys.has(combo.key)) {
-      return true
-    }
-    // Ctrl+數字切換標籤頁（Ctrl+Shift+數字多數瀏覽器沒有預設行為）
-    if (combo.ctrl && !combo.shift && combo.key.startsWith('Digit')) {
-      return true
-    }
-  }
-  // Meta 單修飾鍵（macOS Cmd／Windows Win）多為系統或瀏覽器保留
-  if (combo.meta && !combo.ctrl && !combo.alt) {
-    return true
-  }
-  return false
-}
+export { isReservedHotkey }
 
 /** 在設定面板裡查看和修改一級快捷鍵 */
 class HotkeyEditor {
@@ -110,13 +87,15 @@ class HotkeyEditor {
         <span data-xztext="${nameKey}">${lang.transl(nameKey)}</span>
       </div>
       <div class="cell cellHotkey">
-        <span class="value">${valueText}</span>
+        <span class="value"></span>
         <button type="button" class="escCancel" data-xztext="_hk_escCancel">${lang.transl('_hk_escCancel')}</button>
       </div>
       <div class="cell cellAction">
         <button type="button" class="edit" data-xztitle="_hk_edit">✎ <span data-xztext="_hk_edit">${lang.transl('_hk_edit')}</span></button>
         <button type="button" class="delete" data-xztitle="_hk_clear">× <span data-xztext="_hk_clear">${lang.transl('_hk_clear')}</span></button>
       </div>`
+    // Combo text can derive from stored/imported data: never put it in HTML
+    ;(item.querySelector('.value') as HTMLElement).textContent = valueText
     this.listWrap.appendChild(item)
     lang.register(item)
 
@@ -202,8 +181,7 @@ class HotkeyEditor {
       }
 
       // 主鍵必須是數字或字母，其餘按鍵（如 Tab、CapsLock、功能鍵）不接受
-      const isMainKey = ev.code.startsWith('Key') || ev.code.startsWith('Digit')
-      if (!isMainKey) {
+      if (!isHotkeyMainKey(ev.code)) {
         finish()
         toast.error(lang.transl('_hk_needMainKey'))
         this.refreshItem(command)

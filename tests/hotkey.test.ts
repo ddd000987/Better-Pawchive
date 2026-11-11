@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EVT, type eventNames } from '../src/EVT'
 import { HotkeyListener } from '../src/HotkeyListener'
 import { isReservedHotkey } from '../src/setting/HotkeyEditor'
+import { isAllowedHotkeyCombo } from '../src/setting/hotkeyRules'
 import {
   sanitizeHotkeys,
   settings,
@@ -194,3 +195,64 @@ describe('hotkeys 事件位', () => {
     expect(EVT.list.commandTogglePreviewWork).toBe('commandTogglePreviewWork')
   })
 })
+
+describe('stored and imported hotkeys are validated', () => {
+  const alt = (key: string, extra: Record<string, boolean> = {}) => ({
+    key,
+    ctrl: false,
+    alt: true,
+    shift: false,
+    meta: false,
+    ...extra,
+  })
+
+  it('drops an HTML payload used as the key', () => {
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('<img src=x onerror=alert(1)>'),
+      commandStartDefaultCrawl: alt('KeyZ'),
+    })
+    expect(out).not.toHaveProperty('commandToggleCrawlPanel')
+    expect(out.commandStartDefaultCrawl?.key).toBe('KeyZ')
+  })
+
+  it('drops keys that are not a letter or digit (Tab, Space, F-keys)', () => {
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('Tab'),
+      commandStartDefaultCrawl: alt('Space'),
+      commandTogglePreviewWork: alt('F5'),
+    })
+    expect(out).toEqual({})
+    // lower-case or longer look-alikes are not main keys either
+    expect(isAllowedHotkeyCombo(alt('Keya'))).toBe(false)
+    expect(isAllowedHotkeyCombo(alt('KeyAB'))).toBe(false)
+    expect(isAllowedHotkeyCombo(alt('Digit10'))).toBe(false)
+  })
+
+  it('drops reserved combos and keeps valid ones', () => {
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('KeyT', { alt: false, ctrl: true }),
+      commandStartDefaultCrawl: alt('KeyK', { alt: false, meta: true }),
+      commandTogglePreviewWork: alt('Digit5', { shift: true }),
+    })
+    expect(out).not.toHaveProperty('commandToggleCrawlPanel')
+    expect(out).not.toHaveProperty('commandStartDefaultCrawl')
+    expect(out.commandTogglePreviewWork?.key).toBe('Digit5')
+  })
+
+  it('every default hotkey passes the validator', () => {
+    for (const combo of Object.values(defaultHotkeys)) {
+      expect(isAllowedHotkeyCombo(combo!)).toBe(true)
+    }
+    expect(sanitizeHotkeys(defaultHotkeys)).toEqual(defaultHotkeys)
+  })
+
+  it('settings.set sanitizes hotkeys through the same validator', () => {
+    settings.set('hotkeys', { commandToggleCrawlPanel: alt('Tab') })
+    expect(settings.get('hotkeys')).toEqual({})
+    settings.set('hotkeys', { ...defaultHotkeys })
+  })
+})
+
+// The test environment has no DOM (document.createElement is stubbed to
+// throw), so the row-rendering fix in HotkeyEditor.createList (combo text set
+// via textContent, never interpolated into innerHTML) is not covered here.

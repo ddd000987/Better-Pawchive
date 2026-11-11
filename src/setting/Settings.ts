@@ -15,6 +15,7 @@ import {
   sanitizePreviewInfoPlacement,
 } from '../preview/previewInfo'
 import type { PreviewInfoPlacement } from '../preview/previewInfo'
+import { isAllowedHotkeyCombo } from './hotkeyRules'
 
 /** 預覽設定（注意拼字已修正，非 PBD 的 swicthImageByKeyboard） */
 interface PreviewSettings {
@@ -180,8 +181,9 @@ function sanitizeHotkeys(input: unknown): HotkeyMap {
   }
   const src = input as Record<string, unknown>
   for (const cmd of Object.keys(defaultHotkeys) as HotkeyCommand[]) {
-    if (isHotkeyCombo(src[cmd])) {
-      const c = src[cmd] as HotkeyCombo
+    // Same rules as the recorder: stored/imported hotkeys get no free pass
+    const c = src[cmd]
+    if (isHotkeyCombo(c) && isAllowedHotkeyCombo(c)) {
       out[cmd] = {
         key: c.key,
         ctrl: c.ctrl,
