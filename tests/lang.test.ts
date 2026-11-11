@@ -13,6 +13,18 @@ describe('lang', () => {
     )
   })
 
+  it('keeps "$" sequences in arguments literal', () => {
+    expect(lang.transl('_crawlComplete', 'a$&b', '$$')).toBe(
+      'Crawl complete: a$&b posts / $$ files'
+    )
+  })
+
+  it('does not let a later argument fill a "{}" inside an earlier one', () => {
+    expect(lang.transl('_crawlComplete', '{}', '10')).toBe(
+      'Crawl complete: {} posts / 10 files'
+    )
+  })
+
   it('切換語言後取對應文案', () => {
     lang.applyUserLang('zh-tw')
     expect(lang.transl('_startCrawl')).toBe('開始抓取')

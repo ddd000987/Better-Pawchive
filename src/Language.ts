@@ -118,9 +118,11 @@ class Lang {
     }
     const texts = langText[name]
     // 缺翻譯回退英文，再回退 key 本身
-    let content = texts[this.flagIndex.get(this.type)!] || texts[2] || name
-    args.forEach((arg) => (content = content.replace('{}', arg)))
-    return content
+    const content = texts[this.flagIndex.get(this.type)!] || texts[2] || name
+    // One pass with a replacer function: "$" sequences in an argument stay
+    // literal, and a "{}" inside an argument is not taken by the next one.
+    let i = 0
+    return content.replace(/\{\}/g, (m) => (i < args.length ? args[i++] : m))
   }
 
   // 保存註冊的元素
