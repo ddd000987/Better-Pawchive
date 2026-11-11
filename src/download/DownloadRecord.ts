@@ -38,10 +38,21 @@ class DownloadRecord {
   }
 
   private records: Record<string, RecordItem> = {}
+  /** Records added or updated in this tab that are not in storage yet. The
+   * content script runs once per tab, so a save must merge these into what
+   * storage holds now instead of overwriting it with this tab's snapshot. */
+  private pending = new Map<string, RecordItem>()
+  /** A clear is waiting to be written: the next save starts from {} rather
+   * than from the stored records, so cleared records are not merged back. */
+  private resetPending = false
   /** postKey → 該帖記錄的索引（hasPost 用，避免每帖全表掃描） */
   private postIndex: Map<string, RecordItem[]> | null = null
   private loadPromise: Promise<void> | null = null
+  /** The first load finished; storage change events are ignored before it. */
+  private loaded = false
   private saveTimer = 0
+  /** Writes are chained so that two read-merge-write cycles never overlap. */
+  private writeChain: Promise<void> = Promise.resolve()
 
   /** 單例門：冷啟動時併發呼叫共用同一次載入，避免後寫入的記錄被讀回的舊資料覆寫 */
   private load(): Promise<void> {
@@ -52,11 +63,13 @@ class DownloadRecord {
           const saved = data[STORE_KEY] as
             Record<string, RecordItem> | undefined
           if (saved && typeof saved === 'object') {
-            this.records = saved
+            this.records = { ...saved, ...Object.fromEntries(this.pending) }
             this.postIndex = null
           }
         } catch (e) {
           console.error('[PawchivePro] load download record failed', e)
+        } finally {
+          this.loaded = true
         }
       })()
     }
@@ -71,21 +84,79 @@ class DownloadRecord {
   /** 寫入失敗時只提醒一次，避免每個檔案都跳 toast */
   private saveFailedNotified = false
 
+  /** Add or update one record: it is kept in memory and queued for the next
+   * merge-save. */
+  private setRecord(item: RecordItem): void {
+    this.records[item.id] = item
+    this.pending.set(item.id, item)
+    this.postIndex = null
+  }
+
   private persist(): void {
-    chrome.storage.local
-      .set({ [STORE_KEY]: this.records })
-      .then(() => {
-        this.saveFailedNotified = false
-      })
-      .catch((e) => {
-        console.error('[PawchivePro] save record failed', e)
-        if (!this.saveFailedNotified) {
-          this.saveFailedNotified = true
-          const msg = lang.transl('_recordStoreFailed')
-          log.error(msg)
-          toast.error(msg)
+    const run = this.writeChain.then(() => this.write())
+    this.writeChain = run
+  }
+
+  /** Read-merge-write: other tabs may have saved records since this tab
+   * loaded, so merge this tab's unsaved records into the stored ones. After
+   * a clear the stored records are discarded instead. */
+  private async write(): Promise<void> {
+    const reset = this.resetPending
+    this.resetPending = false
+    const snapshot = new Map(this.pending)
+    if (!reset && snapshot.size === 0) {
+      return
+    }
+    try {
+      let base: Record<string, RecordItem> = {}
+      if (!reset) {
+        const data = await chrome.storage.local.get(STORE_KEY)
+        const stored = data[STORE_KEY] as Record<string, RecordItem> | undefined
+        if (stored && typeof stored === 'object') {
+          base = stored
         }
-      })
+      }
+      const merged = { ...base, ...Object.fromEntries(snapshot) }
+      await chrome.storage.local.set({ [STORE_KEY]: merged })
+      // An entry updated while the write was in flight stays pending
+      for (const [id, item] of snapshot) {
+        if (this.pending.get(id) === item) {
+          this.pending.delete(id)
+        }
+      }
+      // A clear during the write means the merged records are already stale
+      this.records = {
+        ...(this.resetPending ? {} : merged),
+        ...Object.fromEntries(this.pending),
+      }
+      this.postIndex = null
+      this.saveFailedNotified = false
+    } catch (e) {
+      if (reset) {
+        this.resetPending = true
+      }
+      console.error('[PawchivePro] save record failed', e)
+      if (!this.saveFailedNotified) {
+        this.saveFailedNotified = true
+        const msg = lang.transl('_recordStoreFailed')
+        log.error(msg)
+        toast.error(msg)
+      }
+    }
+  }
+
+  /** Another tab (or this one) changed the stored records: follow it, keeping
+   * this tab's unsaved records on top. Never writes. */
+  private onStorageChanged(newValue: unknown): void {
+    if (!this.loaded) {
+      return
+    }
+    const stored =
+      newValue && typeof newValue === 'object'
+        ? (newValue as Record<string, RecordItem>)
+        : {}
+    this.records = { ...stored, ...Object.fromEntries(this.pending) }
+    this.postIndex = null
   }
 
   /** 由抓取結果生成一條記錄 */
@@ -107,8 +178,7 @@ class DownloadRecord {
   /** 下載成功後登記（記憶體同步寫入，storage 防抖持久化） */
   public async addRecord(result: Result): Promise<void> {
     await this.load()
-    this.records[result.id] = this.createRecord(result)
-    this.postIndex = null
+    this.setRecord(this.createRecord(result))
     this.scheduleSave()
   }
 
@@ -193,7 +263,10 @@ class DownloadRecord {
 
   public async clear(silent = false): Promise<void> {
     await this.load()
+    // Removal path: drop unsaved records too and write exactly {} next save
     this.records = {}
+    this.pending.clear()
+    this.resetPending = true
     this.postIndex = null
     this.scheduleSave()
     // 不在此 fire clearDownloadRecord：監聽器會再調 clear()，造成無限遞迴
@@ -218,6 +291,14 @@ class DownloadRecord {
   }
 
   private bindEvents() {
+    // Records saved by other tabs show up without a reload
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area !== 'local' || !(STORE_KEY in changes)) {
+        return
+      }
+      this.onStorageChanged(changes[STORE_KEY].newValue)
+    })
+
     // 下載完成即時落盤，避免防抖窗口內關頁面丟失尾部記錄
     EVT.on(EVT.list.downloadComplete, () => {
       window.clearTimeout(this.saveTimer)
@@ -261,16 +342,16 @@ class DownloadRecord {
               let n = 0
               for (const r of list) {
                 if (r && typeof r.id === 'string') {
-                  this.records[r.id] = {
+                  // Import only adds to the existing records
+                  this.setRecord({
                     id: r.id,
                     n: String(r.n ?? ''),
                     d: String(r.d ?? ''),
                     s: typeof r.s === 'string' ? r.s : undefined,
-                  }
+                  })
                   n++
                 }
               }
-              this.postIndex = null
               this.scheduleSave()
               toast.show(lang.transl('_recordImported', String(n)))
               log.success(lang.transl('_recordImported', String(n)))

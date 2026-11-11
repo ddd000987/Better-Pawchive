@@ -188,3 +188,272 @@ describe('downloadRecord', () => {
     expect(await downloadRecord.count()).toBe(0)
   })
 })
+
+describe('downloadRecord across tabs', () => {
+  const KEY = 'pawchiveProDownloadRecord'
+  const rec = (id: string) => ({ id, n: `${id}.png`, d: '2024-01-02T03:04:05' })
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const settle = () => wait(300)
+
+  let mem: Record<string, any>
+  let changeListeners: Array<(changes: any, area: string) => void>
+  let setCalls: Array<Record<string, any>>
+  let active: number
+  let maxActive: number
+  let failNextSet: boolean
+  let gate: Promise<void> | null
+
+  /** The other tab writes straight into storage, bypassing this instance */
+  function otherTabWrites(records: Record<string, any>) {
+    mem[KEY] = records
+  }
+  function emitChange(newValue: unknown) {
+    for (const fn of changeListeners) {
+      fn({ [KEY]: { newValue } }, 'local')
+    }
+  }
+
+  async function fresh() {
+    vi.resetModules()
+    const { downloadRecord: r } = await import('../src/download/DownloadRecord')
+    const { settings: st } = await import('../src/setting/Settings')
+    const { EVT: evt } = await import('../src/EVT')
+    st.set('skipDownloaded', 'record')
+    return { r, evt }
+  }
+
+  beforeEach(() => {
+    mem = {}
+    changeListeners = []
+    setCalls = []
+    active = 0
+    maxActive = 0
+    failNextSet = false
+    gate = null
+    const g = globalThis as any
+    g.chrome.storage.onChanged = {
+      addListener: (fn: any) => changeListeners.push(fn),
+    }
+    g.chrome.storage.local = {
+      get: async (k: string) => {
+        active++
+        maxActive = Math.max(maxActive, active)
+        await Promise.resolve()
+        active--
+        return k in mem ? { [k]: JSON.parse(JSON.stringify(mem[k])) } : {}
+      },
+      set: async (obj: Record<string, any>) => {
+        active++
+        maxActive = Math.max(maxActive, active)
+        try {
+          if (gate) await gate
+          if (failNextSet) {
+            failNextSet = false
+            throw new Error('write failed')
+          }
+          setCalls.push(obj)
+          Object.assign(mem, JSON.parse(JSON.stringify(obj)))
+        } finally {
+          active--
+        }
+      },
+    }
+  })
+
+  it('keeps a record another tab wrote after our load, and ours too', async () => {
+    const { r } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    await settle()
+    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    await r.addRecord(file('patreon/u1/3#0'))
+    await settle()
+    expect(Object.keys(mem[KEY]).sort()).toEqual([
+      'patreon/u1/1#0',
+      'patreon/u1/2#0',
+      'patreon/u1/3#0',
+    ])
+  })
+
+  it('sees a record added by another tab after a storage change', async () => {
+    const { r } = await fresh()
+    const { fileName } = await import('../src/filename/FileName')
+    const other = file('patreon/u1/2#0')
+    expect(await r.checkDeduplication(other)).toBe(false)
+    const stored = {
+      [other.id]: {
+        id: other.id,
+        n: fileName.createFileName(other),
+        d: other.published,
+      },
+    }
+    otherTabWrites(stored)
+    emitChange(stored)
+    expect(await r.checkDeduplication(other)).toBe(true)
+    expect(await r.hasPost('patreon/u1/2', other.published, ['x'])).toBe(true)
+    // the change event itself must not write the record store
+    await settle()
+    expect(setCalls.filter((c) => KEY in c)).toHaveLength(0)
+  })
+
+  it('keeps unsaved local records when a storage change arrives', async () => {
+    const { r } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    otherTabWrites({ 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    emitChange(mem[KEY])
+    expect(await r.count()).toBe(2)
+    await settle()
+    expect(Object.keys(mem[KEY]).sort()).toEqual([
+      'patreon/u1/1#0',
+      'patreon/u1/2#0',
+    ])
+  })
+
+  it('ignores storage changes that arrive before the first load', async () => {
+    let release: (v: any) => void = () => {}
+    ;(globalThis as any).chrome.storage.local.get = () =>
+      new Promise((resolve) => {
+        release = resolve
+      })
+    const { r } = await fresh()
+    const first = r.count()
+    emitChange({ 'patreon/u1/9#0': rec('patreon/u1/9#0') })
+    release({ [KEY]: { 'patreon/u1/1#0': rec('patreon/u1/1#0') } })
+    expect(await first).toBe(1)
+    expect(setCalls.filter((c) => KEY in c)).toHaveLength(0)
+  })
+
+  it('clear really removes records, including ones another tab wrote', async () => {
+    const { r } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    await settle()
+    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    await r.clear(true)
+    await settle()
+    expect(mem[KEY]).toEqual({})
+    expect(await r.count()).toBe(0)
+  })
+
+  it('records added after a clear are kept, cleared ones do not come back', async () => {
+    const { r } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    await settle()
+    await r.clear(true)
+    await r.addRecord(file('patreon/u1/2#0'))
+    await settle()
+    expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/2#0'])
+    expect(await r.getRecord('patreon/u1/1#0')).toBeNull()
+  })
+
+  it('a clear during an in-flight write is not undone by it', async () => {
+    const { r, evt } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    let open: () => void = () => {}
+    gate = new Promise((resolve) => {
+      open = resolve
+    })
+    evt.fire('downloadComplete')
+    await wait(20)
+    await r.clear(true)
+    gate = null
+    open()
+    await settle()
+    expect(mem[KEY]).toEqual({})
+    expect(await r.count()).toBe(0)
+  })
+
+  it('import adds to the stored records instead of replacing them', async () => {
+    const { r, evt } = await fresh()
+    const { toast } = await import('../src/Toast')
+    const { log } = await import('../src/Log')
+    vi.spyOn(toast, 'show').mockImplementation(() => {})
+    vi.spyOn(log, 'success').mockImplementation(() => {})
+    await r.count()
+    otherTabWrites({ 'patreon/u1/0#0': rec('patreon/u1/0#0') })
+
+    // Drive the real import handler with a stubbed file picker and reader
+    const doc = (globalThis as any).document
+    const origCreate = doc.createElement
+    const origReader = (globalThis as any).FileReader
+    const picked: Record<string, () => void> = {}
+    doc.createElement = () => ({
+      files: [{}],
+      addEventListener: (type: string, fn: () => void) => {
+        picked[type] = fn
+      },
+      click: () => {},
+    })
+    ;(globalThis as any).FileReader = class {
+      result = JSON.stringify([rec('patreon/u1/1#0'), rec('patreon/u1/2#0')])
+      onload: () => void = () => {}
+      readAsText() {
+        this.onload()
+      }
+    }
+    try {
+      evt.fire('importDownloadRecord')
+      picked.change()
+      await settle()
+    } finally {
+      doc.createElement = origCreate
+      ;(globalThis as any).FileReader = origReader
+    }
+    expect(Object.keys(mem[KEY]).sort()).toEqual([
+      'patreon/u1/0#0',
+      'patreon/u1/1#0',
+      'patreon/u1/2#0',
+    ])
+    expect(await r.count()).toBe(3)
+  })
+
+  it('a record added while a write is in flight is not lost', async () => {
+    const { r, evt } = await fresh()
+    await r.addRecord(file('patreon/u1/1#0'))
+    otherTabWrites({ 'patreon/u1/0#0': rec('patreon/u1/0#0') })
+    let open: () => void = () => {}
+    gate = new Promise((resolve) => {
+      open = resolve
+    })
+    evt.fire('downloadComplete')
+    await wait(20)
+    // the first write is blocked; add another record meanwhile
+    await r.addRecord(file('patreon/u1/2#0'))
+    expect(await r.getRecord('patreon/u1/2#0')).not.toBeNull()
+    gate = null
+    open()
+    await wait(20)
+    expect(await r.getRecord('patreon/u1/2#0')).not.toBeNull()
+    await settle()
+    expect(Object.keys(mem[KEY]).sort()).toEqual([
+      'patreon/u1/0#0',
+      'patreon/u1/1#0',
+      'patreon/u1/2#0',
+    ])
+    // read-merge-write cycles never overlap
+    expect(maxActive).toBe(1)
+  })
+
+  it('a failed write keeps the pending records and retries on the next save', async () => {
+    const { r, evt } = await fresh()
+    await r.count()
+    const { toast } = await import('../src/Toast')
+    const err = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    otherTabWrites({ 'patreon/u1/0#0': rec('patreon/u1/0#0') })
+    await r.addRecord(file('patreon/u1/1#0'))
+    failNextSet = true
+    evt.fire('downloadComplete')
+    await wait(20)
+    expect(err).toHaveBeenCalledTimes(1)
+    expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+    // another tab saves meanwhile; the next save still carries our record
+    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    await r.addRecord(file('patreon/u1/3#0'))
+    await settle()
+    expect(Object.keys(mem[KEY]).sort()).toEqual([
+      'patreon/u1/0#0',
+      'patreon/u1/1#0',
+      'patreon/u1/2#0',
+      'patreon/u1/3#0',
+    ])
+  })
+})
