@@ -62,7 +62,7 @@ describe('api 快取', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
-    const params = { service: 'patreon', creatorId: 'ttl-user' }
+    const params = { service: 'patreon', creatorId: 'ttl-user' } as const
     await api.posts(params)
     await api.posts(params)
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -75,7 +75,7 @@ describe('api 快取', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
-    const posts = { service: 'patreon', creatorId: 'tier-user' }
+    const posts = { service: 'patreon', creatorId: 'tier-user' } as const
     const post = { ...posts, postId: '99' }
     await api.posts(posts)
     await api.post(post)
@@ -120,7 +120,7 @@ describe('api 快取', () => {
 
   it('修改回傳物件不影響下次結果', async () => {
     vi.stubGlobal('fetch', okFetch())
-    const params = { service: 'patreon', creatorId: 'clone-user' }
+    const params = { service: 'patreon', creatorId: 'clone-user' } as const
     const first: any = await api.posts(params)
     first.nested.n = 999
     first.extra = true
@@ -131,7 +131,7 @@ describe('api 快取', () => {
   it('同 URL 並發只 fetch 一次，且各自拿到獨立 clone', async () => {
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
-    const params = { service: 'patreon', creatorId: 'inflight-user' }
+    const params = { service: 'patreon', creatorId: 'inflight-user' } as const
     const [a, b]: any[] = await Promise.all([
       api.posts(params),
       api.posts(params),

@@ -13,7 +13,6 @@ vi.mock('../src/kemono/api', async () => {
       profile: vi.fn(),
       posts: vi.fn(),
       post: vi.fn(),
-      isErrorResponse: actual.isErrorResponse,
     },
   }
 })
