@@ -496,3 +496,162 @@ describe('engine 抓取進度與空結果說明', () => {
     expect(crawlProgress.excluded.duplicate).toBeUndefined()
   })
 })
+
+describe('engine list-page failure ends the crawl as incomplete', () => {
+  const listItem = (id: string) => ({
+    id,
+    user: '1',
+    service: 'patreon',
+    title: 't',
+    published: '2024-01-01T00:00:00',
+    attachments: [],
+    file: {},
+    has_full: true,
+  })
+  const fullListPage = (from: number) =>
+    Array.from({ length: 50 }, (_, i) => listItem(String(from + i)))
+  const detailOf = (id: string) => ({
+    post: {
+      id,
+      user: '1',
+      service: 'patreon',
+      title: 'hello',
+      content: '',
+      published: '2024-01-01T00:00:00',
+      file: {},
+      attachments: [{ path: `/a/${id}.jpg`, name: `${id}.jpg` }],
+    },
+    attachments: [],
+    previews: [],
+    videos: [],
+  })
+  const logMessages = async (level: string) => {
+    const { log } = await import('../src/Log')
+    return log
+      .entries()
+      .filter((e) => e.level === level)
+      .map((e) => e.msg)
+  }
+
+  it('page 2 fails with 403: finishes as incomplete, not as a success', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any)
+      .mockResolvedValueOnce(fullListPage(0))
+      .mockRejectedValueOnce(new ApiHttpError(403, 'u', 'HTTP 403: nope'))
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) =>
+      detailOf(q.postId)
+    )
+    const complete = countEvent('crawlComplete')
+    const empty = countEvent('crawlEmpty')
+
+    await engine.start()
+
+    expect(api.posts).toHaveBeenCalledTimes(2)
+    expect(complete()).toBe(1)
+    expect(empty()).toBe(0)
+    expect(store.resultMeta.length).toBe(50)
+    const expected = `Crawl ended early: the post list failed on page 2. Kept 50 posts / ${store.result.length} files; later pages were not crawled`
+    expect(await logMessages('warning')).toContain(expected)
+    expect(await logMessages('success')).not.toContainEqual(
+      expect.stringContaining('Crawl complete')
+    )
+    expect(toast.warning).toHaveBeenCalledWith(expected)
+  })
+
+  it('page 1 fails with 403: reports the list failure instead of "no posts found"', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockRejectedValueOnce(
+      new ApiHttpError(403, 'u', 'HTTP 403: nope')
+    )
+    const complete = countEvent('crawlComplete')
+    const empty = countEvent('crawlEmpty')
+
+    await engine.start()
+
+    const expected =
+      'Crawl failed: the post list could not be loaded (page 1). See the log for the error'
+    expect(complete()).toBe(1)
+    expect(empty()).toBe(1)
+    expect(toast.warning).toHaveBeenCalledWith(expected)
+    expect(toast.warning).not.toHaveBeenCalledWith(
+      'Crawl result is empty: no posts were found'
+    )
+    expect(await logMessages('warning')).toContain(expected)
+  })
+
+  it('a SyntaxError (non-JSON body) is retried and the crawl finishes normally', async () => {
+    vi.useFakeTimers()
+    const { api, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any)
+      .mockRejectedValueOnce(new SyntaxError('Unexpected token < in JSON'))
+      .mockResolvedValueOnce([listItem('1')])
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) =>
+      detailOf(q.postId)
+    )
+    const complete = countEvent('crawlComplete')
+
+    const p = engine.start()
+    await vi.advanceTimersByTimeAsync(5000)
+    await p
+
+    expect(api.posts).toHaveBeenCalledTimes(2)
+    expect(complete()).toBe(1)
+    expect(await logMessages('success')).toContain(
+      `Crawl complete: 1 posts / ${store.result.length} files`
+    )
+    expect(toast.warning).not.toHaveBeenCalled()
+  })
+
+  it('a SyntaxError that keeps failing ends the crawl as a list failure after the retry budget', async () => {
+    vi.useFakeTimers()
+    const { api, engine } = await load()
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockRejectedValue(new SyntaxError('bad json'))
+
+    const p = engine.start()
+    // 5s + 10s + 15s of backoff for RETRY_TRANSIENT_MAX = 3
+    await vi.advanceTimersByTimeAsync(30000)
+    await p
+
+    expect(api.posts).toHaveBeenCalledTimes(4)
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Crawl failed: the post list could not be loaded (page 1). See the log for the error'
+    )
+  })
+
+  it('does not leak the incomplete flag into the next run', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) =>
+      detailOf(q.postId)
+    )
+    ;(api.posts as any)
+      .mockResolvedValueOnce(fullListPage(0))
+      .mockRejectedValueOnce(new ApiHttpError(403, 'u', 'HTTP 403: nope'))
+      .mockResolvedValueOnce([listItem('900')])
+
+    await engine.start()
+    const warningsAfterFirst = (toast.warning as ReturnType<typeof vi.fn>).mock
+      .calls.length
+    expect(warningsAfterFirst).toBe(1)
+
+    await engine.start()
+
+    expect(api.posts).toHaveBeenCalledTimes(3)
+    expect(toast.warning).toHaveBeenCalledTimes(1)
+    expect(await logMessages('success')).toContain(
+      `Crawl complete: ${store.resultMeta.length} posts / ${store.result.length} files`
+    )
+  })
+})

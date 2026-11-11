@@ -68,6 +68,10 @@ function parseHttpStatus(e: unknown): number {
   if (e instanceof ApiHttpError) {
     return e.status
   }
+  // A JSON parse message may contain position numbers like 403 or 5xx; never treat it as an HTTP status
+  if (e instanceof SyntaxError) {
+    return 0
+  }
   const msg = e instanceof Error ? e.message : String(e)
   const m = msg.match(/\b(403|404|429|5\d\d)\b/)
   return m ? parseInt(m[1], 10) : 0
@@ -78,6 +82,17 @@ function isNetworkError(e: unknown): boolean {
   return e instanceof TypeError
 }
 
+/**
+ * Whether an error is worth retrying: 5xx, a network-level failure, or a
+ * response body that is not valid JSON (res.json() throws SyntaxError, e.g. a gateway error page).
+ */
+function isTransientError(e: unknown, status: number): boolean {
+  return (
+    status >= 500 ||
+    (status === 0 && (isNetworkError(e) || e instanceof SyntaxError))
+  )
+}
+
 class Engine {
   /** 世代號：每輪抓取 +1，舊輪收尾時用來判斷是否已被取代 */
   private generation = 0
@@ -85,6 +100,12 @@ class Engine {
   private controller: AbortController | null = null
   /** 當前這輪抓取的 promise（新一輪要等它收尾） */
   private running: Promise<void> | null = null
+  /**
+   * 1-based list page on which this run's creator list failed and cut the crawl short;
+   * null when that did not happen. Reset at the start of every run and used at
+   * finish time to tell a complete crawl from one truncated by a list failure.
+   */
+  private listFailedAtPage: number | null = null
 
   constructor() {
     this.bindEvents()
@@ -167,6 +188,7 @@ class Engine {
       async (signal, gen) => {
         // 面板發起的完整抓取：快取要存（與縮圖單帖快抓區分，見 crawlIds）
         states.quickCrawl = false
+        this.listFailedAtPage = null
         EVT.fire('crawlStart')
         // crawlStart 會清零進度統計；之後才設目標（創作者名等 profile 回來再補）
         crawlProgress.setTarget(this.targetLabel(page.service, page.creatorId))
@@ -204,6 +226,18 @@ class Engine {
         if (signal.aborted) {
           log.warning(lang.transl('_crawlStoppedKeep'))
           this.finishStopped()
+        } else if (this.listFailedAtPage !== null) {
+          // The list failed part-way: later pages were never fetched, so do not report success
+          if (store.resultMeta.length === 0) {
+            this.finishEmpty(
+              lang.transl(
+                '_crawlListFailedEmpty',
+                String(this.listFailedAtPage)
+              )
+            )
+          } else {
+            this.finishIncomplete(this.listFailedAtPage)
+          }
         } else if (store.resultMeta.length === 0) {
           this.finishEmpty()
         } else {
@@ -231,6 +265,7 @@ class Engine {
       async (signal, gen) => {
         // 縮圖單帖快抓／等待佇列：抓取快取跳過這類（只存完整抓取的整批結果）
         states.quickCrawl = true
+        this.listFailedAtPage = null
         EVT.fire('crawlStart')
         // ID 列表型抓取：目標是「N 帖」，總數已知
         crawlProgress.setTargetPosts(idList.length)
@@ -324,11 +359,12 @@ class Engine {
   }
 
   /** 抓取收尾：空結果 */
-  private finishEmpty(): void {
+  private finishEmpty(message?: string): void {
     EVT.fire('crawlComplete')
     EVT.fire('crawlEmpty')
     // 依統計說明為什麼是空的：沒找到帖子／全被篩選排除／取詳情失敗
-    const msg = this.emptyMessage()
+    // (callers that already know the reason pass it in, e.g. page 1 of the list failed)
+    const msg = message ?? this.emptyMessage()
     log.warning(msg)
     // 不必翻日誌就能看到原因
     toast.warning(msg)
@@ -382,6 +418,20 @@ class Engine {
         String(store.result.length)
       )
     )
+  }
+
+  /** Finish: some results were kept, but the list failed part-way (later pages not fetched) */
+  private finishIncomplete(failedPage: number): void {
+    // Downstream behaviour matches finishDone: crawlComplete fires and the kept results stay downloadable
+    EVT.fire('crawlComplete')
+    const msg = lang.transl(
+      '_crawlIncomplete',
+      String(failedPage),
+      String(store.resultMeta.length),
+      String(store.result.length)
+    )
+    log.warning(msg)
+    toast.warning(msg)
   }
 
   /** 創作者頁：分頁取列表 → 快篩 → 詳情 → 過濾 → 入庫 */
@@ -485,7 +535,7 @@ class Engine {
         }
         // 5xx／網路抖動：有限次數重試（4xx 直接失敗）
         if (
-          (status >= 500 || (status === 0 && isNetworkError(e))) &&
+          isTransientError(e, status) &&
           transientCount < RETRY_TRANSIENT_MAX
         ) {
           transientCount++
@@ -507,6 +557,8 @@ class Engine {
         log.error(
           lang.transl('_listFailed', e instanceof Error ? e.message : String(e))
         )
+        // Mark this run as cut short by the list failure (pageNo is 0-based, messages are 1-based)
+        this.listFailedAtPage = pageNo + 1
         return
       }
 
@@ -730,7 +782,7 @@ class Engine {
           }
           // 5xx／網路抖動：有限次數重試（4xx 直接跳過）
           if (
-            (status >= 500 || (status === 0 && isNetworkError(e))) &&
+            isTransientError(e, status) &&
             transientCount < RETRY_DETAIL_TRANSIENT_MAX
           ) {
             transientCount++

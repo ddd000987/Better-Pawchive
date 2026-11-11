@@ -1514,6 +1514,18 @@ export const langText = {
     `Crawl complete: {} posts / {} files`,
     `クロール完了：{} 投稿 / {} ファイル`,
   ],
+  _crawlIncomplete: [
+    `抓取提前结束：帖子列表在第 {} 页获取失败。已保留 {} 帖 / {} 档，之后的页面未抓取`,
+    `抓取提前結束：帖子列表在第 {} 頁取得失敗。已保留 {} 帖 / {} 檔，之後的頁面未抓取`,
+    `Crawl ended early: the post list failed on page {}. Kept {} posts / {} files; later pages were not crawled`,
+    `クロールを途中で終了しました：投稿一覧の {} ページ目の取得に失敗しました。{} 投稿 / {} ファイルを保持しており、以降のページはクロールされていません`,
+  ],
+  _crawlListFailedEmpty: [
+    `抓取失败：无法加载帖子列表（第 {} 页）。请查看日志中的错误信息`,
+    `抓取失敗：無法載入帖子列表（第 {} 頁）。請查看日誌中的錯誤訊息`,
+    `Crawl failed: the post list could not be loaded (page {}). See the log for the error`,
+    `クロールに失敗しました：投稿一覧を読み込めませんでした（{} ページ目）。ログでエラー内容を確認してください`,
+  ],
   _serviceExcluded: [
     `当前服务 {} 已被服务过滤排除`,
     `目前服務 {} 已被服務過濾排除`,
