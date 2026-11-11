@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CacheEntry } from '../src/download/CrawlCache'
 import { EVT, type eventNames } from '../src/EVT'
 import { toast } from '../src/Toast'
 import { states } from '../src/store/States'
@@ -56,6 +57,7 @@ function file(id: string, overrides: Partial<Result> = {}): Result {
 let mem: Record<string, any>
 let crawlCache: typeof import('../src/download/CrawlCache').crawlCache
 let MAX_ENTRIES: number
+let mergeEntries: typeof import('../src/download/CrawlCache').mergeEntries
 let downloadControl: typeof import('../src/download/DownloadControl').downloadControl
 
 beforeAll(async () => {
@@ -70,7 +72,8 @@ beforeAll(async () => {
   const doc = (globalThis as any).document
   doc.createElement = () => fakeEl()
   doc.body = fakeEl()
-  ;({ crawlCache, MAX_ENTRIES } = await import('../src/download/CrawlCache'))
+  ;({ crawlCache, MAX_ENTRIES, mergeEntries } =
+    await import('../src/download/CrawlCache'))
   ;({ downloadControl } = await import('../src/download/DownloadControl'))
 })
 
@@ -532,5 +535,306 @@ describe('crawlComplete 掛載決策', () => {
     expect(cache.getMounted()).not.toBeNull()
     fire('crawlStart')
     expect(cache.getMounted()).toBeNull()
+  })
+})
+
+describe('crawlCache across tabs', () => {
+  const KEY = 'pawchiveProCrawlCache'
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const settle = () => wait(350)
+
+  function entry(id: string, createdAt: number, title = id): CacheEntry {
+    return {
+      id,
+      title,
+      service: 'patreon',
+      creatorId: 'u1',
+      creator: 'artist',
+      host: 'kemono.su',
+      postCount: 1,
+      fileCount: 1,
+      createdAt,
+      results: [file(`${id}#0`)],
+      metas: [file(id, { id })],
+    }
+  }
+  const ids = () => (mem[KEY] as CacheEntry[]).map((e) => e.id)
+  const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
+
+  let changeListeners: Array<(changes: any, area: string) => void>
+  let keySets: number
+  let quotaWhenOver: number
+
+  function emitChange(newValue: unknown) {
+    for (const fn of changeListeners) {
+      fn({ [KEY]: { newValue } }, 'local')
+    }
+  }
+
+  async function freshCache() {
+    vi.resetModules()
+    evt = (await import('../src/EVT')).EVT
+    const st = (await import('../src/store/States')).states
+    const sto = (await import('../src/store/Store')).store
+    const cache = (await import('../src/download/CrawlCache')).crawlCache
+    const tst = (await import('../src/Toast')).toast
+    st.settingInitialized = true
+    vi.spyOn(tst, 'show').mockImplementation(() => {})
+    vi.spyOn(tst, 'success').mockImplementation(() => {})
+    vi.spyOn(tst, 'warning').mockImplementation(() => {})
+    vi.spyOn(tst, 'error').mockImplementation(() => {})
+    await wait(10)
+    return { cache, sto }
+  }
+  let evt: typeof EVT
+
+  // Let debounced saves of earlier tests' instances fire before we swap the
+  // storage mock, so they cannot write into this suite's storage
+  beforeAll(() => wait(300))
+
+  beforeEach(() => {
+    changeListeners = []
+    keySets = 0
+    quotaWhenOver = Infinity
+    const g = globalThis as any
+    g.chrome.storage.onChanged = {
+      addListener: (fn: any) => changeListeners.push(fn),
+    }
+    g.chrome.storage.local = {
+      get: async (k: string) => (k in mem ? { [k]: clone(mem[k]) } : {}),
+      set: async (obj: Record<string, any>) => {
+        if (KEY in obj) {
+          keySets++
+          if (obj[KEY].length > quotaWhenOver) {
+            throw new Error('QUOTA_BYTES quota exceeded')
+          }
+        }
+        Object.assign(mem, clone(obj))
+      },
+    }
+    mem = {}
+  })
+
+  it('keeps an entry another tab added after our load, and ours too', async () => {
+    mem[KEY] = [entry('E1', 1000)]
+    const { cache, sto } = await freshCache()
+    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
+    sto.result = [file('patreon/u1/999#0')]
+    const saved = await cache.autoSave({ silent: true })
+    await settle()
+    expect(ids()).toEqual([saved!.id, 'E2', 'E1'])
+    expect(cache.list().map((e) => e.id)).toEqual([saved!.id, 'E2', 'E1'])
+  })
+
+  it('does not undo our delete when merging with another tab', async () => {
+    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    const { cache } = await freshCache()
+    expect(await cache.remove('E1')).toBe(true)
+    mem[KEY] = [entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)]
+    await settle()
+    expect(ids()).toEqual(['E3', 'E2'])
+  })
+
+  it('does not undo the other tab delete unless we modified that entry', async () => {
+    mem[KEY] = [entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)]
+    const { cache } = await freshCache()
+    mem[KEY] = [entry('E3', 3000), entry('E1', 1000)]
+    expect(await cache.rename('E1', 'mine')).toBe(true)
+    await settle()
+    expect(ids()).toEqual(['E3', 'E1'])
+    expect(cache.list().map((e) => e.id)).toEqual(['E3', 'E1'])
+
+    // an entry we modified ourselves is written back even if it was deleted
+    mem[KEY] = [entry('E3', 3000)]
+    expect(await cache.rename('E1', 'mine again')).toBe(true)
+    await settle()
+    expect(ids()).toEqual(['E3', 'E1'])
+    expect((mem[KEY] as CacheEntry[])[1].title).toBe('mine again')
+  })
+
+  it('a rename here wins over the stored copy; untouched entries follow storage', async () => {
+    mem[KEY] = [entry('E3', 3000, 'c'), entry('E1', 1000, 'a')]
+    const { cache } = await freshCache()
+    mem[KEY] = [
+      entry('E3', 3000, 'c renamed elsewhere'),
+      entry('E2', 2000),
+      entry('E1', 1000, 'a renamed elsewhere'),
+    ]
+    expect(await cache.rename('E1', 'mine')).toBe(true)
+    await settle()
+    const saved = mem[KEY] as CacheEntry[]
+    expect(saved.map((e) => [e.id, e.title])).toEqual([
+      ['E3', 'c renamed elsewhere'],
+      ['E2', 'E2'],
+      ['E1', 'mine'],
+    ])
+  })
+
+  it('still caps at MAX_ENTRIES after a merge, dropping the oldest', async () => {
+    const { cache, sto } = await freshCache()
+    mem[KEY] = Array.from({ length: MAX_ENTRIES }, (_, i) =>
+      entry(`O${i}`, 5000 - i)
+    )
+    sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
+    sto.result = [file('patreon/u1/999#0')]
+    const saved = await cache.autoSave({ silent: true })
+    await settle()
+    expect(saved).not.toBeNull()
+    expect(ids()).toHaveLength(MAX_ENTRIES)
+    expect(ids()[0]).toBe(saved!.id)
+    expect(ids()).not.toContain(`O${MAX_ENTRIES - 1}`)
+  })
+
+  it('follows changes from another tab without a reload', async () => {
+    mem[KEY] = [entry('E1', 1000)]
+    const { cache } = await freshCache()
+    const changes: any[] = []
+    evt.on('cacheChange', (ev) => changes.push(ev.detail.data))
+    const next = [entry('E2', 2000), entry('E1', 1000, 'renamed elsewhere')]
+    mem[KEY] = next
+    emitChange(next)
+    expect(cache.list().map((e) => [e.id, e.title])).toEqual([
+      ['E2', 'E2'],
+      ['E1', 'renamed elsewhere'],
+    ])
+    expect(changes).toHaveLength(1)
+    // following another tab never writes
+    await settle()
+    expect(keySets).toBe(0)
+  })
+
+  it('the mounted entry disappearing flips to mounted-but-unsaved', async () => {
+    mem[KEY] = [entry('E1', 1000)]
+    const { cache, sto } = await freshCache()
+    expect(await cache.mount('E1')).toBe(true)
+    expect(sto.result).toHaveLength(1)
+    expect(cache.getMounted()?.unsaved).toBe(false)
+    const mounts: any[] = []
+    evt.on('mountChange', (ev) => mounts.push(ev.detail.data))
+
+    mem[KEY] = []
+    emitChange([])
+
+    expect(cache.list()).toHaveLength(0)
+    expect(cache.isMounted('E1')).toBe(false)
+    expect(cache.getMounted()).toEqual({ entry: null, unsaved: true })
+    expect(mounts).toEqual([{ manual: false }])
+    await settle()
+    expect(keySets).toBe(0)
+  })
+
+  it('ignores storage changes that arrive before the first load', async () => {
+    let release: (v: any) => void = () => {}
+    ;(globalThis as any).chrome.storage.local.get = () =>
+      new Promise((resolve) => {
+        release = resolve
+      })
+    vi.resetModules()
+    const cache = (await import('../src/download/CrawlCache')).crawlCache
+    emitChange([entry('E9', 9000)])
+    release({ [KEY]: [entry('E1', 1000)] })
+    await wait(10)
+    expect(cache.list().map((e) => e.id)).toEqual(['E1'])
+  })
+
+  it('quota eviction does not bring the dropped entry back from storage', async () => {
+    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    const { cache, sto } = await freshCache()
+    quotaWhenOver = 2
+    sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
+    sto.result = [file('patreon/u1/999#0')]
+    const saved = await cache.autoSave({ silent: true })
+    await wait(700)
+    expect(ids()).toEqual([saved!.id, 'E2'])
+    expect(cache.list().map((e) => e.id)).toEqual([saved!.id, 'E2'])
+  })
+})
+
+describe('mergeEntries', () => {
+  const e = (id: string, createdAt: number, title = id): CacheEntry => ({
+    id,
+    title,
+    service: 's',
+    creatorId: 'c',
+    creator: 'c',
+    host: 'h',
+    postCount: 1,
+    fileCount: 1,
+    createdAt,
+    results: [],
+    metas: [],
+  })
+  const none = new Set<string>()
+  const names = (list: CacheEntry[]) => list.map((x) => `${x.id}:${x.title}`)
+
+  it('returns the stored list newest first when nothing changed locally', () => {
+    const stored = [e('a', 1), e('b', 3), e('c', 2)]
+    expect(names(mergeEntries(stored, stored, none, none))).toEqual([
+      'b:b',
+      'c:c',
+      'a:a',
+    ])
+  })
+
+  it('drops deleted ids', () => {
+    const stored = [e('a', 3), e('b', 2), e('c', 1)]
+    expect(names(mergeEntries(stored, [], none, new Set(['b']))).join()).toBe(
+      'a:a,c:c'
+    )
+  })
+
+  it('lets a dirty local entry replace its stored copy', () => {
+    const stored = [e('a', 3, 'old'), e('b', 2)]
+    const local = [e('a', 3, 'new'), e('b', 2)]
+    expect(names(mergeEntries(stored, local, new Set(['a']), none))).toEqual([
+      'a:new',
+      'b:b',
+    ])
+  })
+
+  it('inserts a dirty local entry that storage does not have', () => {
+    const stored = [e('b', 2), e('a', 1)]
+    const local = [e('n', 5), e('a', 1)]
+    expect(names(mergeEntries(stored, local, new Set(['n']), none))).toEqual([
+      'n:n',
+      'b:b',
+      'a:a',
+    ])
+  })
+
+  it('keeps stored data for entries that are not dirty and drops stored-less ones', () => {
+    const stored = [e('a', 2, 'stored title')]
+    const local = [e('a', 2, 'stale local title'), e('gone', 1)]
+    expect(names(mergeEntries(stored, local, none, none))).toEqual([
+      'a:stored title',
+    ])
+  })
+
+  it('puts dirty local entries ahead of stored ones on equal timestamps, in local order', () => {
+    const stored = [e('s1', 10), e('s2', 10)]
+    const local = [e('n2', 10), e('n1', 10)]
+    expect(
+      names(mergeEntries(stored, local, new Set(['n1', 'n2']), none))
+    ).toEqual(['n2:n2', 'n1:n1', 's1:s1', 's2:s2'])
+  })
+
+  it('a deleted id wins over a dirty one', () => {
+    const stored = [e('a', 1)]
+    const local = [e('a', 1, 'edited')]
+    expect(mergeEntries(stored, local, new Set(['a']), new Set(['a']))).toEqual(
+      []
+    )
+  })
+
+  it('caps at MAX_ENTRIES by dropping the oldest', () => {
+    const stored = Array.from({ length: MAX_ENTRIES }, (_, i) =>
+      e(`s${i}`, 1000 - i)
+    )
+    const local = [e('new', 5000)]
+    const merged = mergeEntries(stored, local, new Set(['new']), none)
+    expect(merged).toHaveLength(MAX_ENTRIES)
+    expect(merged[0].id).toBe('new')
+    expect(merged.map((x) => x.id)).not.toContain(`s${MAX_ENTRIES - 1}`)
   })
 })

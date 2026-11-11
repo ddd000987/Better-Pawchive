@@ -40,6 +40,40 @@ export interface CacheEntry {
   metas: Result[]
 }
 
+/** Keep only well-formed entries from whatever storage returned */
+function normalizeEntries(saved: unknown): CacheEntry[] {
+  if (!Array.isArray(saved)) {
+    return []
+  }
+  return saved.filter(
+    (e): e is CacheEntry =>
+      !!e && typeof e.id === 'string' && Array.isArray(e.results)
+  )
+}
+
+/** Merge this tab's changes into the entries another tab may have saved.
+ * Start from the stored list, drop deleted ids, let each dirty local entry
+ * replace its stored copy (or be inserted), order newest first by createdAt
+ * (a stable sort: ties keep dirty local entries ahead of stored ones) and
+ * drop the oldest beyond MAX_ENTRIES. */
+export function mergeEntries(
+  stored: CacheEntry[],
+  local: CacheEntry[],
+  dirtyIds: ReadonlySet<string>,
+  deletedIds: ReadonlySet<string>
+): CacheEntry[] {
+  const dirtyLocal = local.filter(
+    (e) => dirtyIds.has(e.id) && !deletedIds.has(e.id)
+  )
+  const dirtyById = new Map(dirtyLocal.map((e) => [e.id, e]))
+  const keptStored = stored.filter(
+    (e) => !deletedIds.has(e.id) && !dirtyById.has(e.id)
+  )
+  return [...dirtyLocal, ...keptStored]
+    .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+    .slice(0, MAX_ENTRIES)
+}
+
 /** 不含大陣列的快取摘要（給 UI 頻繁刷新用，避免深拷貝整批結果） */
 export type CacheSummary = Omit<CacheEntry, 'results' | 'metas'>
 
@@ -53,6 +87,16 @@ class CrawlCache {
   private entries: CacheEntry[] = []
   private loadPromise: Promise<void> | null = null
   private saveTimer = 0
+  /** The first load finished; storage change events are ignored before it */
+  private loaded = false
+  /** Entries added or modified in this tab since the last successful write */
+  private dirtyIds = new Set<string>()
+  /** Entries deleted in this tab since the last successful write */
+  private deletedIds = new Set<string>()
+  /** Ids touched since the current write began: they stay dirty/deleted */
+  private touchedIds = new Set<string>()
+  /** Writes are chained so that two read-merge-write cycles never overlap */
+  private writeChain: Promise<void> = Promise.resolve()
   /** 目前掛載的快取 id */
   private mountedId: string | null = null
   /** store 裡的結果沒有對應快取（單帖快抓、中途停止、快取已滿） */
@@ -66,6 +110,21 @@ class CrawlCache {
   }
 
   private bindEvents() {
+    // Entries saved or deleted by other tabs show up without a reload
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area !== 'local' || !(STORE_KEY in changes) || !this.loaded) {
+        return
+      }
+      this.applyEntries(
+        mergeEntries(
+          normalizeEntries(changes[STORE_KEY].newValue),
+          this.entries,
+          this.dirtyIds,
+          this.deletedIds
+        )
+      )
+    })
+
     // 新一輪抓取會清空 store，原本掛載的結果隨之消失
     EVT.on(EVT.list.crawlStart, () => {
       if (this.mountedId) {
@@ -191,14 +250,14 @@ class CrawlCache {
       this.loadPromise = (async () => {
         try {
           const data = await chrome.storage.local.get(STORE_KEY)
-          const saved = data[STORE_KEY] as CacheEntry[] | undefined
+          const saved = data[STORE_KEY]
           if (Array.isArray(saved)) {
-            this.entries = saved.filter(
-              (e) => !!e && typeof e.id === 'string' && Array.isArray(e.results)
-            )
+            this.entries = normalizeEntries(saved)
           }
         } catch (e) {
           console.error('[PawchivePro] load crawl cache failed', e)
+        } finally {
+          this.loaded = true
         }
       })()
     }
@@ -245,6 +304,7 @@ class CrawlCache {
       metas: JSON.parse(JSON.stringify(store.resultMeta)),
     }
     this.entries.unshift(entry)
+    this.markDirty(entry.id)
     this.persist()
     EVT.fire('cacheChange', { id: entry.id })
     if (!opts.silent) {
@@ -265,6 +325,7 @@ class CrawlCache {
       return false
     }
     entry.title = t
+    this.markDirty(id)
     this.persist()
     EVT.fire('cacheChange', { id })
     if (this.mountedId === id) {
@@ -287,6 +348,7 @@ class CrawlCache {
       return false
     }
     this.entries.splice(i, 1)
+    this.markDeleted(id)
     this.persist()
     EVT.fire('cacheChange', { id })
     if (mounted) {
@@ -370,29 +432,84 @@ class CrawlCache {
     return true
   }
 
+  private markDirty(id: string): void {
+    this.dirtyIds.add(id)
+    this.deletedIds.delete(id)
+    this.touchedIds.add(id)
+  }
+
+  private markDeleted(id: string): void {
+    this.dirtyIds.delete(id)
+    this.deletedIds.add(id)
+    this.touchedIds.add(id)
+  }
+
+  /** Replace the in-memory list. Fires cacheChange when the visible list
+   * changed, and demotes the mounted entry to "unsaved" if it is gone. */
+  private applyEntries(next: CacheEntry[]): void {
+    const sign = (list: CacheEntry[]) =>
+      JSON.stringify(list.map((e) => [e.id, e.title]))
+    const changed = sign(this.entries) !== sign(next)
+    this.entries = next
+    if (changed) {
+      EVT.fire('cacheChange', { id: '' })
+    }
+    // 掛載中的結果還在 store，改記成未存入快取
+    if (this.mountedId && !next.some((e) => e.id === this.mountedId)) {
+      this.mountedId = null
+      this.mountedUnsaved = true
+      this.fireMountChange(false)
+    }
+  }
+
   private persist(): void {
     window.clearTimeout(this.saveTimer)
     this.saveTimer = window.setTimeout(() => {
-      void this.saveEntries()
+      this.writeChain = this.writeChain.then(() => this.saveEntries())
     }, 200)
   }
 
+  /** Read-merge-write: other tabs may have saved entries since this tab
+   * loaded, so merge this tab's changes into the stored list. */
   private async saveEntries(): Promise<void> {
+    if (this.dirtyIds.size === 0 && this.deletedIds.size === 0) {
+      return
+    }
+    const dirty = new Set(this.dirtyIds)
+    const deleted = new Set(this.deletedIds)
+    this.touchedIds = new Set()
+    let merged: CacheEntry[] = this.entries
     try {
-      await chrome.storage.local.set({ [STORE_KEY]: this.entries })
+      const data = await chrome.storage.local.get(STORE_KEY)
+      merged = mergeEntries(
+        normalizeEntries(data[STORE_KEY]),
+        this.entries,
+        dirty,
+        deleted
+      )
+      await chrome.storage.local.set({ [STORE_KEY]: merged })
+      // Anything touched while the write was in flight stays pending
+      for (const id of dirty) {
+        if (!this.touchedIds.has(id)) this.dirtyIds.delete(id)
+      }
+      for (const id of deleted) {
+        if (!this.touchedIds.has(id)) this.deletedIds.delete(id)
+      }
+      // Keep entries added meanwhile: merge again over the written list
+      this.applyEntries(
+        mergeEntries(merged, this.entries, this.dirtyIds, this.deletedIds)
+      )
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       // 配額不足：由舊到新丟棄，直到能寫入（最新一筆優先保留）
-      if (/quota/i.test(msg) && this.entries.length > 1) {
-        const removed = this.entries.pop()
-        EVT.fire('cacheChange', { id: removed?.id ?? '' })
-        // 被丟掉的剛好是掛載中的：結果還在 store，改記成未存入快取
-        if (removed && removed.id === this.mountedId) {
-          this.mountedId = null
-          this.mountedUnsaved = true
-          this.fireMountChange(false)
-        }
-        log.warning(lang.transl('_cacheEvicted', removed?.title ?? ''))
+      if (/quota/i.test(msg) && merged.length > 1) {
+        const removed = merged[merged.length - 1]
+        // Recorded as deleted so the next merge does not bring it back
+        this.markDeleted(removed.id)
+        this.applyEntries(
+          mergeEntries(merged, this.entries, this.dirtyIds, this.deletedIds)
+        )
+        log.warning(lang.transl('_cacheEvicted', removed.title))
         this.persist()
         return
       }
