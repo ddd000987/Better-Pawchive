@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EVT } from '../src/EVT'
 import { Config } from '../src/Config'
 import {
   defaultSettings,
@@ -7,6 +8,25 @@ import {
   settings,
 } from '../src/setting/Settings'
 import type { SettingKey } from '../src/setting/Settings'
+
+type StorageListener = (
+  changes: Record<string, { newValue?: unknown }>,
+  area: string
+) => void
+
+// tests/setup.ts has no chrome.storage.onChanged; capture the listener every
+// Settings instance registers (hoisted: the singleton registers on import).
+const storageListeners = vi.hoisted(() => {
+  const list: StorageListener[] = []
+  ;(
+    globalThis as unknown as {
+      chrome: { storage: { onChanged: unknown } }
+    }
+  ).chrome.storage.onChanged = {
+    addListener: (fn: StorageListener) => list.push(fn),
+  }
+  return list
+})
 
 describe('sanitizeSetting', () => {
   it('downloadThread：夾取、四捨五入、非有限數與型別不符回預設', () => {
@@ -147,5 +167,167 @@ describe('migrateLegacySettings', () => {
     const out = migrateLegacySettings(input)
     expect(out).toEqual({ skipDownloaded: 'record', textContent: 'html' })
     expect(input.deduplication).toBe(true)
+  })
+})
+
+describe('cross-tab sync (chrome.storage.onChanged)', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 80))
+  const emit = (value: unknown, area = 'local', listener?: StorageListener) =>
+    (listener ?? storageListeners[0])(
+      { [Config.settingStoreName]: { newValue: value } },
+      area
+    )
+
+  const changes: { key: string; value: unknown }[] = []
+  const onChange = (ev: CustomEvent) => {
+    changes.push(ev.detail.data)
+  }
+  const track = () => {
+    changes.length = 0
+    EVT.on(EVT.list.settingChange, onChange)
+  }
+  afterEach(() => {
+    EVT.off(EVT.list.settingChange, onChange)
+  })
+
+  /** Bring the singleton to a known state: restored, nothing pending save. */
+  async function prepare() {
+    vi.spyOn(chrome.storage.local, 'get').mockResolvedValue({} as never)
+    await settings.restore()
+    settings.resetAll()
+    await flush()
+  }
+
+  it('applies a remote change, fires settingChange, and does not save', async () => {
+    await prepare()
+    const set = vi.spyOn(chrome.storage.local, 'set')
+    track()
+
+    emit({ ...defaultSettings, crawlInterval: 3, filterTitle: 'abc' })
+    await flush()
+
+    expect(settings.get('crawlInterval')).toBe(3)
+    expect(settings.get('filterTitle')).toBe('abc')
+    expect(changes).toEqual([
+      { key: 'crawlInterval', value: 3 },
+      { key: 'filterTitle', value: 'abc' },
+    ])
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('ignores an echo that carries no differing value', async () => {
+    await prepare()
+    settings.set('crawlInterval', 2)
+    await flush()
+    const set = vi.spyOn(chrome.storage.local, 'set')
+    track()
+
+    emit(JSON.parse(JSON.stringify(settings['store' as never])))
+    await flush()
+
+    expect(changes).toEqual([])
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('leaves keys absent from the remote value alone', async () => {
+    await prepare()
+    settings.set('namingRule', 'keep/{index}')
+    await flush()
+    track()
+
+    emit({ crawlInterval: 4 })
+
+    expect(settings.get('namingRule')).toBe('keep/{index}')
+    expect(settings.get('crawlInterval')).toBe(4)
+    expect(changes).toEqual([{ key: 'crawlInterval', value: 4 }])
+  })
+
+  it('sanitizes an invalid remote value to the default', async () => {
+    await prepare()
+    settings.set('downloadThread', 2)
+    await flush()
+    track()
+
+    emit({ downloadThread: 'many', textContent: 'bad' })
+
+    expect(settings.get('downloadThread')).toBe(Config.downloadThreadDefault)
+    expect(settings.get('textContent')).toBe(defaultSettings.textContent)
+    expect(changes).toEqual([
+      { key: 'downloadThread', value: Config.downloadThreadDefault },
+    ])
+  })
+
+  it('runs remote hotkeys through the hotkey validator', async () => {
+    await prepare()
+    track()
+    const alt = (key: string) => ({
+      key,
+      ctrl: false,
+      alt: true,
+      shift: false,
+      meta: false,
+    })
+
+    emit({
+      hotkeys: {
+        commandToggleCrawlPanel: alt('<img src=x onerror=alert(1)>'),
+        commandStartDefaultCrawl: alt('Tab'),
+        commandTogglePreviewWork: alt('KeyK'),
+      },
+    })
+
+    expect(settings.get('hotkeys')).toEqual({
+      commandTogglePreviewWork: alt('KeyK'),
+    })
+    expect(changes).toHaveLength(1)
+    expect(changes[0].key).toBe('hotkeys')
+  })
+
+  it('ignores other storage areas and a missing/non-object value', async () => {
+    await prepare()
+    track()
+    emit({ crawlInterval: 9 }, 'sync')
+    emit(undefined)
+    emit('nope')
+    expect(settings.get('crawlInterval')).toBe(defaultSettings.crawlInterval)
+    expect(changes).toEqual([])
+  })
+
+  it('does not overwrite a local change that is still waiting to be saved', async () => {
+    await prepare()
+    settings.set('crawlInterval', 7)
+    track()
+
+    emit({ crawlInterval: 1, filterTitle: 'remote' })
+
+    expect(settings.get('crawlInterval')).toBe(7)
+    expect(settings.get('filterTitle')).toBe('remote')
+    await flush()
+  })
+
+  it('holds an event that arrives before restore() finishes, then applies it', async () => {
+    vi.resetModules()
+    const before = storageListeners.length
+    const mod = await import('../src/setting/Settings')
+    const { EVT: evt } = await import('../src/EVT')
+    const listener = storageListeners[before]
+    const fresh = mod.settings
+    const seen: string[] = []
+    evt.on(evt.list.settingChange, (ev) => seen.push(ev.detail.data.key))
+
+    let resolveGet!: (v: unknown) => void
+    vi.spyOn(chrome.storage.local, 'get').mockReturnValue(
+      new Promise((r) => (resolveGet = r)) as never
+    )
+    const restoring = fresh.restore()
+    // storage read started; a remote write lands before it resolves
+    emit({ crawlInterval: 5 }, 'local', listener)
+    expect(fresh.get('crawlInterval')).toBe(mod.defaultSettings.crawlInterval)
+    resolveGet({ [Config.settingStoreName]: { filterTitle: 'old' } })
+    await restoring
+
+    expect(fresh.get('filterTitle')).toBe('old')
+    expect(fresh.get('crawlInterval')).toBe(5)
+    expect(seen).toEqual(['crawlInterval'])
   })
 })

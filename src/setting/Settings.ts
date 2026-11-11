@@ -329,9 +329,72 @@ function sanitizeSetting<K extends SettingKey>(
   return value as PawchiveSettings[K]
 }
 
+/** Run a raw stored/imported settings object through the legacy migration and
+ * per-key sanitizing (shared by restore() and the cross-tab storage listener).
+ * Keys absent from the input are absent from the result. */
+function parseStoredSettings(raw: object): Partial<PawchiveSettings> {
+  const saved = migrateLegacySettings(
+    raw as Record<string, unknown>
+  ) as Partial<PawchiveSettings>
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(defaultSettings) as SettingKey[]) {
+    // 存檔有此鍵就清洗後保留（型別不符／非法值回預設）
+    if (saved[key] !== undefined) {
+      out[key] = sanitizeSetting(key, saved[key])
+    }
+  }
+  return out as Partial<PawchiveSettings>
+}
+
 class Settings {
   private store: PawchiveSettings = { ...defaultSettings }
   private saveTimer = 0
+  /** Keys changed locally and not yet written; a remote change must not
+   * overwrite them (they are about to be saved over it). */
+  private dirtyKeys = new Set<SettingKey>()
+  /** Set when restore() has finished; storage events before that are held. */
+  private restored = false
+  /** Latest storage value seen while restore() was still running. */
+  private pendingRemote: object | null = null
+
+  constructor() {
+    // Other tabs share chrome.storage.local: pick up their changes so this
+    // tab neither shows stale values nor writes them back over newer ones.
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area !== 'local') {
+        return
+      }
+      const change = changes[Config.settingStoreName]
+      const value: unknown = change?.newValue
+      if (!value || typeof value !== 'object') {
+        return
+      }
+      if (!this.restored) {
+        // Applying now would race restore(); apply once it has finished.
+        this.pendingRemote = value
+        return
+      }
+      this.applyRemote(value)
+    })
+  }
+
+  /** Apply a settings object written by another tab. Only differing keys are
+   * assigned; each fires settingChange like set() but nothing is saved, so
+   * there is no write-back loop. Keys absent from the value are untouched. */
+  private applyRemote(raw: object): void {
+    const incoming = parseStoredSettings(raw)
+    for (const key of Object.keys(incoming) as SettingKey[]) {
+      if (this.dirtyKeys.has(key)) {
+        continue
+      }
+      const value = incoming[key]
+      if (JSON.stringify(value) === JSON.stringify(this.store[key])) {
+        continue
+      }
+      ;(this.store as Record<SettingKey, unknown>)[key] = value
+      EVT.fire('settingChange', { key, value })
+    }
+  }
 
   public get<K extends SettingKey>(key: K): PawchiveSettings[K] {
     return this.store[key]
@@ -341,6 +404,7 @@ class Settings {
     // 所有鍵統一清洗（擋掉面板輸入與設定匯入的髒資料）
     value = sanitizeSetting(key, value)
     this.store[key] = value
+    this.dirtyKeys.add(key)
     EVT.fire('settingChange', { key, value })
     this.scheduleSave()
   }
@@ -355,6 +419,7 @@ class Settings {
   private scheduleSave(): void {
     window.clearTimeout(this.saveTimer)
     this.saveTimer = window.setTimeout(() => {
+      this.dirtyKeys.clear()
       chrome.storage.local
         .set({ [Config.settingStoreName]: this.store })
         .catch((e) => console.error('[PawchivePro] save settings failed', e))
@@ -367,19 +432,8 @@ class Settings {
       const data = await chrome.storage.local.get(Config.settingStoreName)
       const raw = data[Config.settingStoreName] as unknown
       if (raw && typeof raw === 'object') {
-        // 舊版存檔先做相容轉換（合併跳過選項、丟掉已移除的鍵）
-        const saved = migrateLegacySettings(
-          raw as Record<string, unknown>
-        ) as Partial<PawchiveSettings>
-        for (const key of Object.keys(defaultSettings) as SettingKey[]) {
-          // 存檔有此鍵就清洗後寫回（型別不符／非法值回預設）
-          if (saved[key] !== undefined) {
-            ;(this.store as Record<SettingKey, unknown>)[key] = sanitizeSetting(
-              key,
-              saved[key]
-            )
-          }
-        }
+        // 舊版存檔先做相容轉換、逐鍵清洗（與跨分頁同步共用）
+        Object.assign(this.store, parseStoredSettings(raw))
       }
     } catch (e) {
       console.error('[PawchivePro] restore settings failed, use defaults', e)
@@ -391,7 +445,14 @@ class Settings {
     this.store.previewInfoPlacement = sanitizePreviewInfoPlacement(
       this.store.previewInfoPlacement
     )
+    this.restored = true
     EVT.fire('settingInitialized')
+    // A change from another tab that arrived mid-restore: apply it now
+    const pending = this.pendingRemote
+    this.pendingRemote = null
+    if (pending) {
+      this.applyRemote(pending)
+    }
   }
 }
 
