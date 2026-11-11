@@ -407,11 +407,13 @@ class DownloadControl {
     } else {
       // 重新下載：初始化下載狀態列表
       downloadStates.init()
+      // A fresh start drops force mode. Resuming a paused batch keeps it, so
+      // a paused "restart all" does not fall back to skipping duplicates.
+      this.forceBatch = false
     }
 
-    // 手動開始：重試計數歸零，去重按開關正常生效
+    // 手動開始：重試計數歸零
     this.errorRetryCount = 0
-    this.forceBatch = false
     void this.beginFreshDownload()
   }
 

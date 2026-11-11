@@ -392,6 +392,40 @@ describe('DownloadControl：暫停與繼續', () => {
     expect(mods.downloadStates.states).toEqual([1, 0, 0, 0, -1])
   })
 
+  it('resuming a paused "restart all" batch keeps force mode', async () => {
+    mods.store.result = results(5)
+    await mods.downloadControl.restartDownload()
+    await tick(1)
+    expect(m.downloads.every((d) => d.data.force === true)).toBe(true)
+    const before = m.downloads.length
+
+    mods.downloadControl.pauseDownload()
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+
+    const resumed = m.downloads.slice(before)
+    expect(resumed.length).toBeGreaterThan(0)
+    expect(resumed.every((d) => d.data.force === true)).toBe(true)
+  })
+
+  it('a fresh start after a finished force batch is not forced', async () => {
+    mods.store.result = results(2)
+    await mods.downloadControl.restartDownload()
+    await tick(1)
+    mods.downloadControl.stopDownload()
+    const before = m.downloads.length
+
+    vi.setSystemTime(Date.now() + 5000)
+    mods.states.busy = false
+    await mods.downloadControl.startDownload()
+    await tick(1)
+
+    const fresh = m.downloads.slice(before)
+    expect(fresh.length).toBeGreaterThan(0)
+    expect(fresh.every((d) => d.data.force !== true)).toBe(true)
+  })
+
   it('暫停中不補新任務：完成回執只更新狀態', async () => {
     await startWith(5)
     const batch = m.downloads[0].data.taskBatch
