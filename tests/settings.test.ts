@@ -331,3 +331,58 @@ describe('cross-tab sync (chrome.storage.onChanged)', () => {
     expect(seen).toEqual(['crawlInterval'])
   })
 })
+
+describe('settings that could not be read at startup', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 80))
+
+  /** A fresh Settings instance whose restore() failed to read storage. */
+  async function failedRestore() {
+    vi.resetModules()
+    const mod = await import('../src/setting/Settings')
+    const { EVT: evt } = await import('../src/EVT')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const get = vi
+      .spyOn(chrome.storage.local, 'get')
+      .mockRejectedValue(new Error('storage unavailable'))
+    const set = vi.spyOn(chrome.storage.local, 'set')
+    await mod.settings.restore()
+    let blocked = 0
+    evt.on(evt.list.settingSaveBlocked, () => blocked++)
+    return { fresh: mod.settings, get, set, blocked: () => blocked }
+  }
+
+  it('does not write defaults over the saved settings while the read keeps failing', async () => {
+    const { fresh, set, blocked } = await failedRestore()
+
+    fresh.set('filterTitle', 'mine')
+    await flush()
+    fresh.set('crawlInterval', 7)
+    await flush()
+
+    expect(set).not.toHaveBeenCalled()
+    // The user is told once, not on every change
+    expect(blocked()).toBe(1)
+    expect(fresh.get('filterTitle')).toBe('mine')
+  })
+
+  it('reads the saved settings before the first write once storage works again', async () => {
+    const { fresh, get, set, blocked } = await failedRestore()
+    get.mockResolvedValue({
+      [Config.settingStoreName]: { filterTitle: 'saved', crawlInterval: 5 },
+    } as never)
+
+    fresh.set('filterTitle', 'mine')
+    await flush()
+
+    // The local change wins for its key; every other key takes the saved value
+    expect(fresh.get('filterTitle')).toBe('mine')
+    expect(fresh.get('crawlInterval')).toBe(5)
+    expect(blocked()).toBe(0)
+    expect(set).toHaveBeenCalledTimes(1)
+    const written = (
+      set.mock.calls[0][0] as Record<string, Record<string, unknown>>
+    )[Config.settingStoreName]
+    expect(written.filterTitle).toBe('mine')
+    expect(written.crawlInterval).toBe(5)
+  })
+})

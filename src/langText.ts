@@ -1371,6 +1371,12 @@ export const langText = {
     `Import failed: invalid file format`,
     `インポートに失敗しました：ファイル形式が正しくありません`,
   ],
+  _settingsLoadFailed: [
+    `无法读取已保存的设置，目前显示的是默认值。为避免覆盖原有设置，本次的修改不会被保存；请重新加载页面后再试`,
+    `無法讀取已儲存的設定，目前顯示的是預設值。為避免覆蓋原有設定，這次的修改不會被儲存；請重新載入頁面後再試`,
+    `Your saved settings could not be read, so defaults are shown. To avoid overwriting them, changes made now are not saved; reload the page and try again`,
+    `保存済みの設定を読み込めなかったため、既定値を表示しています。上書きを防ぐため、今回の変更は保存されません。ページを再読み込みしてからやり直してください`,
+  ],
   // ---------- 進度條 / 停止鈕 ----------
   _downloadProgress: [`下载进度`, `下載進度`, `Progress`, `ダウンロードの進捗`],
   _stopCrawl: [`停止抓取`, `停止抓取`, `Stop crawling`, `クロール停止`],

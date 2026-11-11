@@ -21,6 +21,8 @@ class EVENT {
     settingInitialized: 'settingInitialized',
     /** 設定項變化 data: {key, value} */
     settingChange: 'settingChange',
+    /** A save was refused because the saved settings were never read */
+    settingSaveBlocked: 'settingSaveBlocked',
     /** 抓取開始 */
     crawlStart: 'crawlStart',
     /** 請求停止抓取 */

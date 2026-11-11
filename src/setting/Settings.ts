@@ -356,6 +356,10 @@ class Settings {
   private restored = false
   /** Latest storage value seen while restore() was still running. */
   private pendingRemote: object | null = null
+  /** Set when restore() could not read storage; saving is held back until a
+   * later read succeeds, so defaults never overwrite the saved settings. */
+  private loadFailed = false
+  private saveBlockedNotified = false
 
   constructor() {
     // Other tabs share chrome.storage.local: pick up their changes so this
@@ -418,12 +422,41 @@ class Settings {
 
   private scheduleSave(): void {
     window.clearTimeout(this.saveTimer)
-    this.saveTimer = window.setTimeout(() => {
-      this.dirtyKeys.clear()
-      chrome.storage.local
-        .set({ [Config.settingStoreName]: this.store })
-        .catch((e) => console.error('[PawchivePro] save settings failed', e))
-    }, 50)
+    this.saveTimer = window.setTimeout(() => void this.save(), 50)
+  }
+
+  private async save(): Promise<void> {
+    // The saved settings were never read, so the store holds defaults plus
+    // whatever was just changed. Writing it would replace the user's saved
+    // settings: read them first, and refuse to write while that still fails.
+    if (this.loadFailed && !(await this.retryLoad())) {
+      if (!this.saveBlockedNotified) {
+        this.saveBlockedNotified = true
+        EVT.fire('settingSaveBlocked')
+      }
+      return
+    }
+    this.dirtyKeys.clear()
+    chrome.storage.local
+      .set({ [Config.settingStoreName]: this.store })
+      .catch((e) => console.error('[PawchivePro] save settings failed', e))
+  }
+
+  /** Second attempt at the read that failed in restore(). Keys changed in the
+   * meantime keep their new value; every other key takes the saved one. */
+  private async retryLoad(): Promise<boolean> {
+    try {
+      const data = await chrome.storage.local.get(Config.settingStoreName)
+      const raw = data[Config.settingStoreName] as unknown
+      this.loadFailed = false
+      if (raw && typeof raw === 'object') {
+        this.applyRemote(raw)
+      }
+      return true
+    } catch (e) {
+      console.error('[PawchivePro] restore settings failed again', e)
+      return false
+    }
   }
 
   /** 啟動時呼叫：讀回存檔（缺鍵補預設），完成後發 settingInitialized */
@@ -437,6 +470,7 @@ class Settings {
       }
     } catch (e) {
       console.error('[PawchivePro] restore settings failed, use defaults', e)
+      this.loadFailed = true
     }
     // 快捷鍵表逐項校驗（舊存檔缺 hotkeys 鍵時沿用預設；同時斷開與
     // defaultSettings 的共享引用，避免後續誤改預設）

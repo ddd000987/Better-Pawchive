@@ -96,6 +96,9 @@ class SettingsCenter {
     EVT.on(EVT.list.settingInitialized, () => this.build(), {
       once: true,
     })
+    EVT.on(EVT.list.settingSaveBlocked, () => {
+      toast.error(lang.transl('_settingsLoadFailed'))
+    })
     this.bindGlobalCommands()
   }
 
