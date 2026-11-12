@@ -13,8 +13,13 @@ import { store } from '../store/Store'
 import { downloadStates } from './DownloadStates'
 
 function csvCell(value: string | number | boolean): string {
-  const s = String(value)
-  if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+  let s = String(value)
+  // A spreadsheet runs a text cell that starts like a formula; a leading
+  // apostrophe makes it plain text
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(s)) {
+    s = "'" + s
+  }
+  if (/[",\r\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`
   }
   return s
@@ -100,3 +105,5 @@ class ExportResult2CSV {
 }
 
 new ExportResult2CSV()
+
+export { csvCell }
