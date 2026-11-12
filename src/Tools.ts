@@ -141,7 +141,11 @@ function handleWindowsReservedName(str: string, addStr?: string): string {
       return addStr ? str + addStr : ''
     }
     if (str.toUpperCase().startsWith(name + '.')) {
-      return str.replace(/\./g, '．')
+      // "NUL.png" is reserved too. Extending the stem keeps the extension;
+      // without a suffix to add, fall back to replacing the dots.
+      return addStr
+        ? str.slice(0, name.length) + addStr + str.slice(name.length)
+        : str.replace(/\./g, '．')
     }
   }
   return str

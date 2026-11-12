@@ -139,13 +139,14 @@ describe('fileName.createFileName', () => {
 
   it('Windows 保留名（含 COM5-9/LPT4-9）不直接落地', () => {
     settings.set('namingRule', '{file_name}.{ext}')
-    // 保留名＋副檔名：點全形化，避免 Windows 建檔失敗
+    // Reserved name with an extension: the stem is extended, so Windows can
+    // create the file and it keeps its extension
     expect(
       fileName.createFileName(result({ fileName: 'COM5.png', ext: 'png' }))
-    ).toBe('COM5．png')
+    ).toBe('COM5[WindowsReservedName].png')
     expect(
       fileName.createFileName(result({ fileName: 'LPT9.zip', ext: 'zip' }))
-    ).toBe('LPT9．zip')
+    ).toBe('LPT9[WindowsReservedName].zip')
   })
 
   it('標記值中的 token 或 $& 不被二次解析', () => {

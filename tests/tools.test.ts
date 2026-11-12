@@ -86,6 +86,11 @@ describe('handleWindowsReservedName', () => {
     expect(handleWindowsReservedName('nul.tar.gz')).toBe('nul．tar．gz')
   })
 
+  it('reserved name with an extension: a given suffix extends the stem and the extension stays', () => {
+    expect(handleWindowsReservedName('nul.png', '_')).toBe('nul_.png')
+    expect(handleWindowsReservedName('CON.tar.gz', '[x]')).toBe('CON[x].tar.gz')
+  })
+
   it('只是以保留名開頭但不是保留名（CONSOLE、COM10）原樣返回', () => {
     expect(handleWindowsReservedName('CONSOLE')).toBe('CONSOLE')
     expect(handleWindowsReservedName('COM10')).toBe('COM10')
