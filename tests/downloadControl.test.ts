@@ -848,3 +848,64 @@ describe('DownloadControl: batches that skipped files', () => {
     expect(m.log.success).toHaveBeenCalledWith('_downloadFinished')
   })
 })
+
+describe('DownloadControl: save retries are counted per file', () => {
+  const priv = () =>
+    mods.downloadControl as unknown as {
+      errorRetryCount: number
+      saveRetryCounts: Map<string, number>
+    }
+
+  it('retryable save failures on four different files do not use the batch retry budget', async () => {
+    m.settingValues.downloadThread = 5
+    await startWith(5)
+    const batch = m.downloads[0].data.taskBatch
+    expect(m.downloads).toHaveLength(5)
+
+    for (const i of [0, 1, 2, 3]) {
+      onMessage(downloadErr(i, batch, { err: 'SERVER_FAILED' }))
+    }
+    expect(priv().errorRetryCount).toBe(0)
+
+    await tick(3100)
+    expect(priv().errorRetryCount).toBe(0)
+    expect(m.downloads).toHaveLength(9)
+    expect(m.downloads.slice(5).map((d) => d.index)).toEqual([0, 1, 2, 3])
+  })
+
+  it('the same file failing its save SAVE_RETRY_MAX + 1 times is given up on', async () => {
+    await startWith(5)
+    const batch = m.downloads[0].data.taskBatch
+    const attemptsOnFile0 = () =>
+      m.downloads.filter((d) => d.index === 0).length
+    expect(attemptsOnFile0()).toBe(1)
+
+    // Three failures are retried in place, one after the other
+    for (let n = 1; n <= 3; n++) {
+      onMessage(downloadErr(0, batch, { err: 'SERVER_FAILED' }))
+      await tick(3100)
+      expect(attemptsOnFile0()).toBe(1 + n)
+    }
+
+    // The fourth failure is not retried: the file goes to the error list
+    onMessage(downloadErr(0, batch, { err: 'SERVER_FAILED' }))
+    await tick(3100)
+    expect(attemptsOnFile0()).toBe(4)
+    expect(mods.downloadStates.isSettled(0)).toBe(true)
+    expect((mods.downloadControl as any).errorIdList).toContain(id(0))
+    expect(priv().saveRetryCounts.has(id(0))).toBe(false)
+    expect(priv().errorRetryCount).toBe(0)
+  })
+
+  it('a successful save clears the count of that file', async () => {
+    await startWith(3)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { err: 'SERVER_FAILED' }))
+    expect(priv().saveRetryCounts.get(id(0))).toBe(1)
+    await tick(3100)
+
+    onMessage(downloaded(0, batch))
+    expect(priv().saveRetryCounts.has(id(0))).toBe(false)
+  })
+})

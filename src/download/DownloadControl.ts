@@ -68,6 +68,15 @@ class DownloadControl {
   private errorRetryCount = 0
   /** 自動重試的最大次數 */
   private static readonly ERROR_RETRY_MAX = 3
+
+  /**
+   * Save retries used so far, per file id. A transient save failure is retried
+   * in place up to SAVE_RETRY_MAX times; this is separate from errorRetryCount,
+   * which is the budget of the batch-level retry rounds.
+   */
+  private saveRetryCounts = new Map<string, number>()
+  /** Max in-place retries of one file after a failed save */
+  private static readonly SAVE_RETRY_MAX = 3
   /** 自動重試的退避等待（ms），按次數遞增 */
   private static readonly ERROR_RETRY_DELAYS = [30000, 60000, 120000]
   /** 重試世代：新抓取開始時遞增，舊的重試等待直接作廢 */
@@ -244,6 +253,7 @@ class DownloadControl {
           // 發送下載成功的事件
           EVT.fire('downloadSuccess', msg.data)
           this.saveRequestFailStreak = 0
+          this.saveRetryCounts.delete(msg.data.id)
           this.downloadOrSkipAFile(msg.data)
         } catch (error) {
           console.error('downloaded 分支執行出錯', error)
@@ -350,6 +360,7 @@ class DownloadControl {
   private resetFailureCounters() {
     this.saveRequestFailStreak = 0
     this.failedSkipCount = 0
+    this.saveRetryCounts.clear()
   }
 
   /**
@@ -724,15 +735,17 @@ class DownloadControl {
       return false
     }
 
-    // 保存失敗的重試也計入上限，滿了就當作下載失敗，避免無限重開
-    if (this.errorRetryCount >= DownloadControl.ERROR_RETRY_MAX) {
-      log.error(
-        lang.transl('_retryGiveUp', String(DownloadControl.ERROR_RETRY_MAX))
-      )
+    // Each file gets its own retry allowance, so failures elsewhere in a big
+    // batch do not use up the batch-level retry budget. When it runs out the
+    // file counts as failed; dropping the entry lets a later batch-level retry
+    // round give it a fresh allowance.
+    const used = this.saveRetryCounts.get(data.id) ?? 0
+    if (used >= DownloadControl.SAVE_RETRY_MAX) {
+      this.saveRetryCounts.delete(data.id)
       this.downloadError(data.id)
       return false
     }
-    this.errorRetryCount++
+    this.saveRetryCounts.set(data.id, used + 1)
 
     const taskBatch = this.taskBatch
     await sleep(3000)
