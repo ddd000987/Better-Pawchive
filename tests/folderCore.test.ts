@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { FolderChecker, locateUnderRoot } from '../src/folder/folderCore'
+import {
+  FolderChecker,
+  isPermissionError,
+  locateUnderRoot,
+} from '../src/folder/folderCore'
 
 function domErr(name: string) {
   return { name, message: name }
@@ -220,5 +224,43 @@ describe('FolderChecker.existsMany', () => {
     ])
     expect(r.found).toEqual(['kemono/b/2.png'])
     expect(r.mismatch).toBe(false)
+  })
+
+  it('rethrows a lost permission instead of treating the files as missing', async () => {
+    const root = fakeDir('kemono', { a: { '1.png': 5 } })
+    root.getDirectoryHandle = vi.fn(async () => {
+      throw domErr('NotAllowedError')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(
+      new FolderChecker(root).existsMany(['kemono/a/1.png'])
+    ).rejects.toMatchObject({ name: 'NotAllowedError' })
+  })
+
+  it('rethrows a lost permission raised while listing a folder', async () => {
+    const root = fakeDir('kemono', { '1.png': 5 })
+    root.values = vi.fn(() => ({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          throw domErr('NotAllowedError')
+        },
+      }),
+    }))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(
+      new FolderChecker(root).existsMany(['kemono/1.png'])
+    ).rejects.toMatchObject({ name: 'NotAllowedError' })
+  })
+})
+
+describe('isPermissionError', () => {
+  it('is true only for NotAllowedError', () => {
+    expect(isPermissionError(domErr('NotAllowedError'))).toBe(true)
+    expect(isPermissionError(domErr('SecurityError'))).toBe(false)
+    expect(isPermissionError(domErr('NotFoundError'))).toBe(false)
+    expect(isPermissionError(new Error('NotAllowedError'))).toBe(false)
+    expect(isPermissionError(null)).toBe(false)
+    expect(isPermissionError(undefined)).toBe(false)
+    expect(isPermissionError('NotAllowedError')).toBe(false)
   })
 })

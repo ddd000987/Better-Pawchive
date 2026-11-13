@@ -12,7 +12,12 @@
  *   folder_open_page { mode }             → FolderOpenPageResponse
  */
 
-import { FolderChecker, getFolderStatus, loadRootHandle } from './folderCore'
+import {
+  FolderChecker,
+  getFolderStatus,
+  isPermissionError,
+  loadRootHandle,
+} from './folderCore'
 import type {
   DirHandleLike,
   FolderErrorResponse,
@@ -52,8 +57,18 @@ async function existsMany(paths: string[]): Promise<FolderExistsManyResponse> {
     return opened.gate
   }
   const { handle } = opened
-  const { found, mismatch } = await new FolderChecker(handle).existsMany(paths)
-  return { status: 'ok', name: handle.name, found, mismatch }
+  try {
+    const { found, mismatch } = await new FolderChecker(handle).existsMany(
+      paths
+    )
+    return { status: 'ok', name: handle.name, found, mismatch }
+  } catch (e) {
+    // The permission was withdrawn while the batch was being checked
+    if (isPermissionError(e)) {
+      return { status: 'noPermission', name: handle.name }
+    }
+    throw e
+  }
 }
 
 async function exists(path: string): Promise<FolderExistsResponse> {

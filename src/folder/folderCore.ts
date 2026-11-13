@@ -100,11 +100,15 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
+// Every call opens its own connection, so each one is closed when it is done
+// (close() waits for the running transaction to finish).
 async function idbGet(key: string): Promise<unknown> {
+  let db: IDBDatabase | undefined
   try {
-    const db = await openDb()
+    db = await openDb()
+    const opened = db
     return await new Promise((resolve, reject) => {
-      const req = db
+      const req = opened
         .transaction(STORE_NAME, 'readonly')
         .objectStore(STORE_NAME)
         .get(key)
@@ -114,14 +118,18 @@ async function idbGet(key: string): Promise<unknown> {
   } catch (e) {
     console.error('[PawchivePro] read folder handle failed', e)
     return undefined
+  } finally {
+    db?.close()
   }
 }
 
 async function idbPut(key: string, value: unknown): Promise<boolean> {
+  let db: IDBDatabase | undefined
   try {
-    const db = await openDb()
+    db = await openDb()
+    const opened = db
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const tx = opened.transaction(STORE_NAME, 'readwrite')
       tx.objectStore(STORE_NAME).put(value, key)
       tx.oncomplete = () => resolve(true)
       tx.onerror = () => reject(tx.error)
@@ -130,6 +138,8 @@ async function idbPut(key: string, value: unknown): Promise<boolean> {
   } catch (e) {
     console.error('[PawchivePro] save folder handle failed', e)
     return false
+  } finally {
+    db?.close()
   }
 }
 
@@ -137,6 +147,12 @@ async function idbPut(key: string, value: unknown): Promise<boolean> {
 function isMissingError(e: unknown): boolean {
   const name = (e as { name?: string } | null)?.name
   return name === 'NotFoundError' || name === 'TypeMismatchError'
+}
+
+/** The read permission was withdrawn (or never granted). SecurityError is not
+ * counted: the browser raises it for single folders it refuses to open. */
+export function isPermissionError(e: unknown): boolean {
+  return (e as { name?: string } | null)?.name === 'NotAllowedError'
 }
 
 /** 讀出已保存的根資料夾 handle（沒有回 null） */
@@ -280,6 +296,11 @@ export class FolderChecker {
           }
         }
       } catch (e) {
+        // Losing the permission is not "the files are missing": let the
+        // caller report that the folder cannot be checked
+        if (isPermissionError(e)) {
+          throw e
+        }
         // 單一資料夾出錯不拖垮整批：該資料夾視為都不存在
         console.error('[PawchivePro] check local folder failed', e)
       }

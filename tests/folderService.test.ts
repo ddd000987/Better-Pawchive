@@ -126,6 +126,20 @@ describe('folderService 訊息處理', () => {
     expect(r.response).toEqual({ status: 'noPermission', name: 'kemono' })
   })
 
+  it('folder_exists_many: answers noPermission when the permission is lost mid-batch', async () => {
+    const root = fakeRoot('kemono', 'granted', { '1.png': 10 })
+    root.getDirectoryHandle = vi.fn(async () => {
+      throw { name: 'NotAllowedError', message: 'NotAllowedError' }
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.loadRootHandle.mockResolvedValue(root)
+    const r = await call({
+      msg: 'folder_exists_many',
+      paths: ['kemono/1.png', 'kemono/a/2.png'],
+    })
+    expect(r.response).toEqual({ status: 'noPermission', name: 'kemono' })
+  })
+
   it('folder_exists_many：happy path', async () => {
     mocks.loadRootHandle.mockResolvedValue(
       fakeRoot('kemono', 'granted', { '1.png': 10, '2.png': 0 })
