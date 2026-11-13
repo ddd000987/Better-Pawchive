@@ -99,6 +99,19 @@ describe('store', () => {
     expect(store.resultMeta).toHaveLength(0)
   })
 
+  it('reset keeps tasks queued behind the crawl that is starting', () => {
+    store.waitingIdList = [{ id: 'patreon/u1/1000', type: 'post' }]
+    store.waitingFullCrawl = true
+    store.reset()
+    expect(store.waitingIdList).toHaveLength(1)
+    expect(store.waitingFullCrawl).toBe(true)
+
+    // loadSnapshot replaces the results and drops what was queued
+    store.loadSnapshot([], [])
+    expect(store.waitingIdList).toHaveLength(0)
+    expect(store.waitingFullCrawl).toBe(false)
+  })
+
   it('reset 清空並記錄頁面類型', () => {
     store.addResult(META, FILES)
     store.reset()

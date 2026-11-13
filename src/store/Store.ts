@@ -173,8 +173,9 @@ class Store {
     this.postKeyList = []
     this.result = []
     this.idList = []
-    this.waitingIdList = []
-    this.waitingFullCrawl = false
+    // The waiting queues are left alone: a crawl can start while other tasks
+    // are still queued behind it, and they must run afterwards. Stopping the
+    // download or the crawl, or loading a snapshot, is what clears them.
     this.remainingDownload = 0
     this.title = document.title
     const page = detectPage()

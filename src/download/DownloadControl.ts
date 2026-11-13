@@ -508,7 +508,14 @@ class DownloadControl {
       return true
     }
     // 用戶已停止抓取：不接著開下一輪，保留現有部分結果
+    // Tasks queued after the stop would otherwise survive into the user's next,
+    // unrelated crawl and run after it, so drop them here
     if (states.stopCrawl) {
+      if (store.waitingIdList.length > 0 || store.waitingFullCrawl) {
+        store.waitingIdList = []
+        store.waitingFullCrawl = false
+        log.warning(lang.transl('_queuedCancelled'))
+      }
       return false
     }
     if (store.waitingFullCrawl) {

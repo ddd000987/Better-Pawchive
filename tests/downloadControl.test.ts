@@ -1270,3 +1270,64 @@ describe('DownloadControl: a save in flight survives pause and resume', () => {
     expect(mods.downloadStates.states).toEqual([0, 0])
   })
 })
+
+describe('DownloadControl: queued tasks and a stopped crawl', () => {
+  const queued = [{ id: 'patreon/u1/9', type: 'post' as const }]
+  let fired: string[]
+
+  beforeEach(() => {
+    fired = []
+    for (const name of ['crawlIdList', 'commandStartDefaultCrawl'] as const) {
+      mods.EVT.on(name as eventNames, () => fired.push(name))
+    }
+  })
+
+  it('drops the queue and warns when the user has stopped the crawl', async () => {
+    mods.states.stopCrawl = true
+    mods.store.waitingIdList = [...queued]
+    mods.store.waitingFullCrawl = true
+    m.log.warning.mockClear()
+
+    mods.EVT.fire('downloadComplete')
+    await tick(10)
+
+    expect(mods.store.waitingIdList).toEqual([])
+    expect(mods.store.waitingFullCrawl).toBe(false)
+    expect(m.log.warning).toHaveBeenCalledWith('_queuedCancelled')
+    expect(fired).toEqual([])
+  })
+
+  it('drops a queued id list as well', async () => {
+    mods.states.stopCrawl = true
+    mods.store.waitingIdList = [...queued]
+
+    mods.EVT.fire('downloadComplete')
+    await tick(10)
+
+    expect(mods.store.waitingIdList).toEqual([])
+    expect(fired).toEqual([])
+  })
+
+  it('still drains the queue when the crawl was not stopped', async () => {
+    mods.states.stopCrawl = false
+    mods.store.waitingIdList = [...queued]
+
+    mods.EVT.fire('downloadComplete')
+    await tick(10)
+
+    expect(mods.store.waitingIdList).toEqual([])
+    expect(fired).toEqual(['crawlIdList'])
+    expect(m.log.warning).not.toHaveBeenCalledWith('_queuedCancelled')
+  })
+
+  it('still starts a queued full crawl when the crawl was not stopped', async () => {
+    mods.states.stopCrawl = false
+    mods.store.waitingFullCrawl = true
+
+    mods.EVT.fire('downloadComplete')
+    await tick(10)
+
+    expect(mods.store.waitingFullCrawl).toBe(false)
+    expect(fired).toEqual(['commandStartDefaultCrawl'])
+  })
+})
