@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Config } from '../src/Config'
 
 // ---- 會碰 DOM／網路／儲存的模組一律 mock ----
 const m = vi.hoisted(() => ({
@@ -11,6 +12,7 @@ const m = vi.hoisted(() => ({
     isErrorResponse: (d: any) => !!d && typeof d === 'object' && 'error' in d,
   },
   interval: { wait: vi.fn(async () => true) },
+  checkFileSize: vi.fn((_size: number) => true),
   settings: {
     get: vi.fn((k: string): unknown => {
       const map: Record<string, unknown> = {
@@ -34,7 +36,10 @@ vi.mock('../src/Language', () => ({
 vi.mock('../src/kemono/api', () => ({ api: m.api }))
 vi.mock('../src/setting/Settings', () => ({ settings: m.settings }))
 vi.mock('../src/filter/Filter', () => ({
-  filter: { isKindAllowed: () => true, checkFileSize: () => true },
+  filter: {
+    isKindAllowed: () => true,
+    checkFileSize: (size: number) => m.checkFileSize(size),
+  },
 }))
 vi.mock('../src/filename/FileName', () => ({
   fileName: { createFileName: (r: any) => `${r.id}.${r.ext}` },
@@ -113,6 +118,8 @@ describe('快下串行佇列', () => {
       m.events.push('wait')
       return true
     })
+    m.checkFileSize.mockReset()
+    m.checkFileSize.mockReturnValue(true)
     m.api.post.mockReset()
     m.api.profile.mockReset()
     m.api.post.mockResolvedValue({
@@ -218,5 +225,61 @@ describe('快下串行佇列', () => {
     expect(
       (globalThis as any).chrome.runtime.sendMessage
     ).toHaveBeenCalledTimes(1)
+  })
+
+  describe('Content-Length above the direct download threshold', () => {
+    /** Response with a Content-Length header and a body that must stay unread */
+    const sizedRes = (length: number) => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (k: string) =>
+          k.toLowerCase() === 'content-length' ? `${length}` : null,
+      },
+      body: null,
+      blob: async () => new Blob(['x']),
+    })
+
+    /** Stub fetch, run one post, and return the signal that fetch received */
+    const run = async (length: number) => {
+      let signal: AbortSignal | undefined
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          signal = init?.signal ?? undefined
+          return sizedRes(length)
+        })
+      )
+      const { downloadPost } = await import('../src/download/quickDownload')
+      await downloadPost('patreon/u1/1')
+      return signal
+    }
+
+    const sent = () =>
+      (
+        (globalThis as any).chrome.runtime.sendMessage as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls
+
+    it('aborts the request and hands the file to the browser', async () => {
+      const signal = await run(Config.directDownloadThreshold + 1)
+      expect(signal?.aborted).toBe(true)
+      expect(sent()).toHaveLength(1)
+      expect(sent()[0][0].url).toContain('/data')
+    })
+
+    it('aborts the request when the size limit skips the file', async () => {
+      m.checkFileSize.mockReturnValue(false)
+      const signal = await run(Config.directDownloadThreshold + 1)
+      expect(signal?.aborted).toBe(true)
+      expect(sent()).toHaveLength(0)
+    })
+
+    it('keeps the request open for a small file', async () => {
+      const signal = await run(10)
+      expect(signal?.aborted).toBe(false)
+      expect(sent()).toHaveLength(1)
+    })
   })
 })

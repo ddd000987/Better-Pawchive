@@ -310,6 +310,9 @@ async function sendPicked(
         )
         if (contentLength > threshold) {
           // 已知超過門檻：不整檔讀進分頁記憶體，改由瀏覽器直接下載
+          // The body is not read here: end the request so it does not keep
+          // downloading next to the browser's own download
+          controller.abort()
           if (!filter.checkFileSize(contentLength)) {
             log.warning('🚫' + lang.transl('_skipSize', result.id), 'skipSize')
             continue
