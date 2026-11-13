@@ -21,6 +21,10 @@ import { Result } from '../store/StoreType'
 import { toast } from '../Toast'
 
 const STORE_KEY = 'pawchiveProDownloadRecord'
+/** Quiet time after the last new record before it is written */
+const SAVE_DEBOUNCE_MS = 200
+/** Longest a new record waits for its write while more keep arriving */
+const SAVE_MAX_WAIT_MS = 2000
 
 /** 單條下載記錄：{id 檔 id, n 檔名, d 發布日期, s 展開形狀指紋} */
 export interface RecordItem {
@@ -76,9 +80,23 @@ class DownloadRecord {
     return this.loadPromise
   }
 
+  /** When the oldest unsaved record must be written at the latest (0 = none) */
+  private saveDeadline = 0
+
+  /** Debounced, but never put off past SAVE_MAX_WAIT_MS: files that finish in
+   * quick succession would otherwise keep pushing the save back, and closing
+   * the tab would lose every record since the last write. */
   private scheduleSave(): void {
+    const now = Date.now()
+    if (this.saveDeadline === 0) {
+      this.saveDeadline = now + SAVE_MAX_WAIT_MS
+    }
+    const delay = Math.max(
+      0,
+      Math.min(SAVE_DEBOUNCE_MS, this.saveDeadline - now)
+    )
     window.clearTimeout(this.saveTimer)
-    this.saveTimer = window.setTimeout(() => this.persist(), 200)
+    this.saveTimer = window.setTimeout(() => this.persist(), delay)
   }
 
   /** 寫入失敗時只提醒一次，避免每個檔案都跳 toast */
@@ -93,6 +111,7 @@ class DownloadRecord {
   }
 
   private persist(): void {
+    this.saveDeadline = 0
     const run = this.writeChain.then(() => this.write())
     this.writeChain = run
   }
@@ -300,9 +319,17 @@ class DownloadRecord {
     })
 
     // 下載完成即時落盤，避免防抖窗口內關頁面丟失尾部記錄
-    EVT.on(EVT.list.downloadComplete, () => {
-      window.clearTimeout(this.saveTimer)
-      this.persist()
+    // A paused or stopped batch is also a moment the tab may get closed
+    const flushEvents = [
+      EVT.list.downloadComplete,
+      EVT.list.downloadPause,
+      EVT.list.downloadStop,
+    ]
+    flushEvents.forEach((evt) => {
+      EVT.on(evt, () => {
+        window.clearTimeout(this.saveTimer)
+        this.persist()
+      })
     })
 
     EVT.on(EVT.list.exportDownloadRecord, () => {

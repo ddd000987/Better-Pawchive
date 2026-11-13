@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { downloadRecord } from '../src/download/DownloadRecord'
 import { settings } from '../src/setting/Settings'
 import type { Result } from '../src/store/StoreType'
@@ -455,5 +455,59 @@ describe('downloadRecord across tabs', () => {
       'patreon/u1/2#0',
       'patreon/u1/3#0',
     ])
+  })
+
+  describe('save timing', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** Fresh instance with the first load done, running on fake timers */
+    async function freshOnFakeTimers() {
+      const ctx = await fresh()
+      await ctx.r.count()
+      vi.useFakeTimers()
+      return ctx
+    }
+
+    it('writes a lone record about 200 ms after it was added', async () => {
+      const { r } = await freshOnFakeTimers()
+      await r.addRecord(file('patreon/u1/0#0'))
+      await vi.advanceTimersByTimeAsync(150)
+      expect(setCalls).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(setCalls).toHaveLength(1)
+      expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+    })
+
+    it('does not postpone the write past 2 s while records keep arriving', async () => {
+      const { r } = await freshOnFakeTimers()
+      // One record every 100 ms: the 200 ms debounce alone would never fire
+      for (let i = 0; i < 21; i++) {
+        await r.addRecord(file(`patreon/u1/${i}#0`))
+        await vi.advanceTimersByTimeAsync(100)
+      }
+      expect(setCalls.length).toBeGreaterThanOrEqual(1)
+      expect(Object.keys(mem[KEY]).length).toBeGreaterThan(0)
+      // The rest is written once the stream ends
+      await vi.advanceTimersByTimeAsync(300)
+      expect(Object.keys(mem[KEY])).toHaveLength(21)
+    })
+
+    it.each(['downloadPause', 'downloadStop'] as const)(
+      'flushes the pending save at once on %s',
+      async (name) => {
+        const { r, evt } = await freshOnFakeTimers()
+        await r.addRecord(file('patreon/u1/0#0'))
+        expect(setCalls).toHaveLength(0)
+        evt.fire(name)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(setCalls).toHaveLength(1)
+        expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+        // The cancelled debounce timer does not write a second time
+        await vi.advanceTimersByTimeAsync(500)
+        expect(setCalls).toHaveLength(1)
+      }
+    )
   })
 })
