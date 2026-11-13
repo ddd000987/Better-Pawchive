@@ -38,6 +38,18 @@ describe('expandPost', () => {
     settings.set('downloadOriginalImage', true)
   })
 
+  it('takes the extension from the path when the name has none', () => {
+    const ext = (name: string, path: string) =>
+      expandPost(
+        fixture({ file: undefined, attachments: [{ name, path }] }),
+        'c',
+        HOST
+      ).files.find((f) => f.kind !== 'text')?.ext
+    expect(ext('image', '/ab/cd/hash.png')).toBe('png')
+    expect(ext('a.jpg', '/x/y.png')).toBe('jpg')
+    expect(ext('noext', '/x/noext')).toBe('bin')
+  })
+
   it('展開附件+封面+文字檔，URL 一次算好', () => {
     const { pending, files } = expandPost(fixture(), 'creator', HOST)
     expect(pending).toBe(false)

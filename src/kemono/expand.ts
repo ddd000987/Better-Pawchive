@@ -114,7 +114,8 @@ function expandPost(
     files.push({
       kind: kindOf(file, isCover),
       fileName: name,
-      ext: extensionOf(name) || 'bin',
+      // The display name may carry no extension while the stored path does
+      ext: extensionOf(name) || extensionOf(file.path) || 'bin',
       fileUrl: url,
       previewOnly: file.preview_only === true,
       textData: '',
