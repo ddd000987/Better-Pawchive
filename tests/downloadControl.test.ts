@@ -71,6 +71,8 @@ type Mods = {
 }
 let mods: Mods
 let onMessage: (msg: any) => void
+/** What the mocked background answers to a query_saving message */
+let querySavingAnswer: (msg: { ids: string[] }) => unknown
 const events: Record<string, any[]> = {}
 
 function results(n: number): any[] {
@@ -146,7 +148,11 @@ beforeEach(async () => {
     setFileDownloadOrder: false,
   }
 
-  g.chrome.runtime.sendMessage = vi.fn()
+  // Only query_saving is answered; every other message is fire-and-forget
+  querySavingAnswer = () => ({ saving: [] })
+  g.chrome.runtime.sendMessage = vi.fn((msg: any) =>
+    msg?.msg === 'query_saving' ? querySavingAnswer(msg) : undefined
+  )
   g.chrome.runtime.onMessage = {
     addListener: (fn: (msg: any) => void) => {
       onMessage = fn
@@ -907,5 +913,360 @@ describe('DownloadControl: save retries are counted per file', () => {
 
     onMessage(downloaded(0, batch))
     expect(priv().saveRetryCounts.has(id(0))).toBe(false)
+  })
+})
+
+describe('DownloadControl: a save in flight survives pause and resume', () => {
+  /**
+   * Files A (index 0) and B (index 1); A is handed to the browser, then pause.
+   * The mocked background confirms that A is still being saved.
+   */
+  async function pausedWithASaving() {
+    await startWith(2)
+    const oldBatch = m.downloads[0].data.taskBatch
+    mods.EVT.fire('sendBrowserDownload', { id: id(0), fileName: 'a.png' })
+    mods.downloadControl.pauseDownload()
+    querySavingAnswer = () => ({
+      saving: [{ id: id(0), taskBatch: oldBatch }],
+    })
+    return oldBatch
+  }
+
+  /** Resume the paused batch; returns the new batch token */
+  async function resume() {
+    const before = m.downloads.length
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+    return {
+      before,
+      after: m.downloads.length,
+      batch: m.downloads[m.downloads.length - 1].data.taskBatch,
+    }
+  }
+
+  it('does not download A again; its old-batch receipt completes it', async () => {
+    const oldBatch = await pausedWithASaving()
+    const { before, after, batch } = await resume()
+
+    expect(batch).not.toBe(oldBatch)
+    // Only B is fetched in the resumed batch
+    expect(m.downloads.slice(before).map((d) => d.index)).toEqual([1])
+    expect(mods.downloadStates.states).toEqual([0, 0])
+
+    onMessage(downloaded(0, oldBatch))
+    expect(mods.downloadStates.states).toEqual([1, 0])
+    expect(events.downloadSuccess).toHaveLength(1)
+    expect(m.record.addRecord).toHaveBeenCalledTimes(1) // from the stale branch
+    expect(m.downloads).toHaveLength(after) // no new Download
+
+    onMessage(downloaded(1, batch))
+    await tick(1)
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(m.log.success).toHaveBeenCalledWith('_downloadFinished')
+  })
+
+  it('a plain save error ends in the error list and the retry round fetches A again', async () => {
+    const oldBatch = await pausedWithASaving()
+    const { after, batch } = await resume()
+
+    onMessage(downloadErr(0, oldBatch, { err: 'SERVER_FAILED' }))
+    expect((mods.downloadControl as any).errorIdList).toEqual([id(0)])
+    expect(mods.downloadStates.isSettled(0)).toBe(true)
+    expect(m.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('_saveFailedRetry|'),
+      'saveFailedRetry'
+    )
+
+    onMessage(downloaded(1, batch))
+    expect(events.downloadPause).toHaveLength(2) // user pause + retry round
+    expect(m.downloads).toHaveLength(after)
+
+    await tick(30_001)
+    const refetch = m.downloads.slice(after)
+    expect(refetch.map((d) => d.index)).toEqual([0])
+    expect(refetch[0].data.taskBatch).not.toBe(batch)
+    expect(mods.downloadStates.states).toEqual([0, 1])
+  })
+
+  it('USER_CANCELED counts A as done and as a skip', async () => {
+    const oldBatch = await pausedWithASaving()
+    const { after, batch } = await resume()
+
+    onMessage(downloadErr(0, oldBatch, { err: 'USER_CANCELED' }))
+    expect(mods.downloadStates.states).toEqual([1, 0])
+    expect((mods.downloadControl as any).failedSkipCount).toBe(1)
+    expect(m.downloads).toHaveLength(after)
+
+    onMessage(downloaded(1, batch))
+    await tick(1)
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|1')
+  })
+
+  it('saveRequestFailed counts A as done and as a skip', async () => {
+    const oldBatch = await pausedWithASaving()
+    await resume()
+
+    onMessage(
+      downloadErr(0, oldBatch, {
+        saveRequestFailed: true,
+        runtimeError: 'Invalid filename',
+      })
+    )
+    expect(mods.downloadStates.states).toEqual([1, 0])
+    expect((mods.downloadControl as any).failedSkipCount).toBe(1)
+    expect(m.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('_saveRequestFailed|Invalid filename')
+    )
+  })
+
+  it('stopDownload forgets the carried save: a late old-batch receipt changes no state', async () => {
+    const oldBatch = await pausedWithASaving()
+    await resume()
+    expect((mods.downloadControl as any).carriedIds.size).toBe(1)
+
+    mods.downloadControl.stopDownload()
+    expect((mods.downloadControl as any).carriedIds.size).toBe(0)
+    expect(mods.downloadStates.states).toEqual([-1, -1])
+
+    onMessage(downloaded(0, oldBatch))
+    expect(mods.downloadStates.states).toEqual([-1, -1])
+    expect(events.downloadSuccess).toHaveLength(0)
+    expect(mods.store.remainingDownload).toBe(2)
+  })
+
+  it('a receipt that arrives while still paused takes the normal path', async () => {
+    const oldBatch = await pausedWithASaving()
+
+    onMessage(downloaded(0, oldBatch))
+    expect(mods.downloadStates.states).toEqual([1, 0])
+    expect(events.downloadSuccess).toHaveLength(1)
+    expect((mods.downloadControl as any).savingIds.has(id(0))).toBe(false)
+
+    // Resuming afterwards: A is already done, nothing is carried
+    const { before } = await resume()
+    expect((mods.downloadControl as any).carriedIds.size).toBe(0)
+    expect(m.downloads.slice(before).map((d) => d.index)).toEqual([1])
+  })
+
+  it('a file whose receipt already arrived is not kept on resume', async () => {
+    await startWith(2)
+    mods.EVT.fire('sendBrowserDownload', { id: id(0), fileName: 'a.png' })
+    mods.downloadControl.pauseDownload()
+    // Receipt of a failed attempt arrives before the resume (normal path)
+    onMessage(downloadErr(0, m.downloads[0].data.taskBatch, { err: 'X' }))
+    await resume()
+
+    expect((mods.downloadControl as any).carriedIds.size).toBe(0)
+    expect(mods.downloadStates.states[0]).toBe(0) // fetched again, not carried
+    expect(m.downloads.some((d, i) => i >= 2 && d.index === 0)).toBe(true)
+  })
+
+  it('asks the background about exactly the ids it is waiting for', async () => {
+    const oldBatch = await pausedWithASaving()
+    await resume()
+
+    const query = g.chrome.runtime.sendMessage.mock.calls
+      .map((c: any[]) => c[0])
+      .filter((msg: any) => msg?.msg === 'query_saving')
+    expect(query).toEqual([{ msg: 'query_saving', ids: [id(0)] }])
+    expect((mods.downloadControl as any).savingIds.get(id(0))).toBe(oldBatch)
+  })
+
+  it('re-arms the stuck-save reminder of a carried file after the resume', async () => {
+    await pausedWithASaving()
+    await resume()
+    m.toast.warning.mockClear()
+
+    await tick(300_000)
+    expect(m.toast.warning).toHaveBeenCalledWith(
+      `_downloadStuck|${id(0)}|${id(0)}.png` // name rebuilt by the mocked fileName
+    )
+  })
+
+  describe('when the background does not confirm the save', () => {
+    /** A is fetched again in the resumed batch and is no longer tracked */
+    async function expectFetchedAgain(oldBatch: number) {
+      const { before, batch } = await resume()
+      expect(batch).not.toBe(oldBatch)
+      expect(m.downloads.slice(before).map((d) => d.index)).toEqual([0, 1])
+      expect(mods.downloadStates.states).toEqual([0, 0])
+      expect((mods.downloadControl as any).carriedIds.size).toBe(0)
+      expect((mods.downloadControl as any).savingIds.has(id(0))).toBe(false)
+
+      // The old receipt, if it ever shows up, no longer settles anything
+      onMessage(downloaded(0, oldBatch))
+      expect(mods.downloadStates.states).toEqual([0, 0])
+      expect(events.downloadSuccess).toHaveLength(0)
+    }
+
+    it('reports nothing: A is reset and fetched again', async () => {
+      const oldBatch = await pausedWithASaving()
+      querySavingAnswer = () => ({ saving: [] })
+      await expectFetchedAgain(oldBatch)
+    })
+
+    it('the query rejects: A is fetched again', async () => {
+      const oldBatch = await pausedWithASaving()
+      querySavingAnswer = () => Promise.reject(new Error('no receiver'))
+      await expectFetchedAgain(oldBatch)
+    })
+
+    it('the reply is ill-formed: A is fetched again', async () => {
+      const oldBatch = await pausedWithASaving()
+      querySavingAnswer = () => ({ saving: 'nope' })
+      await expectFetchedAgain(oldBatch)
+    })
+
+    it('reports another batch for the id: A is fetched again', async () => {
+      const oldBatch = await pausedWithASaving()
+      querySavingAnswer = () => ({
+        saving: [{ id: id(0), taskBatch: oldBatch + 1 }],
+      })
+      await expectFetchedAgain(oldBatch)
+    })
+
+    it('never answers: waits 3 s, then fetches A again', async () => {
+      const oldBatch = await pausedWithASaving()
+      querySavingAnswer = () => new Promise(() => {})
+      const before = m.downloads.length
+      vi.setSystemTime(Date.now() + 5000)
+
+      const started = mods.downloadControl.startDownload()
+      await tick(2999)
+      expect(m.downloads).toHaveLength(before) // still waiting
+      expect(events.downloadStart).toHaveLength(1)
+
+      await tick(2)
+      await started
+      await tick(1)
+      expect(events.downloadStart).toHaveLength(2)
+      expect(m.downloads.slice(before).map((d) => d.index)).toEqual([0, 1])
+      expect((mods.downloadControl as any).savingIds.has(id(0))).toBe(false)
+      expect(m.downloads[m.downloads.length - 1].data.taskBatch).not.toBe(
+        oldBatch
+      )
+    })
+  })
+
+  it('a receipt of another batch neither settles the carried file nor drops its entry', async () => {
+    const oldBatch = await pausedWithASaving()
+    await resume()
+
+    onMessage(downloaded(0, oldBatch - 1000))
+    expect(mods.downloadStates.states).toEqual([0, 0])
+    expect(events.downloadSuccess).toHaveLength(0)
+    const control = mods.downloadControl as any
+    expect(control.savingIds.get(id(0))).toBe(oldBatch)
+    expect(control.carriedIds.get(id(0))).toBe(oldBatch)
+
+    // The receipt of the awaited batch still settles it
+    onMessage(downloaded(0, oldBatch))
+    expect(mods.downloadStates.states).toEqual([1, 0])
+    expect(control.savingIds.has(id(0))).toBe(false)
+    expect(control.carriedIds.has(id(0))).toBe(false)
+  })
+
+  it('after the batch completed, a late receipt of a formerly carried id fires nothing', async () => {
+    const oldBatch = await pausedWithASaving()
+    const { batch } = await resume()
+
+    // The carried post is deleted while the batch runs: the batch can finish
+    // although the carried receipt never arrived
+    mods.store.result = results(2).slice(1)
+    mods.EVT.fire('resultChange')
+    onMessage(downloaded(1, batch))
+    await tick(1)
+    expect(events.downloadComplete).toHaveLength(1)
+    expect((mods.downloadControl as any).carriedIds.size).toBe(0)
+
+    onMessage(downloaded(0, oldBatch))
+    await tick(1)
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(events.downloadSuccess).toHaveLength(1) // B only
+  })
+
+  it('stopDownload clears the saving ids', async () => {
+    await startWith(2)
+    mods.EVT.fire('sendBrowserDownload', { id: id(0), fileName: 'a.png' })
+    expect((mods.downloadControl as any).savingIds.size).toBe(1)
+
+    mods.downloadControl.stopDownload()
+    expect((mods.downloadControl as any).savingIds.size).toBe(0)
+  })
+
+  it('a new crawl clears the saving ids', async () => {
+    await startWith(2)
+    mods.EVT.fire('sendBrowserDownload', { id: id(0), fileName: 'a.png' })
+    expect((mods.downloadControl as any).savingIds.size).toBe(1)
+
+    mods.EVT.fire('crawlStart')
+    expect((mods.downloadControl as any).savingIds.size).toBe(0)
+  })
+
+  it('a fresh start and a restart clear the saving ids', async () => {
+    await startWith(2)
+    mods.EVT.fire('sendBrowserDownload', { id: id(0), fileName: 'a.png' })
+    mods.downloadControl.stopDownload()
+    // Re-fill after the stop to see the start itself clear it
+    ;(mods.downloadControl as any).savingIds.set(id(0), 1)
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    expect((mods.downloadControl as any).savingIds.size).toBe(0)
+
+    mods.downloadControl.stopDownload()
+    ;(mods.downloadControl as any).savingIds.set(id(0), 1)
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.restartDownload()
+    expect((mods.downloadControl as any).savingIds.size).toBe(0)
+  })
+
+  it('a second startDownload while the query is pending starts one batch only', async () => {
+    const oldBatch = await pausedWithASaving()
+    let answer: (v: unknown) => void = () => {}
+    querySavingAnswer = () =>
+      new Promise((resolve) => {
+        answer = resolve
+      })
+    const before = m.downloads.length
+    vi.setSystemTime(Date.now() + 5000)
+
+    const first = mods.downloadControl.startDownload()
+    await tick(1)
+    await mods.downloadControl.startDownload() // ignored
+    const queries = g.chrome.runtime.sendMessage.mock.calls.filter(
+      (c: any[]) => c[0]?.msg === 'query_saving'
+    )
+    expect(queries).toHaveLength(1)
+
+    answer({ saving: [{ id: id(0), taskBatch: oldBatch }] })
+    await first
+    await tick(1)
+
+    expect(events.downloadStart).toHaveLength(2) // initial + one resume
+    expect(m.downloads.slice(before).map((d) => d.index)).toEqual([1])
+  })
+
+  it('stopping while the query is pending makes the start a fresh one', async () => {
+    const oldBatch = await pausedWithASaving()
+    let answer: (v: unknown) => void = () => {}
+    querySavingAnswer = () =>
+      new Promise((resolve) => {
+        answer = resolve
+      })
+    vi.setSystemTime(Date.now() + 5000)
+    const first = mods.downloadControl.startDownload()
+    await tick(1)
+
+    mods.downloadControl.stopDownload()
+    answer({ saving: [{ id: id(0), taskBatch: oldBatch }] })
+    await first
+    await tick(1)
+
+    const control = mods.downloadControl as any
+    expect(control.carriedIds.size).toBe(0)
+    expect(control.savingIds.size).toBe(0)
+    expect(mods.downloadStates.states).toEqual([0, 0])
   })
 })

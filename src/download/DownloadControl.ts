@@ -97,6 +97,27 @@ class DownloadControl {
   /** 交給瀏覽器存檔後的逾時提醒：檔案 id → 計時器 */
   private saveTimers = new Map<string, number>()
 
+  /**
+   * Ids handed to the browser whose save receipt has not arrived yet, mapped
+   * to the taskBatch they were sent under. File ids repeat across crawls, so a
+   * receipt only counts when its taskBatch matches.
+   */
+  private savingIds = new Map<string, number>()
+  /**
+   * Saves that were in flight when the batch was paused and that the resumed
+   * batch still counts as in progress (state 0), mapped to the old taskBatch
+   * whose receipt is awaited. settleCarried handles that receipt. Cleared
+   * whenever a batch is abandoned, completed or started from scratch.
+   */
+  private carriedIds = new Map<string, number>()
+  /** True while startDownload waits for the background's answer on a resume */
+  private resumeQuerying = false
+
+  /** How long a resume waits for the background to report running saves (ms) */
+  private static readonly QUERY_SAVING_TIMEOUT = 3000
+  /** Reminder delay for a save that never reports back (ms) */
+  private static readonly SAVE_STUCK_MS = 300000
+
   /** 等待隊列的排程器（避免多個事件同時觸發、重複排入下一輪） */
   private drainTimer: undefined | number = undefined
 
@@ -112,6 +133,8 @@ class DownloadControl {
       this.reset()
       // 新抓取 → 重試計數歸零（reset 不再清它，見 checkCompleteWithError）
       this.errorRetryCount = 0
+      this.carriedIds.clear()
+      this.savingIds.clear()
       this.resetFailureCounters()
     })
 
@@ -181,17 +204,8 @@ class DownloadControl {
       }
       const id = data.id
       const name = data.fileName ?? ''
-      this.clearSaveTimer(id)
-      this.saveTimers.set(
-        id,
-        window.setTimeout(() => {
-          this.saveTimers.delete(id)
-          const stuck = lang.transl('_downloadStuck', id, name)
-          log.warning(stuck, 'downloadStuck')
-          // 用戶看不到 console，卡住要用 toast 提醒
-          toast.warning(stuck)
-        }, 300000)
-      )
+      this.savingIds.set(id, this.taskBatch)
+      this.armSaveTimer(id, name)
     })
 
     // 單檔結束：只清該檔的計時器
@@ -222,6 +236,14 @@ class DownloadControl {
 
       // 回執到了就解除該檔的逾時提醒（不分批次，舊批次的計時器也要收掉）
       this.clearSaveTimer(msg.data?.id)
+      // Only the receipt of the batch the save was sent under ends it: an older
+      // batch (or the quick-download channel) may reuse the same file id
+      if (
+        msg.data?.id &&
+        this.savingIds.get(msg.data.id) === msg.data.taskBatch
+      ) {
+        this.savingIds.delete(msg.data.id)
+      }
 
       // 停止／換批後瀏覽器才存完的檔案：不動進度，但仍要登記下載記錄，
       // 否則下次開始會把這些已存好的檔案重下一遍
@@ -243,6 +265,20 @@ class DownloadControl {
       ) {
         URL.revokeObjectURL(msg.data.blobURLFront)
       }
+
+      // A save that was in flight when the batch was paused: the resumed batch
+      // did not fetch it again, so settle it here
+      // (only while a batch is active, and only for the batch it was sent under)
+      if (
+        this.taskBatch &&
+        msg.data?.id &&
+        this.carriedIds.get(msg.data.id) === msg.data.taskBatch &&
+        msg.data.taskBatch !== this.taskBatch
+      ) {
+        this.settleCarried(msg)
+        return
+      }
+
       if (!this.taskBatch || msg.data?.taskBatch !== this.taskBatch) {
         return
       }
@@ -378,6 +414,76 @@ class DownloadControl {
     this.downloadOrSkipAFile(data, false)
   }
 
+  /** Remind the user when a save the browser took never reports back */
+  private armSaveTimer(id: string, name: string) {
+    this.clearSaveTimer(id)
+    this.saveTimers.set(
+      id,
+      window.setTimeout(() => {
+        this.saveTimers.delete(id)
+        const stuck = lang.transl('_downloadStuck', id, name)
+        log.warning(stuck, 'downloadStuck')
+        // 用戶看不到 console，卡住要用 toast 提醒
+        toast.warning(stuck)
+      }, DownloadControl.SAVE_STUCK_MS)
+    )
+  }
+
+  /** Re-arm the reminder of a carried save (the pause cleared all timers) */
+  private armCarriedSaveTimer(id: string) {
+    const work = store.findResult(id)
+    this.armSaveTimer(id, work ? fileName.createFileName(work) : '')
+  }
+
+  /**
+   * Ask the background which of the saves we are waiting for are really still
+   * running. Any failure, ill-formed reply or silence counts as "none", so the
+   * files are fetched again (the behaviour before saves could be carried).
+   */
+  private async querySaving(): Promise<Map<string, number>> {
+    const live = new Map<string, number>()
+    if (this.savingIds.size === 0) {
+      return live
+    }
+    let timer: number | undefined
+    try {
+      const reply: unknown = await Promise.race([
+        chrome.runtime.sendMessage({
+          msg: 'query_saving',
+          ids: [...this.savingIds.keys()],
+        }),
+        new Promise<undefined>((resolve) => {
+          timer = window.setTimeout(
+            () => resolve(undefined),
+            DownloadControl.QUERY_SAVING_TIMEOUT
+          )
+        }),
+      ])
+      const saving = (reply as { saving?: unknown } | null | undefined)?.saving
+      if (!Array.isArray(saving)) {
+        return live
+      }
+      for (const item of saving) {
+        const { id, taskBatch } = (item ?? {}) as {
+          id?: unknown
+          taskBatch?: unknown
+        }
+        if (
+          typeof id === 'string' &&
+          typeof taskBatch === 'number' &&
+          this.savingIds.get(id) === taskBatch
+        ) {
+          live.set(id, taskBatch)
+        }
+      }
+    } catch {
+      live.clear()
+    } finally {
+      window.clearTimeout(timer)
+    }
+    return live
+  }
+
   private clearSaveTimer(id: string | undefined) {
     if (id === undefined) {
       return
@@ -487,16 +593,54 @@ class DownloadControl {
 
   // 開始下載
   public async startDownload() {
+    // A resume is waiting for the background: ignore a second click
+    if (this.resumeQuerying) {
+      return
+    }
     if (!(await this.prepareStart())) {
       return
     }
+    if (this.resumeQuerying) {
+      return
+    }
 
+    let live = new Map<string, number>()
+    if (this.pause) {
+      this.resumeQuerying = true
+      try {
+        live = await this.querySaving()
+      } finally {
+        this.resumeQuerying = false
+      }
+    }
+
+    // The user may have stopped the batch while the query was pending
     if (this.pause) {
       // 從上次中斷的位置繼續下載
-      downloadStates.resume()
+      // Files the background confirms are still being saved stay "in progress"
+      // and are not fetched again; their receipts carry the old taskBatch and
+      // are handled by settleCarried. Everything else is fetched again.
+      downloadStates.resume(new Set(live.keys()))
+      this.carriedIds = new Map(
+        [...live].filter(([id]) => {
+          const index = downloadStates.findIndexById(id)
+          return index !== -1 && downloadStates.states[index] === 0
+        })
+      )
+      for (const id of [...this.savingIds.keys()]) {
+        if (!live.has(id)) {
+          this.savingIds.delete(id)
+        }
+      }
+      // downloadPause cleared the reminders; carried saves still need one
+      for (const id of this.carriedIds.keys()) {
+        this.armCarriedSaveTimer(id)
+      }
     } else {
       // 重新下載：初始化下載狀態列表
       downloadStates.init()
+      this.carriedIds.clear()
+      this.savingIds.clear()
       this.resetFailureCounters()
       // A fresh start drops force mode. Resuming a paused batch keeps it, so
       // a paused "restart all" does not fall back to skipping duplicates.
@@ -516,6 +660,8 @@ class DownloadControl {
 
     // 無條件初始化狀態列表：已完成的 1 也回到 -1
     downloadStates.init()
+    this.carriedIds.clear()
+    this.savingIds.clear()
     this.resetFailureCounters()
 
     // 手動全部重下：重試計數歸零，本批跳過下載記錄去重
@@ -641,6 +787,8 @@ class DownloadControl {
     // 停止＝徹底停下：批次作廢（在途任務變成舊批次，遲到的回執不再動進度），
     // 狀態與進度全部歸零
     this.taskBatch = 0
+    this.carriedIds.clear()
+    this.savingIds.clear()
     this.resetFailureCounters()
     downloadStates.init()
     this.downloaded = 0
@@ -648,6 +796,60 @@ class DownloadControl {
     progressBar.clear()
     // 停止後不保留中斷點：再次開始會重新處理未完成項目，明確提示用戶
     if (!opts.quiet) toast.warning(lang.transl('_downloadStopNoResume'))
+  }
+
+  /**
+   * Receipt for a save that was carried over a pause/resume (old taskBatch).
+   * The resumed batch never fetched this file again, and its worker chains keep
+   * themselves going, so only the state and the progress are updated here. The
+   * download record of a successful save was already added by the stale-receipt
+   * branch of the message handler.
+   */
+  private settleCarried(msg: DownloadedMsg) {
+    const id = msg.data.id
+    this.carriedIds.delete(id)
+
+    if (msg.msg === 'downloaded') {
+      EVT.fire('downloadSuccess', msg.data)
+      downloadStates.setStateById(id, 1) // false: the post was deleted
+      this.setDownloaded()
+      return
+    }
+
+    // The file was not saved and retrying cannot help: count it as skipped
+    if (msg.saveRequestFailed) {
+      log.error(
+        lang.transl(
+          '_saveRequestFailed',
+          msg.runtimeError || msg.err || 'unknown'
+        )
+      )
+    } else if (msg.err === 'USER_CANCELED') {
+      log.error(lang.transl('_userCanceledSave', id), 'userCanceledSave')
+    }
+    if (msg.saveRequestFailed || msg.err === 'USER_CANCELED') {
+      this.failedSkipCount++
+      downloadStates.setStateById(id, 1)
+      this.setDownloaded()
+      return
+    }
+
+    // Any other failure: let the batch-level retry round fetch it again
+    log.error(
+      lang.transl(
+        '_saveFailedRetry',
+        id,
+        msg.runtimeError || msg.err || 'unknown'
+      ),
+      'saveFailedRetry'
+    )
+    if (downloadStates.findIndexById(id) === -1) {
+      this.setDownloaded()
+      return
+    }
+    this.errorIdList.push(id)
+    downloadStates.markFailedById(id)
+    void this.checkCompleteWithError()
   }
 
   private downloadError(id: string) {
@@ -701,6 +903,8 @@ class DownloadControl {
         // 延後觸發下載完成的事件（派生事件晚於上游事件）
         EVT.fire('downloadComplete')
       }, 0)
+      // The batch is over: a receipt that shows up later must not settle it
+      this.carriedIds.clear()
       this.reset()
     }
 
@@ -905,7 +1109,7 @@ class DownloadControl {
       }
       // 自動重試走接續路徑（保留 errorRetryCount；若調 startDownload
       // 會被手動入口清零，ERROR_RETRY_MAX 永遠到不了）
-      downloadStates.resume()
+      downloadStates.resume(new Set(this.carriedIds.keys()))
       void this.beginFreshDownload()
     }
   }

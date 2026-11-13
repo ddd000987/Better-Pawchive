@@ -130,10 +130,15 @@ class DownloadStates {
 
   // 恢復之前的下載任務
   // 這會把之前的“下載中”標記復位到“未開始下載”，以便再次下載
-  public resume() {
+  // keepIds: in-progress items with these ids stay 0 (the browser is still
+  // saving them, so they must not be downloaded again)
+  public resume(keepIds?: ReadonlySet<string>) {
     const length = this.states.length
     for (let i = 0; i < length; i++) {
       if (this.states[i] === 0) {
+        if (keepIds?.has(this.resultIds[i])) {
+          continue
+        }
         this.setState(i, -1)
       }
     }

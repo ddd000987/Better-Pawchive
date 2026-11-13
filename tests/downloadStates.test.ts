@@ -102,6 +102,33 @@ describe('downloadStates failed items', () => {
     expect(downloadStates.isSettled(1)).toBe(false)
   })
 
+  it('resume(keepIds) keeps kept in-progress items at 0 and resets the others', () => {
+    downloadStates.setState(0, 1)
+    downloadStates.setState(1, 0)
+    downloadStates.setState(2, 0)
+    downloadStates.markFailedById('c#0')
+    downloadStates.resume(new Set(['b#0', 'not-in-result#0']))
+
+    expect(downloadStates.states).toEqual([1, 0, -1])
+    expect(downloadStates.isSettled(2)).toBe(false) // failedIds still cleared
+  })
+
+  it('resume(keepIds) does not touch finished or unstarted items of kept ids', () => {
+    downloadStates.setState(0, 1)
+    downloadStates.resume(new Set(['a#0', 'b#0']))
+
+    expect(downloadStates.states).toEqual([1, -1, -1])
+  })
+
+  it('resume() without an argument resets every in-progress item', () => {
+    downloadStates.setState(0, 1)
+    downloadStates.setState(1, 0)
+    downloadStates.setState(2, 0)
+    downloadStates.resume()
+
+    expect(downloadStates.states).toEqual([1, -1, -1])
+  })
+
   it('reconcile keeps the failed flag on the item when indices move', () => {
     downloadStates.setState(1, 0)
     downloadStates.markFailedById('b#0')

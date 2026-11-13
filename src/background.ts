@@ -134,6 +134,10 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
     console.warn('Invalid msg:', rawMsg)
     return false
   }
+  // Answered by the query_saving listener below
+  if (rawMsg.msg === 'query_saving') {
+    return false
+  }
   const msg = rawMsg
   // 是否已回覆過 download_err，避免外層 catch 重複回執
   let replied = false
@@ -265,6 +269,68 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
     }
   })()
   return false
+})
+
+/**
+ * Which of the given file ids does the browser still have a download in
+ * progress for? Asked by a tab that is resuming a paused batch, so it only
+ * carries saves that can still report back.
+ */
+interface QuerySavingMsg {
+  msg: 'query_saving'
+  ids: string[]
+}
+
+function isQuerySavingMsg(msg: unknown): msg is QuerySavingMsg {
+  if (!msg || typeof msg !== 'object') return false
+  const m = msg as { msg?: unknown; ids?: unknown }
+  return (
+    m.msg === 'query_saving' &&
+    Array.isArray(m.ids) &&
+    m.ids.every((id) => typeof id === 'string')
+  )
+}
+
+chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
+  if (
+    !rawMsg ||
+    typeof rawMsg !== 'object' ||
+    (rawMsg as { msg?: unknown }).msg !== 'query_saving'
+  ) {
+    return false
+  }
+  const tabId = sender.tab?.id
+  if (!isQuerySavingMsg(rawMsg) || tabId === undefined) {
+    sendResponse({ saving: [] })
+    return false
+  }
+  const wanted = new Set(rawMsg.ids)
+  ;(async () => {
+    try {
+      await restoreDownloadData()
+      const saving: { id: string; taskBatch: number }[] = []
+      for (const [downloadId, rec] of Object.entries(dlData)) {
+        if (
+          rec.tabId !== tabId ||
+          rec.noReply ||
+          rec.id === undefined ||
+          rec.taskBatch === undefined ||
+          !wanted.has(rec.id)
+        ) {
+          continue
+        }
+        const items = await chrome.downloads.search({ id: Number(downloadId) })
+        if (items?.[0]?.state === 'in_progress') {
+          saving.push({ id: rec.id, taskBatch: rec.taskBatch })
+        }
+      }
+      sendResponse({ saving })
+    } catch (error) {
+      console.error('Handle query_saving failed', error)
+      sendResponse({ saving: [] })
+    }
+  })()
+  return true
 })
 
 const UUIDRegexp =
