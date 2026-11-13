@@ -36,6 +36,10 @@ function compareId(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
+function stripLeadingZeros(digits: string): string {
+  return digits.replace(/^0+(?=\d)/, '')
+}
+
 /** 曾被忽略的非數字 ID 篩選值（避免每帖都重複警告） */
 const warnedIdBoundaries = new Set<string>()
 
@@ -43,13 +47,31 @@ const warnedIdBoundaries = new Set<string>()
 export function normalizePostIdBoundary(raw: string): string {
   const value = raw.trim()
   if (value === '' || /^\d+$/.test(value)) {
-    return value
+    // compareId compares lengths first, so leading zeros must go
+    return stripLeadingZeros(value)
   }
   if (!warnedIdBoundaries.has(value)) {
     warnedIdBoundaries.add(value)
     console.warn(`[PawchivePro] 非數字帖子 ID 篩選值已忽略：${value}`)
   }
   return ''
+}
+
+/** Whether a post id falls outside the configured id range. Shared by the
+ * full filter and the crawl's list quick-screen so both agree.
+ * Some services use non-numeric post ids. They have no place in a numeric
+ * range, so the range does not apply to them. */
+export function isPostIdOutOfRange(rawPostId: string): boolean {
+  const idFrom = normalizePostIdBoundary(settings.get('filterPostIdFrom'))
+  const idTo = normalizePostIdBoundary(settings.get('filterPostIdTo'))
+  if ((!idFrom && !idTo) || !/^\d+$/.test(rawPostId)) {
+    return false
+  }
+  const postId = stripLeadingZeros(rawPostId)
+  return (
+    (idFrom !== '' && compareId(postId, idFrom) < 0) ||
+    (idTo !== '' && compareId(postId, idTo) > 0)
+  )
 }
 
 class Filter {
@@ -112,12 +134,7 @@ class Filter {
     }
 
     // 7. 帖子 ID 範圍（非數字輸入忽略，不參與比較）
-    const idFrom = normalizePostIdBoundary(settings.get('filterPostIdFrom'))
-    const idTo = normalizePostIdBoundary(settings.get('filterPostIdTo'))
-    if (idFrom && compareId(input.postId, idFrom) < 0) {
-      return this.fail('postId')
-    }
-    if (idTo && compareId(input.postId, idTo) > 0) {
+    if (isPostIdOutOfRange(input.postId)) {
       return this.fail('postId')
     }
 

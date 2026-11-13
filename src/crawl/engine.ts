@@ -19,7 +19,7 @@ import { expandPost } from '../kemono/expand'
 import { fileKind } from '../kemono/fileType'
 import { detectPage, makePostKey } from '../kemono/pages'
 import { EVT } from '../EVT'
-import { filter, normalizePostIdBoundary } from '../filter/Filter'
+import { filter, isPostIdOutOfRange } from '../filter/Filter'
 import { lang } from '../Language'
 import { log } from '../Log'
 import { toast } from '../Toast'
@@ -927,24 +927,11 @@ class Engine {
     if (info.pending && settings.get('skipPendingPosts')) {
       return 'pending'
     }
-    const idFrom = normalizePostIdBoundary(settings.get('filterPostIdFrom'))
-    const idTo = normalizePostIdBoundary(settings.get('filterPostIdTo'))
-    if (idFrom && comparePostId(postId, idFrom) < 0) {
-      return 'postId'
-    }
-    if (idTo && comparePostId(postId, idTo) > 0) {
+    if (isPostIdOutOfRange(postId)) {
       return 'postId'
     }
     return null
   }
-}
-
-/** 數字字串比較（先比長度再比字典序） */
-function comparePostId(a: string, b: string): number {
-  if (a.length !== b.length) {
-    return a.length - b.length
-  }
-  return a < b ? -1 : a > b ? 1 : 0
 }
 
 const engine = new Engine()

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { filter } from '../src/filter/Filter'
+import { filter, normalizePostIdBoundary } from '../src/filter/Filter'
 import { settings } from '../src/setting/Settings'
 import type { PostFilterInput } from '../src/filter/Filter'
 
@@ -100,6 +100,34 @@ describe('filter.checkPost', () => {
     expect(filter.checkPost(input())).toBe(true)
   })
 
+  it('post id range skips non-numeric post ids and bounds the numeric ones', () => {
+    settings.set('filterPostIdFrom', '100')
+    settings.set('filterPostIdTo', '200')
+    expect(filter.checkPost(input({ postId: 'abc123' }))).toBe(true)
+    expect(filter.checkPost(input({ postId: '150' }))).toBe(true)
+    expect(filter.checkPost(input({ postId: '99' }))).toBe(false)
+    expect(filter.lastReason).toBe('postId')
+    expect(filter.checkPost(input({ postId: '201' }))).toBe(false)
+    expect(filter.lastReason).toBe('postId')
+  })
+
+  it('post id range ignores leading zeros in the boundaries', () => {
+    settings.set('filterPostIdFrom', '007')
+    expect(filter.checkPost(input({ postId: '50' }))).toBe(true)
+    expect(filter.checkPost(input({ postId: '5' }))).toBe(false)
+    settings.set('filterPostIdFrom', '')
+    settings.set('filterPostIdTo', '0100')
+    expect(filter.checkPost(input({ postId: '99' }))).toBe(true)
+    expect(filter.checkPost(input({ postId: '101' }))).toBe(false)
+  })
+
+  it('post id range ignores leading zeros in the post id', () => {
+    settings.set('filterPostIdFrom', '100')
+    expect(filter.checkPost(input({ postId: '0050' }))).toBe(false)
+    settings.set('filterPostIdFrom', '10')
+    expect(filter.checkPost(input({ postId: '0050' }))).toBe(true)
+  })
+
   it('抓取不做下載記錄去重：skipDownloaded 任何模式下都保留', () => {
     // 去重是下載時的事；抓取結果必須完整，重抓已下載完的創作者也不能為空
     for (const mode of ['none', 'record', 'folder', 'both'] as const) {
@@ -115,5 +143,19 @@ describe('filter.checkPost', () => {
     expect(filter.checkFileSize(5 * 1024 * 1024)).toBe(true)
     expect(filter.checkFileSize(11 * 1024 * 1024)).toBe(false)
     expect(filter.checkFileSize(0)).toBe(true)
+  })
+})
+
+describe('normalizePostIdBoundary', () => {
+  it('strips leading zeros but keeps a lone zero', () => {
+    expect(normalizePostIdBoundary('007')).toBe('7')
+    expect(normalizePostIdBoundary('000')).toBe('0')
+    expect(normalizePostIdBoundary('0')).toBe('0')
+    expect(normalizePostIdBoundary('')).toBe('')
+  })
+
+  it('returns an empty string for non-numeric input', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(normalizePostIdBoundary('abc')).toBe('')
   })
 })
