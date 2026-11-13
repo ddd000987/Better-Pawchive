@@ -31,6 +31,11 @@ function escapeRegExp(str: string): string {
 const textEncoder =
   typeof TextEncoder !== 'undefined' ? new TextEncoder() : null
 
+/** Bytes set aside for the extension when deciding how far to truncate the
+ * folders (".torrent" is 8). A constant, so the decision is the same for
+ * every file of a post. */
+const EXT_RESERVE_BYTES = 8
+
 function utf8Length(str: string): number {
   if (textEncoder) {
     return textEncoder.encode(str).length
@@ -316,7 +321,8 @@ class FileName {
     return string
   }
 
-  /** 長度限制：優先截檔名（保 postId 唯一），再截內層資料夾
+  /** Length limit: truncate inner folders only when even a minimal file part
+   * would not fit, then cut the file part to the space that is left.
    * 長度以 UTF-8 位元組計算，且截斷不切斷多位元組字元或代理對
    * @param fullName 全路徑含副檔名
    * @param id 必須保留的唯一字串（postId）
@@ -324,9 +330,9 @@ class FileName {
   public lengthLimit(fullName: string, id: string) {
     const limit = Config.fullNameLengthLimit
 
-    if (utf8Length(fullName) <= limit) {
-      return fullName
-    }
+    // No early return for a path that already fits: whether the folders are
+    // truncated must not depend on this one file's name, or a post's short
+    // and long file names would land in different folders.
 
     // 只認最後一層的副檔名，避免資料夾名稱中的點被誤判
     const slashIndex = fullName.lastIndexOf('/')
@@ -342,50 +348,89 @@ class FileName {
     const partLimit = Math.min(255, limit)
     for (let i = 0; i < parts.length; i++) {
       if (utf8Length(parts[i]) > partLimit) {
-        parts[i] = truncateByBytes(parts[i], partLimit).trim()
+        const whole = parts[i]
+        let cut = truncateByBytes(whole, partLimit).trim()
+        // A folder that carried the id at its end keeps it (see below)
+        if (i < parts.length - 1 && id && whole.includes(id)) {
+          const tail = '-' + id
+          if (!cut.includes(id) && utf8Length(tail) < partLimit) {
+            cut =
+              truncateByBytes(whole, partLimit - utf8Length(tail)).trim() + tail
+          }
+        }
+        parts[i] = cut
       }
     }
 
-    // 倒序遍歷：先截檔名，再截內層資料夾（保外層完整，避免資料夾四散）
     const lastIndex = parts.length - 1
-    for (let i = lastIndex; i >= 0 && totalLength() > limit; i--) {
+    const extBytes = utf8Length(ext)
+    const idBytes = id ? utf8Length(id) : 0
+    const folderBytes = () =>
+      lastIndex > 0 ? utf8Length(parts.slice(0, lastIndex).join('/')) + 1 : 0
+    const folderHasId = () =>
+      !!id && parts.slice(0, lastIndex).some((part) => part.includes(id))
+
+    // Bytes every file part is guaranteed. Folders are truncated against this
+    // constant, never against the real file part, so all files of one post
+    // get the same folder names. When no folder carries the id, the file part
+    // may need a `-id…` suffix, so room for it is reserved as well.
+    const suffix = id ? '-' + id + '…' : ''
+    const reserve = !id ? 8 : folderHasId() ? idBytes : utf8Length(suffix) + 4
+
+    // Folders, innermost first (outer levels stay whole so a creator's posts
+    // do not scatter): keep at least 25 bytes, aligned to a multiple of 25.
+    // The extension is reserved as a constant too, so ".png" and ".jpeg"
+    // files of one post truncate the folders alike.
+    const reservedTotal = () => folderBytes() + reserve + EXT_RESERVE_BYTES
+    for (let i = lastIndex - 1; i >= 0 && reservedTotal() > limit; i--) {
       const part = parts[i]
       const partBytes = utf8Length(part)
-      if (partBytes <= 0) {
-        continue
-      }
-
-      const excess = totalLength() - limit
-
-      if (i === lastIndex) {
-        // 截檔名：至少保留 id 長度；缺 id 則補 `-id…` 保唯一
-        const idBytes = id ? utf8Length(id) : 0
-        const target = Math.max(partBytes - excess, idBytes)
-        let head = truncateByBytes(part, target).trim()
-        if (id && !head.includes(id)) {
-          const suffix = '-' + id + '…'
-          const suffixBytes = utf8Length(suffix)
-          if (suffixBytes <= target) {
-            head = truncateByBytes(part, target - suffixBytes).trim() + suffix
-          } else {
-            // id 本身超過可用空間時優先保唯一性
-            head = id
+      const excess = reservedTotal() - limit
+      const minLength = 25
+      const ellipsisBytes = utf8Length('…')
+      if (partBytes > minLength + ellipsisBytes) {
+        const target = Math.max(partBytes - excess - ellipsisBytes, minLength)
+        const units = Math.max(Math.floor(target / minLength), 1)
+        const keep = Math.min(units * minLength, partBytes)
+        if (partBytes - keep > ellipsisBytes) {
+          let cut = truncateByBytes(part, keep).trim() + '…'
+          if (id && part.includes(id) && !cut.includes(id)) {
+            // The id sat in the part that was cut off (a rule such as
+            // "{title}-{post_id}"): put it back, or two posts with the same
+            // long title would share one folder
+            const tail = '-' + id
+            const headBytes = Math.max(keep - utf8Length(tail), 1)
+            cut = truncateByBytes(part, headBytes).trim() + '…' + tail
           }
-        }
-        parts[i] = head
-      } else {
-        // 截資料夾：至少保留 25 bytes 並對齊 25 倍數（避免微小差異產生多個資料夾）
-        const minLength = 25
-        const ellipsisBytes = utf8Length('…')
-        if (partBytes > minLength + ellipsisBytes) {
-          const target = Math.max(partBytes - excess - ellipsisBytes, minLength)
-          const units = Math.max(Math.floor(target / minLength), 1)
-          const keep = Math.min(units * minLength, partBytes)
-          if (partBytes - keep > ellipsisBytes) {
-            parts[i] = truncateByBytes(part, keep).trim() + '…'
-          }
+          parts[i] = cut
         }
       }
+    }
+
+    // Fits (possibly after the folders were shortened): nothing more to cut
+    if (totalLength() <= limit) {
+      const fitted = parts.join('/') + ext
+      if (fitted !== fullName) {
+        log.warning(lang.transl('_filenameTruncated', fullName))
+      }
+      return fitted
+    }
+
+    // File part: use whatever the folders left and cut from the end, so a
+    // leading `{index}-` survives and files of one post stay distinct.
+    const space = limit - folderBytes() - extBytes
+    const filePart = parts[lastIndex]
+    if (space > 0 && utf8Length(filePart) > space) {
+      let head = truncateByBytes(filePart, space).trim()
+      if (id && !folderHasId() && !head.includes(id)) {
+        // The id is nowhere else in the path: keep it for uniqueness
+        const suffixBytes = utf8Length(suffix)
+        head =
+          suffixBytes < space
+            ? truncateByBytes(filePart, space - suffixBytes).trim() + suffix
+            : id
+      }
+      parts[lastIndex] = head || id || filePart
     }
 
     // 總長回檢：仍有極端超長時，先丟外層資料夾，最後才硬截檔名

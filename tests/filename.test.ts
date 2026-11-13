@@ -204,6 +204,91 @@ describe('fileName.lengthLimit（UTF-8 位元組）', () => {
     expect(hasLoneSurrogate(name)).toBe(false)
   })
 
+  it('keeps the files of a long-title post distinct and in one folder', () => {
+    const base = { postId: '12345678', title: '貓'.repeat(60) }
+    const files = [
+      { fileName: 'a.png', fileIndex: 0 },
+      { fileName: 'b.png', fileIndex: 1 },
+      { fileName: 'a-much-longer-original-file-name.png', fileIndex: 12 },
+    ]
+    const names = files.map((file) =>
+      fileName.createFileName(result({ ...base, ...file }))
+    )
+
+    for (const name of names) {
+      expect(byteLength(name)).toBeLessThanOrEqual(LIMIT)
+      expect(name.endsWith('.png')).toBe(true)
+    }
+    expect(new Set(names).size).toBe(names.length)
+    const leaf = (name: string) => name.slice(name.lastIndexOf('/') + 1)
+    const folder = (name: string) => name.slice(0, name.lastIndexOf('/'))
+    // The `{index}-` prefix and short original names survive
+    expect(leaf(names[0])).toBe('0-a.png')
+    expect(leaf(names[1])).toBe('1-b.png')
+    expect(leaf(names[2]).startsWith('12-')).toBe(true)
+    // Folder truncation must not depend on the file part
+    expect(new Set(names.map(folder)).size).toBe(1)
+    expect(folder(names[0])).toContain('12345678')
+  })
+
+  it('keeps one folder per post at every title length, whatever the file name', () => {
+    const folder = (name: string) => name.slice(0, name.lastIndexOf('/'))
+    for (let length = 20; length < 200; length++) {
+      const base = { postId: '9876543', title: 't'.repeat(length) }
+      const names = [
+        { fileName: 'a.png', ext: 'png', fileIndex: 0 },
+        { fileName: 'n'.repeat(120) + '.png', ext: 'png', fileIndex: 1 },
+        { fileName: 'b.jpeg', ext: 'jpeg', fileIndex: 2 },
+        { fileName: 'c.mp4', ext: 'mp4', fileIndex: 3 },
+      ].map((file) => fileName.createFileName(result({ ...base, ...file })))
+      for (const name of names) {
+        expect(byteLength(name)).toBeLessThanOrEqual(LIMIT)
+      }
+      expect(new Set(names.map(folder)).size, `title length ${length}`).toBe(1)
+    }
+  })
+
+  it('keeps the post id when it sits at the end of a truncated folder', () => {
+    settings.set(
+      'namingRule',
+      '{creator}/{title}-{post_id}/{index}-{file_name}.{ext}'
+    )
+    const title = 'ア'.repeat(70)
+    const first = fileName.createFileName(
+      result({ postId: '9876543', title, fileName: 'a.png' })
+    )
+    const second = fileName.createFileName(
+      result({ postId: '9876544', title, fileName: 'a.png' })
+    )
+    expect(byteLength(first)).toBeLessThanOrEqual(LIMIT)
+    expect(first).toContain('9876543')
+    expect(second).toContain('9876544')
+    expect(first).not.toBe(second)
+    expect(first.endsWith('/0-a.png')).toBe(true)
+  })
+
+  it('cuts a long file part from the end and keeps the folders whole', () => {
+    const name = fileName.createFileName(
+      result({ title: 'short', fileName: 'x'.repeat(300) + '.png' })
+    )
+    expect(byteLength(name)).toBe(LIMIT)
+    expect(name.startsWith('kemono/patreon/some artist-u1/999-short/0-x')).toBe(
+      true
+    )
+    expect(name.endsWith('.png')).toBe(true)
+  })
+
+  it('adds the id to the file part when no folder carries it', () => {
+    settings.set('namingRule', '{creator}/{index}-{title}.{ext}')
+    const name = fileName.createFileName(
+      result({ postId: '12345678', title: '題'.repeat(100), fileIndex: 3 })
+    )
+    expect(byteLength(name)).toBeLessThanOrEqual(LIMIT)
+    const leaf = name.slice(name.lastIndexOf('/') + 1)
+    expect(leaf.startsWith('3-題')).toBe(true)
+    expect(leaf.endsWith('-12345678….png')).toBe(true)
+  })
+
   it('emoji（代理對）不被截斷成半個', () => {
     settings.set('namingRule', '{title}/{post_id}.{ext}')
     const name = fileName.createFileName(
