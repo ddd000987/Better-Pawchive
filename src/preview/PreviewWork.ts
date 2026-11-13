@@ -62,7 +62,7 @@ import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { log } from '../Log'
 import { toast } from '../Toast'
-import { throttle } from '../Tools'
+import { isTypingTarget, throttle } from '../Tools'
 import { downloadPost, downloadSingle } from '../download/quickDownload'
 import { api } from '../kemono/api'
 import { isPendingPost, type PostApiResponse } from '../kemono/apiTypes'
@@ -640,11 +640,7 @@ class PreviewWork {
     // 一級快捷鍵已在捕獲階段處理並 preventDefault，這裡不再重複動作
     if (ev.defaultPrevented) return
     // 輸入框守衛要在最前面（Esc 也不該關預覽／觸發其他動作）
-    const t = ev.target as HTMLElement | null
-    if (
-      t &&
-      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-    ) {
+    if (isTypingTarget(ev.target)) {
       return
     }
     // Esc 在載入中/失敗態（current 為 null）也要能關，所以先處理；
@@ -658,6 +654,8 @@ class PreviewWork {
       return
     }
     if (!states.previewWorkIsShow || !this.current) return
+    // A held key repeats; each action below runs once per press
+    if (ev.repeat) return
     // 字母鍵必須無修飾鍵才 acting（Alt/Ctrl/Meta/Shift 組合留給一級快捷鍵，
     // 否則錄了 Alt+D、Shift+D 之類的快捷鍵會同時觸發這裡的下載）
     const hasModifier = ev.ctrlKey || ev.altKey || ev.metaKey || ev.shiftKey

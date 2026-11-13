@@ -20,6 +20,7 @@ import type { PreviewInfoField } from '../preview/previewInfo'
 import { settings, SettingKey } from './Settings'
 import { store } from '../store/Store'
 import { toast } from '../Toast'
+import { isTypingTarget } from '../Tools'
 import { keepInBody } from '../PageRoots'
 import { CacheView } from './pages/cache'
 import { buildCommon } from './pages/common'
@@ -311,13 +312,8 @@ class SettingsCenter {
   private onKeyDown(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape' || !this.isOpen) return
     const t = ev.target as HTMLElement | null
-    if (
-      t &&
-      (t.tagName === 'INPUT' ||
-        t.tagName === 'TEXTAREA' ||
-        t.tagName === 'SELECT' ||
-        t.isContentEditable)
-    ) {
+    // An open <select> uses Esc to close its own list
+    if (t && (isTypingTarget(t) || t.tagName === 'SELECT')) {
       if (t === this.searchInput) this.clearSearch()
       return
     }

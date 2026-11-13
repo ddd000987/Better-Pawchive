@@ -9,12 +9,15 @@ import {
   defaultHotkeys,
 } from '../src/setting/Settings'
 
-/** 在 stub window 上派發假 keydown（需自帶 preventDefault） */
+/** 在 stub window 上派發假 keydown（需自帶 preventDefault）。
+ * Returns how many times preventDefault was called. */
 function keydown(
   code: string,
   mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean } = {},
-  target?: unknown
-) {
+  target?: unknown,
+  repeat = false
+): number {
+  let prevented = 0
   ;(window.dispatchEvent as (ev: unknown) => void)({
     type: 'keydown',
     code,
@@ -23,8 +26,12 @@ function keydown(
     shiftKey: mods.shift ?? false,
     metaKey: mods.meta ?? false,
     target,
-    preventDefault: () => {},
+    repeat,
+    preventDefault: () => {
+      prevented++
+    },
   })
+  return prevented
 }
 
 // EVT 的私有匯流排不會被 setup.ts 清空，用完要自己解除監聽
@@ -164,6 +171,24 @@ describe('HotkeyListener', () => {
     keydown('KeyX', { alt: true }, { tagName: 'INPUT' })
     keydown('KeyX', { alt: true }, { tagName: 'TEXTAREA' })
     expect(panel.count()).toBe(0)
+  })
+
+  it('shortcuts still work with a checkbox focused, but not in a text field', () => {
+    new HotkeyListener()
+    const panel = listenOnce(EVT.list.commandToggleCrawlPanel)
+    keydown('KeyX', { alt: true }, { tagName: 'INPUT', type: 'checkbox' })
+    expect(panel.count()).toBe(1)
+    keydown('KeyX', { alt: true }, { tagName: 'INPUT', type: 'text' })
+    expect(panel.count()).toBe(1)
+  })
+
+  it('a repeated keydown does not fire the command but still prevents the default', () => {
+    new HotkeyListener()
+    const panel = listenOnce(EVT.list.commandToggleCrawlPanel)
+    expect(keydown('KeyX', { alt: true }, undefined, false)).toBe(1)
+    expect(panel.count()).toBe(1)
+    expect(keydown('KeyX', { alt: true }, undefined, true)).toBe(1)
+    expect(panel.count()).toBe(1)
   })
 
   it('set hotkeys 後熱更新映射（舊組合失效、新組合生效）', () => {

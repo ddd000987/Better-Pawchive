@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   handleWindowsReservedName,
+  isTypingTarget,
   replaceUnsafeStr,
   throttle,
 } from '../src/Tools'
@@ -96,5 +97,34 @@ describe('handleWindowsReservedName', () => {
     expect(handleWindowsReservedName('COM10')).toBe('COM10')
     expect(handleWindowsReservedName('my.CON')).toBe('my.CON')
     expect(handleWindowsReservedName('')).toBe('')
+  })
+})
+
+describe('isTypingTarget', () => {
+  it('is true for text-like inputs, including one with no type', () => {
+    expect(isTypingTarget({ tagName: 'INPUT', type: 'text' })).toBe(true)
+    expect(isTypingTarget({ tagName: 'INPUT', type: 'number' })).toBe(true)
+    expect(isTypingTarget({ tagName: 'INPUT', type: '' })).toBe(true)
+    expect(isTypingTarget({ tagName: 'INPUT' })).toBe(true)
+  })
+
+  it('is false for inputs that take no text', () => {
+    for (const type of ['checkbox', 'radio', 'button', 'range']) {
+      expect(isTypingTarget({ tagName: 'INPUT', type })).toBe(false)
+    }
+  })
+
+  it('is true for a textarea and a contentEditable element', () => {
+    expect(isTypingTarget({ tagName: 'TEXTAREA' })).toBe(true)
+    expect(isTypingTarget({ tagName: 'DIV', isContentEditable: true })).toBe(
+      true
+    )
+  })
+
+  it('is false for other elements and for a missing target', () => {
+    expect(isTypingTarget({ tagName: 'DIV' })).toBe(false)
+    expect(isTypingTarget({ tagName: 'SELECT' })).toBe(false)
+    expect(isTypingTarget(null)).toBe(false)
+    expect(isTypingTarget(undefined)).toBe(false)
   })
 })

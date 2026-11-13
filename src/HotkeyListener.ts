@@ -12,6 +12,7 @@
 
 import { EVT } from './EVT'
 import { settings, HotkeyCommand } from './setting/Settings'
+import { isTypingTarget } from './Tools'
 
 // 錄製快捷鍵期間，暫停派發已註冊的命令，避免錄入的按鍵誤觸發既有動作
 let recording = false
@@ -68,15 +69,8 @@ class HotkeyListener {
         }
 
         // 輸入控制項裡的按鍵不處理（使用者可能在輸入文字）
-        if (ev.target) {
-          const target = ev.target as HTMLElement
-          if (
-            target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.isContentEditable
-          ) {
-            return
-          }
+        if (isTypingTarget(ev.target)) {
+          return
         }
 
         const sig = this.signature({
@@ -90,7 +84,10 @@ class HotkeyListener {
         const command = this.map.get(sig)
         if (command) {
           ev.preventDefault()
-          EVT.fire(command)
+          // A held key repeats; the command runs once per press
+          if (!ev.repeat) {
+            EVT.fire(command)
+          }
         }
       },
       true

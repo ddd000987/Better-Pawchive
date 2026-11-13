@@ -151,6 +151,41 @@ function handleWindowsReservedName(str: string, addStr?: string): string {
   return str
 }
 
+/** <input> types that take no text: a key pressed on them is not typing */
+const NON_TEXT_INPUT_TYPES = new Set([
+  'checkbox',
+  'radio',
+  'button',
+  'submit',
+  'reset',
+  'range',
+  'color',
+  'file',
+  'image',
+])
+
+/** Whether a key event target is a field the user types text into. A focused
+ * checkbox or button is not one, so keyboard shortcuts keep working after
+ * the user clicks it. */
+function isTypingTarget(target: unknown): boolean {
+  const el = target as {
+    tagName?: unknown
+    type?: unknown
+    isContentEditable?: unknown
+  } | null
+  if (!el || typeof el.tagName !== 'string') {
+    return false
+  }
+  if (el.isContentEditable === true || el.tagName === 'TEXTAREA') {
+    return true
+  }
+  if (el.tagName === 'INPUT') {
+    const type = typeof el.type === 'string' ? el.type.toLowerCase() : ''
+    return !NON_TEXT_INPUT_TYPES.has(type)
+  }
+  return false
+}
+
 /** Blob 轉 dataURL（隱身視窗下載用：SW 讀不到前台的 blobURL） */
 function blobToDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -173,5 +208,6 @@ export {
   throttle,
   replaceUnsafeStr,
   handleWindowsReservedName,
+  isTypingTarget,
   blobToDataURL,
 }
