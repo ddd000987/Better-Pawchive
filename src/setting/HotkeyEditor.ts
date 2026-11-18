@@ -7,6 +7,9 @@
  *          renders into a container given by SettingsCenter; feedback via
  *          toast (errors) + window.confirm (reset). Command list reduced
  *          to our 3 HotkeyCommands. settingChange payload is {key, value}.
+ *          One editor class serves two tables: the global hotkeys and the
+ *          keys used inside the hover preview; conflicts are checked across
+ *          both, since a global hotkey always wins over a preview key.
  */
 
 import { Config } from '../Config'
@@ -19,16 +22,67 @@ import {
   settings,
   setSetting,
   defaultHotkeys,
+  defaultPreviewHotkeys,
   HotkeyCombo,
-  HotkeyCommand,
 } from './Settings'
-import { isHotkeyMainKey, isReservedHotkey } from './hotkeyRules'
+import {
+  formatHotkeyCombo,
+  isHotkeyMainKey,
+  isReservedHotkey,
+  sameHotkeyCombo,
+} from './hotkeyRules'
 
 export { isReservedHotkey }
 
-/** 在設定面板裡查看和修改一級快捷鍵 */
+/** Which key table an editor shows */
+type HotkeyTableName = 'global' | 'preview'
+
+/** Setting key holding a table */
+type TableSettingKey = 'hotkeys' | 'previewHotkeys'
+
+/** A combo map read loosely: command name → combo */
+type ComboMap = Partial<Record<string, HotkeyCombo>>
+
+interface HotkeyTable {
+  settingKey: TableSettingKey
+  defaults: ComboMap
+  /** 命令與顯示說明的對應（順序即列表順序） */
+  rows: { command: string; nameKey: LangTextKey }[]
+}
+
+const TABLES: Record<HotkeyTableName, HotkeyTable> = {
+  global: {
+    settingKey: 'hotkeys',
+    defaults: defaultHotkeys,
+    rows: [
+      { command: 'commandToggleCrawlPanel', nameKey: '_hk_togglePanel' },
+      { command: 'commandStartDefaultCrawl', nameKey: '_hk_startCrawl' },
+      { command: 'commandTogglePreviewWork', nameKey: '_hk_togglePreview' },
+    ],
+  },
+  preview: {
+    settingKey: 'previewHotkeys',
+    defaults: defaultPreviewHotkeys,
+    rows: [
+      { command: 'previewDownloadPost', nameKey: '_hk_previewDownloadPost' },
+      { command: 'previewDownloadImage', nameKey: '_hk_previewDownloadImage' },
+      { command: 'previewOpenOriginal', nameKey: '_hk_previewOpenOriginal' },
+    ],
+  },
+}
+
+/** Combo text for this browser's platform */
+function formatCombo(combo: HotkeyCombo): string {
+  return formatHotkeyCombo(
+    combo,
+    Config.isMac ? 'mac' : Config.isWin ? 'win' : 'other'
+  )
+}
+
+/** 在設定面板裡查看和修改一組快捷鍵（一級快捷鍵或預覽快捷鍵） */
 class HotkeyEditor {
-  constructor(mount: HTMLDivElement) {
+  constructor(mount: HTMLDivElement, tableName: HotkeyTableName = 'global') {
+    this.table = TABLES[tableName]
     this.wrap = document.createElement('div')
     this.wrap.className = 'pwp-hotkeys-table'
     this.wrap.innerHTML = `
@@ -47,37 +101,39 @@ class HotkeyEditor {
     this.bindEvents()
   }
 
+  private table: HotkeyTable
   private wrap: HTMLDivElement
   private listWrap!: HTMLDivElement
 
   /** 是否正在錄製某個快捷鍵，避免同時錄製多個導致錯行 */
   private recording = false
 
-  // 命令與顯示說明的對應（順序即列表順序）
-  private readonly commandInfo: {
-    command: HotkeyCommand
-    nameKey: LangTextKey
-  }[] = [
-    { command: 'commandToggleCrawlPanel', nameKey: '_hk_togglePanel' },
-    { command: 'commandStartDefaultCrawl', nameKey: '_hk_startCrawl' },
-    { command: 'commandTogglePreviewWork', nameKey: '_hk_togglePreview' },
-  ]
+  /** This table's current combos */
+  private map(): ComboMap {
+    return settings.get(this.table.settingKey) as ComboMap
+  }
+
+  /** Save this table's combos */
+  private save(map: ComboMap): void {
+    // Each table's setting holds a combo map of its own commands
+    setSetting(this.table.settingKey, map as never)
+  }
 
   /** 依設定裡的快捷鍵，重建整個列表 */
   private createAllList(): void {
     this.listWrap = this.wrap.querySelector('.listWrap') as HTMLDivElement
     this.listWrap.innerHTML = ''
-    for (const info of this.commandInfo) {
+    for (const info of this.table.rows) {
       this.createList(info.command, info.nameKey)
     }
     lang.register(this.listWrap)
   }
 
   /** 為某個命令建一行 */
-  private createList(command: HotkeyCommand, nameKey: LangTextKey): void {
-    const combo = settings.get('hotkeys')[command]
+  private createList(command: string, nameKey: LangTextKey): void {
+    const combo = this.map()[command]
     const valueText =
-      combo && combo.key ? this.formatCombo(combo) : lang.transl('_hk_unset')
+      combo && combo.key ? formatCombo(combo) : lang.transl('_hk_unset')
 
     const item = document.createElement('div')
     item.className = 'pwp-hotkeys-row'
@@ -110,7 +166,7 @@ class HotkeyEditor {
   }
 
   /** 進入錄製態：監聽使用者按鍵，只在按下「主鍵」時結束錄製 */
-  private startRecord(item: HTMLDivElement, command: HotkeyCommand): void {
+  private startRecord(item: HTMLDivElement, command: string): void {
     // 已經在錄製其他快捷鍵時，忽略本次點擊
     if (this.recording) {
       return
@@ -215,11 +271,11 @@ class HotkeyEditor {
       }
 
       // 通過校驗，保存
-      const map = { ...settings.get('hotkeys') }
+      const map = { ...this.map() }
       map[command] = combo
       finish()
       toast.success(lang.transl('_hk_changed'))
-      setSetting('hotkeys', map)
+      this.save(map)
       this.refreshItem(command)
     }
 
@@ -229,30 +285,23 @@ class HotkeyEditor {
     window.addEventListener('pointerdown', cancel)
   }
 
-  /** 找出與 combo 衝突的其他命令（回傳其顯示名，無衝突回 null） */
-  private findConflict(self: HotkeyCommand, combo: HotkeyCombo): string | null {
-    const hotkeys = settings.get('hotkeys')
-    for (const info of this.commandInfo) {
-      if (info.command === self) {
-        continue
-      }
-      const other = hotkeys[info.command]
-      if (other && other.key && this.sameCombo(other, combo)) {
-        return lang.transl(info.nameKey)
+  /** 找出與 combo 衝突的其他命令（回傳其顯示名，無衝突回 null）。
+   * Both tables are checked: a global hotkey swallows the key before the
+   * preview sees it, so the two may not share a combo either. */
+  private findConflict(self: string, combo: HotkeyCombo): string | null {
+    for (const table of Object.values(TABLES)) {
+      const map = settings.get(table.settingKey) as ComboMap
+      for (const info of table.rows) {
+        if (table === this.table && info.command === self) {
+          continue
+        }
+        const other = map[info.command]
+        if (other && other.key && sameHotkeyCombo(other, combo)) {
+          return lang.transl(info.nameKey)
+        }
       }
     }
     return null
-  }
-
-  /** 比較兩個組合是否相同 */
-  private sameCombo(a: HotkeyCombo, b: HotkeyCombo): boolean {
-    return (
-      a.key === b.key &&
-      a.ctrl === b.ctrl &&
-      a.alt === b.alt &&
-      a.shift === b.shift &&
-      a.meta === b.meta
-    )
   }
 
   /** 是否為瀏覽器／系統保留組合（設了也不會到達頁面 keydown） */
@@ -261,63 +310,33 @@ class HotkeyEditor {
   }
 
   /** 清除某個命令的快捷鍵 */
-  private deleteHotkey(command: HotkeyCommand): void {
-    const map = { ...settings.get('hotkeys') }
+  private deleteHotkey(command: string): void {
+    const map = { ...this.map() }
     delete map[command]
-    setSetting('hotkeys', map)
+    this.save(map)
     this.refreshItem(command)
     toast.success(lang.transl('_hk_cleared'))
   }
 
   /** 依目前設定，刷新某一行的顯示 */
-  private refreshItem(command: HotkeyCommand): void {
+  private refreshItem(command: string): void {
     const item = this.listWrap.querySelector(
       `.pwp-hotkeys-row[data-command='${command}']`
     )
     if (!item) {
       return
     }
-    const combo = settings.get('hotkeys')[command]
+    const combo = this.map()[command]
     const valueEl = item.querySelector('.value') as HTMLElement
     valueEl.textContent =
-      combo && combo.key ? this.formatCombo(combo) : lang.transl('_hk_unset')
-  }
-
-  /** 把組合格式化為可讀文字。Mac 用特殊符號 */
-  private formatCombo(combo: HotkeyCombo): string {
-    const parts: string[] = []
-    if (combo.ctrl) {
-      parts.push(Config.isMac ? '⌃' : 'Ctrl')
-    }
-    if (combo.alt) {
-      parts.push(Config.isMac ? '⌥' : 'Alt')
-    }
-    if (combo.shift) {
-      parts.push(Config.isMac ? '⇧' : 'Shift')
-    }
-    if (combo.meta) {
-      parts.push(Config.isMac ? '⌘' : Config.isWin ? '⊞' : 'Meta')
-    }
-    parts.push(this.codeToName(combo.key))
-    return parts.join(Config.isMac ? '' : '+')
-  }
-
-  /** 把 KeyboardEvent.code 轉為可讀的按鍵名 */
-  private codeToName(code: string): string {
-    if (code.startsWith('Key')) {
-      return code.slice(3)
-    }
-    if (code.startsWith('Digit')) {
-      return code.slice(5)
-    }
-    return code
+      combo && combo.key ? formatCombo(combo) : lang.transl('_hk_unset')
   }
 
   private bindEvents(): void {
     // 快捷鍵設定被外部修改（例如重置）時，重建整個列表
     EVT.on(EVT.list.settingChange, (ev: CustomEventInit) => {
       const data = ev.detail.data as { key?: string }
-      if (data.key === 'hotkeys') {
+      if (data.key === this.table.settingKey) {
         this.createAllList()
       }
     })
@@ -334,7 +353,7 @@ class HotkeyEditor {
     const resetBtn = this.wrap.querySelector('.reset') as HTMLButtonElement
     resetBtn.addEventListener('click', () => {
       if (window.confirm(lang.transl('_hk_resetConfirm'))) {
-        setSetting('hotkeys', { ...defaultHotkeys })
+        this.save({ ...this.table.defaults })
         toast.success(lang.transl('_hk_resetDone'))
       }
     })

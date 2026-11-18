@@ -49,3 +49,59 @@ export function isReservedHotkey(combo: HotkeyCombo): boolean {
 export function isAllowedHotkeyCombo(combo: HotkeyCombo): boolean {
   return isHotkeyMainKey(combo.key) && !isReservedHotkey(combo)
 }
+
+/** Whether two combos are the same key with the same modifiers. */
+export function sameHotkeyCombo(a: HotkeyCombo, b: HotkeyCombo): boolean {
+  return (
+    a.key === b.key &&
+    a.ctrl === b.ctrl &&
+    a.alt === b.alt &&
+    a.shift === b.shift &&
+    a.meta === b.meta
+  )
+}
+
+/** Whether a keydown is exactly this combo (key by KeyboardEvent.code). */
+export function matchesHotkey(
+  ev: Pick<
+    KeyboardEvent,
+    'code' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'
+  >,
+  combo: HotkeyCombo | undefined
+): boolean {
+  return (
+    !!combo &&
+    sameHotkeyCombo(combo, {
+      key: ev.code,
+      ctrl: ev.ctrlKey,
+      alt: ev.altKey,
+      shift: ev.shiftKey,
+      meta: ev.metaKey,
+    })
+  )
+}
+
+/** Platform for key names: macOS uses symbols, Windows calls Meta ⊞ */
+export type HotkeyPlatform = 'mac' | 'win' | 'other'
+
+/** Readable combo text, e.g. "Alt+P", "⌥P", "D" */
+export function formatHotkeyCombo(
+  combo: HotkeyCombo,
+  platform: HotkeyPlatform
+): string {
+  const mac = platform === 'mac'
+  const parts: string[] = []
+  if (combo.ctrl) parts.push(mac ? '⌃' : 'Ctrl')
+  if (combo.alt) parts.push(mac ? '⌥' : 'Alt')
+  if (combo.shift) parts.push(mac ? '⇧' : 'Shift')
+  if (combo.meta) parts.push(mac ? '⌘' : platform === 'win' ? '⊞' : 'Meta')
+  parts.push(hotkeyCodeName(combo.key))
+  return parts.join(mac ? '' : '+')
+}
+
+/** KeyboardEvent.code → key name ("KeyD" → "D", "Digit1" → "1") */
+function hotkeyCodeName(code: string): string {
+  if (code.startsWith('Key')) return code.slice(3)
+  if (code.startsWith('Digit')) return code.slice(5)
+  return code
+}

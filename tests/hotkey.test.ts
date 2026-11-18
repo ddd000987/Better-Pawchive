@@ -2,11 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EVT, type eventNames } from '../src/EVT'
 import { HotkeyListener } from '../src/HotkeyListener'
 import { isReservedHotkey } from '../src/setting/HotkeyEditor'
-import { isAllowedHotkeyCombo } from '../src/setting/hotkeyRules'
+import {
+  formatHotkeyCombo,
+  isAllowedHotkeyCombo,
+  matchesHotkey,
+} from '../src/setting/hotkeyRules'
 import {
   sanitizeHotkeys,
+  sanitizePreviewHotkeys,
   settings,
   defaultHotkeys,
+  defaultPreviewHotkeys,
 } from '../src/setting/Settings'
 
 /** 在 stub window 上派發假 keydown（需自帶 preventDefault）。
@@ -281,3 +287,68 @@ describe('stored and imported hotkeys are validated', () => {
 // The test environment has no DOM (document.createElement is stubbed to
 // throw), so the row-rendering fix in HotkeyEditor.createList (combo text set
 // via textContent, never interpolated into innerHTML) is not covered here.
+
+describe('preview keys', () => {
+  const plain = (key: string) => ({
+    key,
+    ctrl: false,
+    alt: false,
+    shift: false,
+    meta: false,
+  })
+  const ev = (code: string, mods: { shift?: boolean; alt?: boolean } = {}) => ({
+    code,
+    ctrlKey: false,
+    altKey: mods.alt ?? false,
+    shiftKey: mods.shift ?? false,
+    metaKey: false,
+  })
+
+  it('defaults are plain D / C / V and pass the validator', () => {
+    expect(defaultPreviewHotkeys).toEqual({
+      previewDownloadPost: plain('KeyD'),
+      previewDownloadImage: plain('KeyC'),
+      previewOpenOriginal: plain('KeyV'),
+    })
+    expect(sanitizePreviewHotkeys(defaultPreviewHotkeys)).toEqual(
+      defaultPreviewHotkeys
+    )
+  })
+
+  it('a cleared key stays cleared; unknown and bad entries are dropped', () => {
+    expect(
+      sanitizePreviewHotkeys({
+        previewDownloadImage: plain('KeyS'),
+        previewOpenOriginal: plain('Space'),
+        commandToggleCrawlPanel: plain('KeyX'),
+      })
+    ).toEqual({ previewDownloadImage: plain('KeyS') })
+    expect(sanitizePreviewHotkeys(null)).toEqual({})
+  })
+
+  it('settings.set sanitizes preview keys too', () => {
+    settings.set('previewHotkeys', { previewDownloadPost: plain('Tab') })
+    expect(settings.get('previewHotkeys')).toEqual({})
+    settings.set('previewHotkeys', { ...defaultPreviewHotkeys })
+  })
+
+  it('a key matches only with exactly its modifiers', () => {
+    const d = plain('KeyD')
+    expect(matchesHotkey(ev('KeyD'), d)).toBe(true)
+    expect(matchesHotkey(ev('KeyD', { shift: true }), d)).toBe(false)
+    expect(matchesHotkey(ev('KeyD', { alt: true }), d)).toBe(false)
+    expect(matchesHotkey(ev('KeyD'), undefined)).toBe(false)
+  })
+
+  it('formats combos per platform', () => {
+    const combo = { ...plain('Digit1'), ctrl: true, shift: true }
+    expect(formatHotkeyCombo(combo, 'win')).toBe('Ctrl+Shift+1')
+    expect(formatHotkeyCombo(combo, 'mac')).toBe('⌃⇧1')
+    expect(formatHotkeyCombo({ ...plain('KeyA'), meta: true }, 'win')).toBe(
+      '⊞+A'
+    )
+    expect(formatHotkeyCombo({ ...plain('KeyA'), meta: true }, 'other')).toBe(
+      'Meta+A'
+    )
+  })
+})

@@ -74,7 +74,13 @@ import { states } from '../store/States'
 import { fitPreview } from './previewLayout'
 import { imageFiles, imageUrl, parsePostKey } from './previewAssets'
 import { preloadIndices } from './previewPreload'
-import { buildPreviewInfoFields, composePreviewInfo } from './previewInfo'
+import {
+  buildPreviewInfoFields,
+  composePreviewInfo,
+  previewKeyHint,
+} from './previewInfo'
+import { matchesHotkey } from '../setting/hotkeyRules'
+import { Config } from '../Config'
 import { workThumbnail } from './WorkThumbnail'
 import { markTransient } from '../PageRoots'
 
@@ -183,7 +189,13 @@ class PreviewWork {
         this.close()
         return
       }
-      if (key !== 'previewInfoPlacement' && key !== 'showPreviewWorkTip') return
+      if (
+        key !== 'previewInfoPlacement' &&
+        key !== 'showPreviewWorkTip' &&
+        key !== 'previewHotkeys'
+      ) {
+        return
+      }
       this.refreshTipLayout()
     })
     // restore() 不發 settingChange：萬一存檔載入完成時浮層已開著（極早 hover），
@@ -573,6 +585,11 @@ class PreviewWork {
         postId: post.id ?? '',
         published: post.published ?? '',
         pendingOnly: isPendingPost(post),
+        keys: previewKeyHint(
+          settings.get('previewHotkeys'),
+          lang.transl.bind(lang),
+          Config.isMac ? 'mac' : Config.isWin ? 'win' : 'other'
+        ),
       },
       lang.transl.bind(lang)
     )
@@ -688,32 +705,23 @@ class PreviewWork {
     if (!states.previewWorkIsShow || !this.current) return
     // A held key repeats; each action below runs once per press
     if (ev.repeat) return
-    // 字母鍵必須無修飾鍵才 acting（Alt/Ctrl/Meta/Shift 組合留給一級快捷鍵，
-    // 否則錄了 Alt+D、Shift+D 之類的快捷鍵會同時觸發這裡的下載）
-    const hasModifier = ev.ctrlKey || ev.altKey || ev.metaKey || ev.shiftKey
+    // Keys come from previewHotkeys and must match exactly (modifiers too), so
+    // a global hotkey such as Alt+D never also fires the plain-D download; a
+    // cleared key is absent from the map and does nothing
+    const keys = settings.get('previewHotkeys')
     const originViewerOpen = !!document.querySelector('#originSizeWrap')
-    switch (ev.key) {
-      case 'd':
-      case 'D':
-        if (!hasModifier && !originViewerOpen)
-          void downloadPost(this.current.postKey)
-        break
-      case 'c':
-      case 'C':
-        if (!hasModifier && !originViewerOpen)
-          void downloadSingle(this.current.postKey, this.current.index)
-        break
-      case 'v':
-      case 'V':
-        if (!hasModifier) {
-          // 一律開原圖（不看 previewOriginalImage）；先用浮層那張當佔位
-          const { urls, originUrls, index } = this.current
-          EVT.fire('callShowOriginSizeImage', {
-            imageUrl: originUrls[index] || urls[index],
-            placeholderUrl: urls[index],
-          })
-        }
-        break
+    if (matchesHotkey(ev, keys.previewDownloadPost)) {
+      if (!originViewerOpen) void downloadPost(this.current.postKey)
+    } else if (matchesHotkey(ev, keys.previewDownloadImage)) {
+      if (!originViewerOpen)
+        void downloadSingle(this.current.postKey, this.current.index)
+    } else if (matchesHotkey(ev, keys.previewOpenOriginal)) {
+      // 一律開原圖（不看 previewOriginalImage）；先用浮層那張當佔位
+      const { urls, originUrls, index } = this.current
+      EVT.fire('callShowOriginSizeImage', {
+        imageUrl: originUrls[index] || urls[index],
+        placeholderUrl: urls[index],
+      })
     }
   }
 

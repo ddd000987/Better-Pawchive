@@ -8,6 +8,12 @@
  */
 
 import type { LangTextKey } from '../langText'
+import type {
+  PreviewHotkeyCommand,
+  PreviewHotkeyMap,
+} from '../setting/Settings'
+import { formatHotkeyCombo } from '../setting/hotkeyRules'
+import type { HotkeyPlatform } from '../setting/hotkeyRules'
 
 /** 可擺放的資訊欄位（單帖一格的資訊單元） */
 type PreviewInfoField =
@@ -98,6 +104,8 @@ interface PreviewInfoSource {
   published: string
   /** has_full === false（僅預覽，原檔未匯入） */
   pendingOnly: boolean
+  /** Key hint text (see previewKeyHint) */
+  keys: string
 }
 
 /** 翻譯函數（注入 lang.transl，維持本模組可單測） */
@@ -118,8 +126,31 @@ function buildPreviewInfoFields(
     date: src.published.slice(0, 10),
     files: t('_previewFiles', String(src.total)),
     pendingOnly: src.pendingOnly ? t('_pendingOnly') : '',
-    keys: t('_previewKeys'),
+    keys: src.keys,
   }
+}
+
+/** Hint order and the short word for each preview key */
+const KEY_HINTS: [PreviewHotkeyCommand, LangTextKey][] = [
+  ['previewDownloadPost', '_pk_post'],
+  ['previewDownloadImage', '_pk_image'],
+  ['previewOpenOriginal', '_pk_original'],
+]
+
+/** "D whole post, C single, V original, Esc close": only the keys that are
+ * bound, in their current combos; Esc always closes the preview. */
+function previewKeyHint(
+  keys: PreviewHotkeyMap,
+  t: Translate,
+  platform: HotkeyPlatform
+): string {
+  const parts: string[] = []
+  for (const [command, word] of KEY_HINTS) {
+    const combo = keys[command]
+    if (combo) parts.push(`${formatHotkeyCombo(combo, platform)} ${t(word)}`)
+  }
+  parts.push(`Esc ${t('_pk_close')}`)
+  return parts.join(t('_pk_sep'))
 }
 
 /** 依位置表把欄位組成上下兩行（固定順序、略過空欄、`｜` 分隔）。
@@ -148,6 +179,7 @@ export {
   sanitizePreviewInfoPlacement,
   buildPreviewInfoFields,
   composePreviewInfo,
+  previewKeyHint,
 }
 export type {
   PreviewInfoField,

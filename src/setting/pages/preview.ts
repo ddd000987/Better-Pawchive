@@ -11,6 +11,7 @@ import type {
   PreviewInfoField,
   PreviewInfoPlace,
 } from '../../preview/previewInfo'
+import { HotkeyEditor } from '../HotkeyEditor'
 import { settings, PreviewSettings } from '../Settings'
 import { checkRow, inputRow, section, tipCard } from './controls'
 
@@ -108,6 +109,15 @@ export function buildPreview(host: HTMLDivElement): void {
       step: '1',
     })
   }
+
+  // Keys used inside the preview: rebind, or clear one to turn it off
+  const keysBody = section(host, '_secPreviewHotkeys')
+  tipCard(keysBody, '_previewHotkeysTip')
+  const keysMount = document.createElement('div')
+  keysMount.className = 'pwpSC-row'
+  keysMount.dataset.key = '_secPreviewHotkeys'
+  keysBody.appendChild(keysMount)
+  new HotkeyEditor(keysMount, 'preview')
 
   // Creator page preview (hover a creator avatar)
   const creatorBody = section(host, '_secCreatorPreview')

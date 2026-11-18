@@ -121,6 +121,8 @@ interface MetaSettings {
   namingRulePawchive: string
   /** 使用者自訂的一級快捷鍵。鍵為命令名，未設定的命令不出現 */
   hotkeys: HotkeyMap
+  /** Keys used inside the hover preview; a cleared command is absent */
+  previewHotkeys: PreviewHotkeyMap
 }
 
 /** 快捷鍵組合（key 為 KeyboardEvent.code） */
@@ -182,16 +184,55 @@ function isHotkeyCombo(v: unknown): v is HotkeyCombo {
   )
 }
 
+/** Keys that act only while the hover preview is open */
+type PreviewHotkeyCommand =
+  'previewDownloadPost' | 'previewDownloadImage' | 'previewOpenOriginal'
+
+/** Preview command → combo; a cleared command is absent (key turned off) */
+type PreviewHotkeyMap = Partial<Record<PreviewHotkeyCommand, HotkeyCombo>>
+
+/** A plain letter key with no modifier */
+const plainKey = (key: string): HotkeyCombo => ({
+  key,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
+})
+
+/** Default preview keys (D / C / V, as before they could be changed) */
+const defaultPreviewHotkeys: PreviewHotkeyMap = {
+  previewDownloadPost: plainKey('KeyD'),
+  previewDownloadImage: plainKey('KeyC'),
+  previewOpenOriginal: plainKey('KeyV'),
+}
+
 /** 清洗快捷鍵表：只收已知命令的有效組合。
  * 缺鍵保持缺（對齊 PBD 語義：「清除」後重載不復活；舊存檔本來就沒
  * hotkeys 鍵，走 defaultSettings 的完整預設，不受影響）。 */
 function sanitizeHotkeys(input: unknown): HotkeyMap {
-  const out: HotkeyMap = {}
+  return sanitizeComboMap(input, Object.keys(defaultHotkeys) as HotkeyCommand[])
+}
+
+/** Same as sanitizeHotkeys, for the preview key table */
+function sanitizePreviewHotkeys(input: unknown): PreviewHotkeyMap {
+  return sanitizeComboMap(
+    input,
+    Object.keys(defaultPreviewHotkeys) as PreviewHotkeyCommand[]
+  )
+}
+
+/** Keep only the listed commands that hold a valid, allowed combo */
+function sanitizeComboMap<C extends string>(
+  input: unknown,
+  commands: C[]
+): Partial<Record<C, HotkeyCombo>> {
+  const out: Partial<Record<C, HotkeyCombo>> = {}
   if (!input || typeof input !== 'object') {
     return out
   }
   const src = input as Record<string, unknown>
-  for (const cmd of Object.keys(defaultHotkeys) as HotkeyCommand[]) {
+  for (const cmd of commands) {
     // Same rules as the recorder: stored/imported hotkeys get no free pass
     const c = src[cmd]
     if (isHotkeyCombo(c) && isAllowedHotkeyCombo(c)) {
@@ -260,6 +301,7 @@ const defaultSettings: PawchiveSettings = {
     'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}',
   namingRulePawchive: '',
   hotkeys: defaultHotkeys,
+  previewHotkeys: defaultPreviewHotkeys,
 }
 
 /** 數值鍵的夾取規則（整數鍵先四捨五入） */
@@ -321,6 +363,9 @@ function sanitizeSetting<K extends SettingKey>(
   // 物件型鍵先交給各自的清洗函數（每次回新物件，不共用預設引用）
   if (key === 'hotkeys') {
     return sanitizeHotkeys(value) as PawchiveSettings[K]
+  }
+  if (key === 'previewHotkeys') {
+    return sanitizePreviewHotkeys(value) as PawchiveSettings[K]
   }
   if (key === 'previewInfoPlacement') {
     return sanitizePreviewInfoPlacement(value) as PawchiveSettings[K]
@@ -494,6 +539,9 @@ class Settings {
     // 快捷鍵表逐項校驗（舊存檔缺 hotkeys 鍵時沿用預設；同時斷開與
     // defaultSettings 的共享引用，避免後續誤改預設）
     this.store.hotkeys = sanitizeHotkeys(this.store.hotkeys)
+    this.store.previewHotkeys = sanitizePreviewHotkeys(
+      this.store.previewHotkeys
+    )
     // 資訊列位置表同樣逐欄校驗（舊存檔無此鍵；null 存檔會被清洗回預設）
     this.store.previewInfoPlacement = sanitizePreviewInfoPlacement(
       this.store.previewInfoPlacement
@@ -524,7 +572,9 @@ export {
   setSetting,
   defaultSettings,
   defaultHotkeys,
+  defaultPreviewHotkeys,
   sanitizeHotkeys,
+  sanitizePreviewHotkeys,
   sanitizeSetting,
   migrateLegacySettings,
 }
@@ -538,4 +588,6 @@ export type {
   HotkeyCombo,
   HotkeyCommand,
   HotkeyMap,
+  PreviewHotkeyCommand,
+  PreviewHotkeyMap,
 }

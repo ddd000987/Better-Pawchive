@@ -5,13 +5,18 @@ import {
   sanitizePreviewInfoPlacement,
   buildPreviewInfoFields,
   composePreviewInfo,
+  previewKeyHint,
 } from '../src/preview/previewInfo'
 import type {
   PreviewInfoPlacement,
   PreviewInfoSource,
   Translate,
 } from '../src/preview/previewInfo'
-import { defaultSettings, settings } from '../src/setting/Settings'
+import {
+  defaultPreviewHotkeys,
+  defaultSettings,
+  settings,
+} from '../src/setting/Settings'
 
 /** 假翻譯（真實 lang.transl 語義：key 對應文案，`{}` 由參數填入） */
 const t: Translate = (key, ...args) => {
@@ -20,8 +25,16 @@ const t: Translate = (key, ...args) => {
       return `附件${args[0]}`
     case '_pendingOnly':
       return '⚠僅預覽'
-    case '_previewKeys':
-      return 'D 整帖 C 單張 V 原圖 Esc 關閉'
+    case '_pk_post':
+      return '整帖'
+    case '_pk_image':
+      return '單張'
+    case '_pk_original':
+      return '原圖'
+    case '_pk_close':
+      return '關閉'
+    case '_pk_sep':
+      return ' '
     default:
       return String(key)
   }
@@ -37,6 +50,7 @@ function source(over: Partial<PreviewInfoSource> = {}): PreviewInfoSource {
     postId: '999',
     published: '2024-01-02T03:04:05',
     pendingOnly: false,
+    keys: 'D 整帖 C 單張 V 原圖 Esc 關閉',
     ...over,
   }
 }
@@ -230,5 +244,32 @@ describe('Settings 接線（set／restore 逐欄清洗）', () => {
     // 改動讀出的表不會污染預設
     stored.title = 'none'
     expect(defaultPreviewInfoPlacement.title).toBe('top')
+  })
+})
+
+describe('previewKeyHint', () => {
+  it('lists the default keys, then Esc', () => {
+    expect(previewKeyHint(defaultPreviewHotkeys, t, 'win')).toBe(
+      'D 整帖 C 單張 V 原圖 Esc 關閉'
+    )
+  })
+
+  it('leaves out cleared keys and shows rebound combos', () => {
+    const keys = {
+      previewDownloadPost: {
+        key: 'KeyS',
+        ctrl: false,
+        alt: false,
+        shift: true,
+        meta: false,
+      },
+      previewOpenOriginal: defaultPreviewHotkeys.previewOpenOriginal,
+    }
+    expect(previewKeyHint(keys, t, 'win')).toBe('Shift+S 整帖 V 原圖 Esc 關閉')
+    expect(previewKeyHint(keys, t, 'mac')).toBe('⇧S 整帖 V 原圖 Esc 關閉')
+  })
+
+  it('with every key cleared only Esc is left', () => {
+    expect(previewKeyHint({}, t, 'other')).toBe('Esc 關閉')
   })
 })

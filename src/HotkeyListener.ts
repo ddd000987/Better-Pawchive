@@ -23,7 +23,7 @@ function setHotkeyRecording(state: boolean): void {
 }
 
 // 在 content script 集中監聽 keydown，把使用者自訂的一級快捷鍵派發為 EVT 命令
-// 二級快捷鍵（預覽內的 D/C/V/方向鍵等）由各功能模組自行處理，不經這裡
+// Preview keys (settings.previewHotkeys, D/C/V by default) are handled by PreviewWork, not here
 class HotkeyListener {
   constructor() {
     this.buildMap()
