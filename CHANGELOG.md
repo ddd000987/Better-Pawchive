@@ -4,6 +4,43 @@ English | [繁體中文](CHANGELOG.zh-TW.md)
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-18
+
+### Added
+
+- Image window: press F in the hover preview to open the current image in its own window, which can be moved, resized and put on another screen. In the window the mouse wheel zooms around the pointer, dragging pans a zoomed-in image and otherwise moves the window, double-click switches between fitting the window and actual size, 0 fits the window and Esc closes it. The original image is loaded, and the preview image is shown until it arrives.
+- Preview keys: the keys used inside the preview (D whole post, C this image, V original, F window) can be changed or turned off in the new "Preview keys" section on the Preview page. The key hint in the preview info bar follows the keys you set; Esc always closes the preview.
+- Creator preview: hover a creator's avatar to see the covers of their latest posts. Click a cover to open that post, or anywhere else in the preview to open the creator's page. The new "Creator page preview" section on the Preview page turns it off, sets how many posts it shows (12 by default) and whether it stays open while the mouse is on it.
+- Pick posts by hand: with "Pick posts by hand" on the Crawl page, clicking a post card picks it instead of opening it (click again to unpick; Ctrl+click or the middle button still opens it). "Save to cache" crawls only the picked posts and saves them as one crawl cache entry. The Filter settings do not apply to picked posts, neither when they are crawled nor when they are downloaded. Picks stay in the tab until the page reloads.
+- Preview preloading: two new settings on the Preview page choose how many images after the current one (1 by default, as before) and before it (0 by default) are loaded ahead of time.
+
+### Fixed
+
+- Downloads: pausing a "restart all" download and resuming it skipped the remaining files as already downloaded.
+- Downloads: with ordered downloads on, a file that failed every retry kept all the files after it from starting.
+- Downloads: a file the browser refused to save paused the download, and resuming tried the same file again, so the batch could never finish. The file is now skipped and the batch goes on (three failures in a row still pause), and the completion message says how many files were skipped.
+- Downloads: a few temporary save failures anywhere in a large batch could turn the next one into a hard error. Each file now has its own retries.
+- Downloads: resuming a paused download could save a second copy of a file the browser was still saving.
+- Downloads: when a quick download of a large file was handed to the browser's own download, the first request was left open and used bandwidth twice.
+- Crawl: a crawl whose list page still failed after the retries was reported as complete, or as "no posts found". It is now reported as incomplete. Responses that are not valid JSON are retried.
+- Crawl: starting a crawl dropped the tasks queued behind it. Tasks queued after a crawl was stopped are now cancelled with a notice instead of running after a later crawl.
+- Crawl: a file whose name has no extension was saved as `.bin` even when its path has one.
+- Filter: the post ID range compared IDs as text, so bounds with leading zeros or non-numeric IDs gave wrong results.
+- Several tabs: settings, download history and crawl caches changed in one tab could be erased when another tab saved. Tabs now merge their changes and pick up each other's.
+- Settings: if reading the saved settings failed, the first change overwrote every saved setting with the defaults.
+- Download history: records of files that finished in quick succession could be lost when the tab was closed. A record is now saved within two seconds.
+- Hotkeys: holding a key down ran its command over and over, and after clicking a checkbox or button the hotkeys and Esc stopped working.
+- File names: when a long path was shortened, every file of a long-titled post got the same name.
+- File names: a file named like a reserved Windows name (for example `NUL.png`) lost its extension.
+- Local folder: if the folder's read permission was withdrawn during a check, every file looked missing. The check now says the folder cannot be read.
+- Messages: post titles or creator names containing `$&`, `$$` or `{}` came out garbled in messages.
+- CSV export: line breaks containing carriage returns are now quoted, so rows no longer split.
+
+### Security
+
+- Hotkeys loaded from storage or from an imported settings file are now validated and shown as plain text, so a crafted settings file can no longer put HTML into the settings page.
+- CSV export: cells that start with `=`, `+`, `-` or `@` are neutralised, so spreadsheet apps do not run them as formulas.
+
 ## [1.0.2] - 2026-11-04
 
 ### Added

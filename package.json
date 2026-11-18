@@ -1,6 +1,6 @@
 {
   "name": "pawchive-pro",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Batch downloader for Kemono / Pawchive creator posts. Derived from PixivBatchDownloader and Kemono-Downloader.",
   "author": "PawchivePro contributors",
   "license": "GPL-3.0-or-later",

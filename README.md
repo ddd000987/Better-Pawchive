@@ -11,8 +11,8 @@ License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 
 ## Features
 
-- **Hover preview**: hover a thumbnail to see full images; switch with the mouse wheel.
-- **Batch crawl**: crawl every post of a creator in one click, filtered by title, date, file type and more.
+- **Hover preview**: hover a thumbnail to see full images; switch with the mouse wheel, or open one in its own window to zoom and move it freely. Hover a creator's avatar to see their latest posts.
+- **Batch crawl**: crawl every post of a creator in one click, filtered by title, date, file type and more, or pick posts by hand.
 - **Reliable downloads**: pause, adjust concurrency, and retry failures automatically; files already downloaded or already in your folder are skipped.
 - **Custom file names**: build download paths from tags such as `{creator}`, `{post_id}` and `{title}`.
 - **Cache and history**: crawl results are saved for later downloads, and several caches can be queued to download one after another; download history can be exported and imported.
