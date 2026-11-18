@@ -9,7 +9,7 @@
 
 import { EVT } from '../EVT'
 import { detectPage } from '../kemono/pages'
-import { IDData, Result, ResultOptional } from './StoreType'
+import { IDData, PostMeta, Result, ResultOptional } from './StoreType'
 
 /** 保存抓取結果和一些公用數據 */
 class Store {
@@ -87,7 +87,7 @@ class Store {
    * 一帖含多個附件時，只需要傳遞附件列表，Store 會為每個附件生成一條 Result。
    * 已存在的 postKey 會被忽略（去重）。
    */
-  public addResult(data: ResultOptional, files: ResultOptional[]) {
+  public addResult(data: PostMeta, files: ResultOptional[]) {
     const postKey = data.postKey ?? ''
     if (!postKey) {
       return

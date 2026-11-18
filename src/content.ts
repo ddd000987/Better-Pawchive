@@ -30,6 +30,8 @@ import './download/ExportResult2CSV'
 import './download/ShowBorderOnDownloadedWorks'
 // 核心抓取引擎直接 import：先前只靠 SettingsCenter 間接載入，模組一改就會靜默停擺
 import { engine } from './crawl/engine'
+import { manualPick } from './crawl/ManualPick'
+import { pickBar } from './crawl/PickBar'
 
 // webpack 的 mode 會替換 process.env.NODE_ENV；tsconfig 只載入 chrome 型別，
 // 這裡自行宣告避免 tsc 找不到 process
@@ -44,6 +46,8 @@ void store
 function checkModules() {
   const modules = {
     engine,
+    manualPick,
+    pickBar,
     downloadControl,
     downloadRecord,
     downloadStates,

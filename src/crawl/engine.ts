@@ -27,12 +27,7 @@ import { parsePostKey } from '../preview/previewAssets'
 import { settings } from '../setting/Settings'
 import { store } from '../store/Store'
 import { states } from '../store/States'
-import {
-  IDData,
-  KemonoFileKind,
-  Result,
-  ResultOptional,
-} from '../store/StoreType'
+import { IDData, KemonoFileKind, Result, PostMeta } from '../store/StoreType'
 import { sleepAbortable } from '../Tools'
 import { crawlPause } from './CrawlPause'
 import { crawlProgress, formatExcluded } from './CrawlProgress'
@@ -247,115 +242,127 @@ class Engine {
     )
   }
 
-  /** 縮圖下載鈕入口：逐帖取詳情 → 入庫 → 走正常下載管線 */
-  public async crawlIds(idList: IDData[]): Promise<void> {
-    await states.waitSettingInitialized()
-    if (states.busy || states.hasDownloadTask) {
+  /** 縮圖下載鈕入口：逐帖取詳情 → 入庫 → 走正常下載管線
+   * opts.picked: the posts were picked by hand (manual pick mode). The filter
+   * settings are skipped (now and when the result is downloaded), and the
+   * result is saved to the crawl cache like a full crawl. Such a crawl is not
+   * queued while busy: the waiting queue would replay it as a quick crawl, so
+   * the caller keeps its selection and the user tries again later. */
+  public async crawlIds(
+    idList: IDData[],
+    opts: { picked?: boolean } = {}
+  ): Promise<void> {
+    const picked = opts.picked === true
+    const onBusy = () => {
+      if (picked) {
+        toast.warning(lang.transl('_pickBusy'))
+        return
+      }
       // 忙碌中 → 排入等待佇列（下載完成後 DownloadControl 會重發 crawlIdList）
       store.waitingIdList.push(...idList)
       toast.show(lang.transl('_queuedN', String(idList.length)))
+    }
+    await states.waitSettingInitialized()
+    if (states.busy || states.hasDownloadTask) {
+      onBusy()
       return
     }
 
-    await this.runExclusive(
-      () => {
-        store.waitingIdList.push(...idList)
-        toast.show(lang.transl('_queuedN', String(idList.length)))
-      },
-      async (signal, gen) => {
-        // 縮圖單帖快抓／等待佇列：抓取快取跳過這類（只存完整抓取的整批結果）
-        states.quickCrawl = true
-        this.listFailedAtPage = null
-        EVT.fire('crawlStart')
-        // ID 列表型抓取：目標是「N 帖」，總數已知
-        crawlProgress.setTargetPosts(idList.length)
-        crawlProgress.setTotal(idList.length)
-        log.log(lang.transl('_crawlStarted', `${idList.length} posts`))
+    await this.runExclusive(onBusy, async (signal, gen) => {
+      // 縮圖單帖快抓／等待佇列：抓取快取跳過這類（只存完整抓取的整批結果）
+      // A manual pick is saved like a full crawl
+      states.quickCrawl = !picked
+      this.listFailedAtPage = null
+      EVT.fire('crawlStart')
+      // ID 列表型抓取：目標是「N 帖」，總數已知
+      crawlProgress.setTargetPosts(idList.length)
+      crawlProgress.setTotal(idList.length)
+      log.log(lang.transl('_crawlStarted', `${idList.length} posts`))
 
-        // 同一創作者只查一次 profile（檔名用；失敗用 ID 代替，不中斷）
-        const names = new Map<string, string>()
-        const done: IDData[] = []
-        try {
-          for (const item of idList) {
-            if (signal.aborted) {
+      // 同一創作者只查一次 profile（檔名用；失敗用 ID 代替，不中斷）
+      const names = new Map<string, string>()
+      const done: IDData[] = []
+      try {
+        for (const item of idList) {
+          if (signal.aborted) {
+            break
+          }
+          const info = parsePostKey(item.id)
+          if (!info) {
+            crawlProgress.scan()
+            crawlProgress.fail()
+            log.warning(
+              lang.transl('_postDetailFailed', item.id, 'bad postKey')
+            )
+            continue
+          }
+          const ck = `${info.service}/${info.creatorId}`
+          let creatorName = names.get(ck)
+          if (creatorName === undefined) {
+            creatorName = info.creatorId
+            // 暫停中在這裡等；等待期間被停止就中止整輪
+            if (!(await crawlPause.wait(signal))) {
               break
             }
-            const info = parsePostKey(item.id)
-            if (!info) {
-              crawlProgress.scan()
-              crawlProgress.fail()
-              log.warning(
-                lang.transl('_postDetailFailed', item.id, 'bad postKey')
+            try {
+              const profile = await api.profile(
+                {
+                  service: info.service,
+                  creatorId: info.creatorId,
+                },
+                signal
               )
-              continue
-            }
-            const ck = `${info.service}/${info.creatorId}`
-            let creatorName = names.get(ck)
-            if (creatorName === undefined) {
-              creatorName = info.creatorId
-              // 暫停中在這裡等；等待期間被停止就中止整輪
-              if (!(await crawlPause.wait(signal))) {
-                break
+              if (!isErrorResponse(profile)) {
+                creatorName = profile.name || creatorName
               }
-              try {
-                const profile = await api.profile(
-                  {
-                    service: info.service,
-                    creatorId: info.creatorId,
-                  },
-                  signal
-                )
-                if (!isErrorResponse(profile)) {
-                  creatorName = profile.name || creatorName
-                }
-              } catch (e) {
-                if (!signal.aborted) {
-                  log.warning(lang.transl('_profileFailed', String(e)))
-                }
+            } catch (e) {
+              if (!signal.aborted) {
+                log.warning(lang.transl('_profileFailed', String(e)))
               }
-              names.set(ck, creatorName)
             }
-            const added = await this.crawlOnePost(
-              info.service,
-              info.creatorId,
-              info.postId,
-              creatorName,
-              undefined,
-              signal
-            )
-            if (added) {
-              done.push(item)
-            }
+            names.set(ck, creatorName)
           }
-        } catch (e) {
-          if (!signal.aborted) {
-            log.error(
-              lang.transl(
-                '_crawlAborted',
-                e instanceof Error ? e.message : String(e)
-              )
-            )
+          const added = await this.crawlOnePost(
+            info.service,
+            info.creatorId,
+            info.postId,
+            creatorName,
+            undefined,
+            signal,
+            picked
+          )
+          if (added) {
+            done.push(item)
           }
         }
-
-        // 已被新一輪取代：不發收尾事件、不寫 store
-        if (gen !== this.generation) {
-          return
-        }
-
-        // 只登記實際處理過的 ID；停止時保留部分結果，但走中止收尾
-        store.idList.push(...done)
-
-        if (signal.aborted) {
-          log.warning(lang.transl('_crawlStoppedKeep'))
-          this.finishStopped()
-        } else if (store.resultMeta.length === 0) {
-          this.finishEmpty()
-        } else {
-          this.finishDone()
+      } catch (e) {
+        if (!signal.aborted) {
+          log.error(
+            lang.transl(
+              '_crawlAborted',
+              e instanceof Error ? e.message : String(e)
+            )
+          )
         }
       }
-    )
+
+      // 已被新一輪取代：不發收尾事件、不寫 store
+      if (gen !== this.generation) {
+        return
+      }
+
+      // 只登記實際處理過的 ID；停止時保留部分結果，但走中止收尾
+      store.idList.push(...done)
+
+      if (signal.aborted) {
+        log.warning(lang.transl('_crawlStoppedKeep'))
+        this.finishStopped()
+      } else if (store.resultMeta.length === 0) {
+        this.finishEmpty()
+      } else {
+        this.finishDone()
+      }
+    })
   }
 
   /** 抓取收尾：空結果 */
@@ -707,7 +714,9 @@ class Engine {
           pending: boolean
         }
       | undefined,
-    signal: AbortSignal
+    signal: AbortSignal,
+    /** Picked by hand: no filter applies */
+    picked = false
   ): Promise<boolean> {
     // 進度統計：走到這裡就算檢查了一帖，之後必定落在 保留／排除／失敗 其中之一
     // （使用者中止的那一帖例外，不計）
@@ -824,7 +833,7 @@ class Engine {
     const kinds = new Set(files.map((f) => f.kind))
 
     // 入庫條目先建好：整帖去重的期望檔名與入庫用同一份，避免兩處展開不一致
-    const meta: ResultOptional = {
+    const meta: PostMeta = {
       postKey,
       service,
       creator: creatorName,
@@ -834,6 +843,9 @@ class Engine {
       published: data.post.published ?? '',
       fileCount: files.filter((f) => f.kind !== 'text').length,
       pending,
+      // Carried into every file of the post (Store.addResult), so the download
+      // skips the file type and size filters for it too
+      ...(picked ? { picked: true } : {}),
     }
     const full: Result[] = files.map((f, i) => ({
       id: `${postKey}#${i}`,
@@ -854,15 +866,17 @@ class Engine {
       textData: f.textData,
       fileIndex: i,
     }))
-    const ok = filter.checkPost({
-      service,
-      postId,
-      title: data.post.title ?? '',
-      published: data.post.published ?? '',
-      fileCount: meta.fileCount ?? 0,
-      kinds,
-      pending,
-    })
+    const ok =
+      picked ||
+      filter.checkPost({
+        service,
+        postId,
+        title: data.post.title ?? '',
+        published: data.post.published ?? '',
+        fileCount: meta.fileCount ?? 0,
+        kinds,
+        pending,
+      })
     if (!ok) {
       crawlProgress.exclude(filter.lastReason)
       return false

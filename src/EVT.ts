@@ -99,6 +99,8 @@ class EVENT {
     commandStartDefaultCrawl: 'commandStartDefaultCrawl',
     /** Alt+P：開關懸停預覽 */
     commandTogglePreviewWork: 'commandTogglePreviewWork',
+    /** Manual pick mode was switched, or its selection or busy state changed */
+    manualPickChange: 'manualPickChange',
   } as const
 
   public fire(type: eventNames, data?: unknown): void {

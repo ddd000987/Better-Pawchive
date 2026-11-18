@@ -159,3 +159,24 @@ describe('normalizePostIdBoundary', () => {
     expect(normalizePostIdBoundary('abc')).toBe('')
   })
 })
+
+describe('filter for posts picked by hand', () => {
+  beforeEach(resetFilters)
+
+  it('file type switches do not apply, the text setting still does', () => {
+    settings.set('downImageFiles', false)
+    settings.set('downloadCover', false)
+    settings.set('textContent', 'none')
+    expect(filter.isKindAllowed('image')).toBe(false)
+    expect(filter.isKindAllowed('image', true)).toBe(true)
+    expect(filter.isKindAllowed('cover', true)).toBe(true)
+    expect(filter.isKindAllowed('text', true)).toBe(false)
+  })
+
+  it('the size limit does not apply', () => {
+    settings.set('filterMaxSizeMiB', 1)
+    expect(filter.checkFileSize(5 * 1024 * 1024)).toBe(false)
+    expect(filter.checkFileSize(5 * 1024 * 1024, true)).toBe(true)
+    settings.set('filterMaxSizeMiB', 0)
+  })
+})

@@ -151,8 +151,13 @@ class Filter {
     return false
   }
 
-  /** 單個附件種類是否允許下載（下載時複查） */
-  public isKindAllowed(kind: KemonoFileKind): boolean {
+  /** 單個附件種類是否允許下載（下載時複查）。
+   * A post picked by hand ignores the file type switches of the filter;
+   * text still follows the text content setting, which is not a filter. */
+  public isKindAllowed(kind: KemonoFileKind, picked = false): boolean {
+    if (picked && kind !== 'text') {
+      return true
+    }
     switch (kind) {
       case 'image':
         return settings.get('downImageFiles')
@@ -167,10 +172,11 @@ class Filter {
     }
   }
 
-  /** 下載時檢查單檔體積（bytes，0 = 未知則放行） */
-  public checkFileSize(size: number): boolean {
+  /** 下載時檢查單檔體積（bytes，0 = 未知則放行）；a file of a post picked
+   * by hand is never too large */
+  public checkFileSize(size: number, picked = false): boolean {
     const limitMiB = settings.get('filterMaxSizeMiB')
-    if (limitMiB <= 0 || size <= 0) {
+    if (picked || limitMiB <= 0 || size <= 0) {
       return true
     }
     if (size > limitMiB * 1024 * 1024) {

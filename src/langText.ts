@@ -1842,6 +1842,29 @@ export const langText = {
     `Busy — queued {} post(s), will start when the current task finishes`,
     `処理中のため待機キューに追加しました：{} 投稿（現在のタスク完了後に自動で開始します）`,
   ],
+  // ---------- Manual pick mode ----------
+  _f_manualPick: [
+    `手动挑选作品`,
+    `手動挑選作品`,
+    `Pick posts by hand`,
+    `投稿を手動で選ぶ`,
+  ],
+  _d_manualPick: [
+    `开启后，点击作品卡片不会打开作品，而是选取它（再点一次取消）。选好后按「保存到缓存」，只抓取选取的作品并存成一笔抓取缓存。「过滤」里的设置不会套用到这些作品，抓取和下载时都一样。按住 Ctrl 点击或用鼠标中键仍可在新标签页打开作品。只在这个标签页有效，重新加载页面后会清空。`,
+    `開啟後，點作品卡片不會打開作品，而是選取它（再點一次取消）。選好後按「保存快取」，只抓取選取的作品並存成一筆抓取快取。「過濾」裡的設定不會套用到這些作品，抓取和下載時都一樣。按住 Ctrl 點擊或用滑鼠中鍵仍可在新分頁打開作品。只在這個分頁有效，重新整理頁面後會清空。`,
+    `While on, clicking a post card picks it instead of opening it (click again to unpick). Then press "Save to cache" to crawl only the picked posts and save them as one crawl cache entry. The Filter settings do not apply to these posts, neither when they are crawled nor when they are downloaded. Ctrl+click or the middle button still opens a post in a new tab. Applies to this tab only and is cleared when the page reloads.`,
+    `オンにすると、投稿カードをクリックしても投稿を開かずに選択します（もう一度クリックで解除）。選び終わったら「キャッシュに保存」を押すと、選んだ投稿だけを取得して 1 件の取得キャッシュとして保存します。「フィルター」の設定はこれらの投稿には適用されません（取得時もダウンロード時も）。Ctrl+クリックやマウスの中ボタンなら新しいタブで投稿を開けます。このタブでのみ有効で、ページを再読み込みすると消えます。`,
+  ],
+  _pickCount: [`已选 {} 篇`, `已選 {} 篇`, `{} picked`, `{} 件選択中`],
+  _pickSave: [`保存到缓存`, `保存快取`, `Save to cache`, `キャッシュに保存`],
+  _pickClear: [`清除选取`, `清除選取`, `Clear picks`, `選択を解除`],
+  _pickedBadge: [`✓ 已选`, `✓ 已選`, `✓ Picked`, `✓ 選択済み`],
+  _pickBusy: [
+    `正在抓取或下载，请完成后再按「保存到缓存」。已选取的作品会保留。`,
+    `正在抓取或下載，請完成後再按「保存快取」。已選取的作品會保留。`,
+    `A crawl or download is running. Press "Save to cache" again when it has finished; your picks are kept.`,
+    `取得またはダウンロードの実行中です。終わってからもう一度「キャッシュに保存」を押してください。選択した投稿はそのまま残ります。`,
+  ],
   _queuedCrawl: [
     `忙碌中，已排入等待队列：当前任务完成后开始抓取`,
     `忙碌中，已排入等待佇列：目前任務完成後開始抓取`,

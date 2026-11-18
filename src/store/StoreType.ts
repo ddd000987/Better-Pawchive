@@ -59,10 +59,18 @@ export interface ResultOptional {
   fileIndex?: number
 }
 
+/** What Store.addResult takes for a post: shared by all of its files */
+export type PostMeta = ResultOptional & { picked?: boolean }
+
 /** 內部抓取結果：屬性必填，並加上全域唯一的 id */
 export type Result = Required<
   {
     /** 全域唯一 id：`${postKey}#${fileIndex}` */
     id: string
   } & ResultOptional
->
+> & {
+  /** Picked by hand (manual pick mode): the filter settings do not apply to
+   * it, neither when it is crawled nor when it is downloaded. Absent on
+   * everything else, including caches saved before this existed. */
+  picked?: boolean
+}

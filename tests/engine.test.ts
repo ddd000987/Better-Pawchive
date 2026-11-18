@@ -655,3 +655,99 @@ describe('engine list-page failure ends the crawl as incomplete', () => {
     )
   })
 })
+
+describe('engine crawlIds picked (manual pick)', () => {
+  const fullPost = (id: string) => ({
+    post: {
+      id,
+      user: '1',
+      service: 'patreon',
+      title: 'hello',
+      content: '',
+      published: '2024-01-01T00:00:00',
+      file: {},
+      attachments: [{ path: `/a/${id}.jpg`, name: `${id}.jpg` }],
+    },
+    attachments: [],
+    previews: [],
+    videos: [],
+  })
+
+  it('a manual pick is crawled as a full crawl, so the cache saves it', async () => {
+    const { api, engine } = await load()
+    const { states } = await import('../src/store/States')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockResolvedValue(fullPost('5'))
+    let quickAtStart: boolean | null = null
+    evt.on('crawlStart', () => {
+      quickAtStart = states.quickCrawl
+    })
+
+    await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }], {
+      picked: true,
+    })
+
+    expect(quickAtStart).toBe(false)
+    expect(states.quickCrawl).toBe(false)
+  })
+
+  it('a manual pick ignores the filter settings and marks its files', async () => {
+    const { api, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { settings } = await import('../src/setting/Settings')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockResolvedValue(fullPost('5'))
+    settings.set('filterTitle', 'zzz')
+    settings.set('downImageFiles', false)
+    settings.set('filterServices', 'fanbox')
+    try {
+      await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }], {
+        picked: true,
+      })
+      expect(store.resultMeta).toHaveLength(1)
+      expect(store.result.length).toBeGreaterThan(0)
+      expect(store.result.every((r) => r.picked === true)).toBe(true)
+
+      // The same post from the thumbnail button is still filtered
+      store.reset()
+      await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }])
+      expect(store.resultMeta).toHaveLength(0)
+    } finally {
+      settings.set('filterTitle', '')
+      settings.set('downImageFiles', true)
+      settings.set('filterServices', '')
+    }
+  })
+
+  it('without picked it stays a quick crawl', async () => {
+    const { api, engine } = await load()
+    const { states } = await import('../src/store/States')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockResolvedValue(fullPost('5'))
+
+    await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }])
+
+    expect(states.quickCrawl).toBe(true)
+  })
+
+  it('while busy a manual pick is not queued (the queue would replay it as quick)', async () => {
+    const { engine } = await load()
+    const { states } = await import('../src/store/States')
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    states.busy = true
+    try {
+      await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }], {
+        picked: true,
+      })
+      expect(store.waitingIdList).toEqual([])
+      expect(toast.warning).toHaveBeenCalled()
+
+      // The thumbnail button path still queues
+      await engine.crawlIds([{ id: 'patreon/1/6', type: 'post' }])
+      expect(store.waitingIdList).toEqual([{ id: 'patreon/1/6', type: 'post' }])
+    } finally {
+      states.busy = false
+    }
+  })
+})

@@ -775,6 +775,64 @@ a[data-postkey].pwp-downloaded {
   outline-offset: 2px;
 }
 
+// Manual pick mode: a picked card gets a frame outside it and a badge whose
+// text is the attribute value (translated). Same specificity as the
+// downloaded frame above and later, so a picked card shows the pick frame.
+a[href][data-pwp-picked] {
+  position: relative;
+  outline: 3px solid #0a84ff;
+  outline-offset: 3px;
+}
+
+// Manual pick: how many posts are picked, fixed at the bottom centre
+#pwpPickBar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483645;
+  padding: 8px 20px;
+  border-radius: 999px;
+  background: #0a84ff;
+  color: #fff;
+  font-family:
+    system-ui, 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans CJK TC',
+    'Hiragino Sans', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 20px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+// `all: initial` first: the badge sits on the site's card link, and without
+// it the card's font, spacing and shadow carry over and distort the text
+a[href][data-pwp-picked]::after {
+  all: initial;
+  content: attr(data-pwp-picked);
+  display: block;
+  box-sizing: border-box;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #0a84ff;
+  color: #fff;
+  font-family:
+    system-ui, 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans CJK TC',
+    'Hiragino Sans', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 20px;
+  letter-spacing: normal;
+  white-space: nowrap;
+  text-shadow: none;
+  pointer-events: none;
+}
+
 #pwpStopCrawl {
   position: fixed;
   bottom: 64px;

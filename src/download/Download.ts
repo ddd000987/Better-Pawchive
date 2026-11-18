@@ -100,7 +100,7 @@ class Download {
     }
 
     // 複查附件種類。因為用戶可能在抓取後、下載前改了種類開關
-    if (!filter.isKindAllowed(arg.result.kind)) {
+    if (!filter.isKindAllowed(arg.result.kind, arg.result.picked)) {
       return this.skipDownload({
         id: arg.id,
         type: arg.result.kind,
@@ -446,7 +446,7 @@ class Download {
         return true
       }
 
-      const check = filter.checkFileSize(size)
+      const check = filter.checkFileSize(size, result.picked)
       if (!check) {
         this.skipDownload(
           {
@@ -467,7 +467,7 @@ class Download {
     if (size <= 0) {
       return true
     }
-    const check = filter.checkFileSize(size)
+    const check = filter.checkFileSize(size, result.picked)
     if (!check) {
       this.skipDownload(
         {

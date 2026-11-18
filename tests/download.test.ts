@@ -16,8 +16,8 @@ const m = vi.hoisted(() => ({
     debug: vi.fn(),
   },
   filter: {
-    isKindAllowed: vi.fn((_k: string) => true),
-    checkFileSize: vi.fn((_s: number) => true),
+    isKindAllowed: vi.fn((_k: string, _picked?: boolean) => true),
+    checkFileSize: vi.fn((_s: number, _picked?: boolean) => true),
   },
   record: { checkDeduplication: vi.fn(async (_r: unknown) => false) },
   states: { downloading: true },
@@ -343,6 +343,16 @@ describe('Download：跳過與過濾', () => {
     await tick(10)
     expect(events.skipDownload[0]).toMatchObject({ reason: 'excludedType' })
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('a file picked by hand tells the filter so', async () => {
+    setFetch(okFetch())
+    start(arg({ result: { ...result(), picked: true } }))
+    await tick(10)
+    expect(m.filter.isKindAllowed).toHaveBeenLastCalledWith('image', true)
+    expect(m.filter.checkFileSize.mock.calls.every((c) => c[1] === true)).toBe(
+      true
+    )
   })
 
   it('Content-Length 超過體積上限 → skip size，不讀 body、不送訊息', async () => {

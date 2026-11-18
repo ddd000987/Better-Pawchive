@@ -5,6 +5,7 @@ import { checkRow, inputRow, section } from './controls'
 import type { CenterContext } from './context'
 import { CrawlControls } from './crawlControls'
 import { CrawlProgressView } from './crawlProgress'
+import { buildManualPick } from './manualPickControls'
 
 export function buildCrawl(
   host: HTMLDivElement,
@@ -18,6 +19,8 @@ export function buildCrawl(
   crawlControls.build(crawlBody)
   // 抓取進度與結果摘要：緊接在按鈕下方
   crawlProgress.build(crawlBody)
+  // Manual pick: click post cards to pick them, then save them as a cache
+  buildManualPick(crawlBody)
   const body = section(host, '_secFilter')
   inputRow(body, 'filterTitle', '_f_filterTitle', 'text', onChange)
   inputRow(body, 'filterDateFrom', '_f_filterDateFrom', 'date', onChange)
