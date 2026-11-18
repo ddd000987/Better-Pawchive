@@ -43,6 +43,13 @@ interface PreviewSettings {
   previewPreloadPrev: number
   /** 在帖子縮圖上顯示下載按鈕*/
   showDownloadBtnOnThumb: boolean
+  /** Hovering a creator avatar previews the covers of their latest posts */
+  PreviewCreator: boolean
+  /** How many covers the creator preview shows (it does not scroll) */
+  previewCreatorCount: number
+  /** Keep the creator preview open while the cursor is on it (false = close
+   * as soon as the cursor leaves the avatar) */
+  keepCreatorPreviewOnFloatHover: boolean
 }
 
 /** 下載設定 */
@@ -220,6 +227,9 @@ const defaultSettings: PawchiveSettings = {
   previewPreloadNext: 1,
   previewPreloadPrev: 0,
   showDownloadBtnOnThumb: true,
+  PreviewCreator: true,
+  previewCreatorCount: 12,
+  keepCreatorPreviewOnFloatHover: true,
   downloadThread: Config.downloadThreadDefault,
   downloadInterval: 0,
   crawlInterval: 0.5,
@@ -260,6 +270,7 @@ const numberRules: Partial<
   wheelScrollPageMoveDistance: { min: 1, max: 2000, integer: true },
   previewPreloadNext: { min: 0, max: 10, integer: true },
   previewPreloadPrev: { min: 0, max: 10, integer: true },
+  previewCreatorCount: { min: 1, max: 50, integer: true },
   downloadThread: { min: 1, max: Config.downloadThreadMax, integer: true },
   downloadInterval: { min: 0, max: 3600 },
   crawlInterval: { min: 0, max: 10 },

@@ -28,6 +28,9 @@ const PREVIEW_LABELS: Record<keyof PreviewSettings, LangTextKey> = {
   previewPreloadNext: '_f_previewPreloadNext',
   previewPreloadPrev: '_f_previewPreloadPrev',
   showDownloadBtnOnThumb: '_f_showDownloadBtnOnThumb',
+  PreviewCreator: '_f_PreviewCreator',
+  previewCreatorCount: '_f_previewCreatorCount',
+  keepCreatorPreviewOnFloatHover: '_f_keepCreatorPreviewOnFloatHover',
 }
 
 /** 純布林的預覽鍵（數字鍵與物件型鍵另有專屬控件） */
@@ -39,6 +42,9 @@ const PREVIEW_BOOL_KEYS: Array<
     | 'previewPreloadNext'
     | 'previewPreloadPrev'
     | 'previewInfoPlacement'
+    | 'PreviewCreator'
+    | 'previewCreatorCount'
+    | 'keepCreatorPreviewOnFloatHover'
   >
 > = [
   'PreviewWork',
@@ -102,6 +108,23 @@ export function buildPreview(host: HTMLDivElement): void {
       step: '1',
     })
   }
+
+  // Creator page preview (hover a creator avatar)
+  const creatorBody = section(host, '_secCreatorPreview')
+  checkRow(creatorBody, 'PreviewCreator', PREVIEW_LABELS.PreviewCreator)
+  checkRow(
+    creatorBody,
+    'keepCreatorPreviewOnFloatHover',
+    PREVIEW_LABELS.keepCreatorPreviewOnFloatHover
+  )
+  inputRow(
+    creatorBody,
+    'previewCreatorCount',
+    PREVIEW_LABELS.previewCreatorCount,
+    'number',
+    undefined,
+    { min: '1', max: '50', step: '1' }
+  )
 
   // 資訊列內容：每個欄位獨立選「上方／下方／不顯示」
   const infoBody = section(host, '_previewInfoTitle')

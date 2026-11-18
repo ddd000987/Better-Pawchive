@@ -16,6 +16,7 @@ import { states } from './store/States'
 import { store } from './store/Store'
 import { settingsCenter } from './setting/SettingsCenter'
 import { previewWork } from './preview/PreviewWork'
+import { previewCreator } from './preview/PreviewCreator'
 import { showOriginSizeImage } from './preview/ShowOriginSizeImage'
 import { thumbDownloadButton } from './preview/ThumbDownloadButton'
 import { hotkeyListener } from './HotkeyListener'
@@ -55,6 +56,7 @@ function checkModules() {
     logErrorStatus,
     settingsCenter,
     previewWork,
+    previewCreator,
     showOriginSizeImage,
     thumbDownloadButton,
     hotkeyListener,

@@ -729,6 +729,104 @@
   display: block;
 }
 
+// Creator page preview: name + post count, then a scrolling grid of covers.
+// JS sets the grid size and the --pwpcp-cols / --pwpcp-tile variables.
+#pwpCreatorPreview {
+  position: fixed;
+  z-index: 2147483645;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  cursor: pointer;
+  pointer-events: auto;
+  font:
+    12px/1.5 system-ui,
+    'Microsoft JhengHei',
+    'PingFang TC',
+    'Noto Sans CJK TC',
+    'Hiragino Sans',
+    sans-serif;
+  color: #333;
+}
+
+#pwpCreatorPreview .pwpCP-head {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+}
+
+#pwpCreatorPreview .pwpCP-name {
+  font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#pwpCreatorPreview .pwpCP-count {
+  flex-shrink: 0;
+  color: #777;
+}
+
+#pwpCreatorPreview .pwpCP-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--pwpcp-cols, 6), var(--pwpcp-tile, 112px));
+  grid-auto-rows: var(--pwpcp-tile, 112px);
+  gap: 4px;
+  padding: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#pwpCreatorPreview .pwpCP-tile {
+  overflow: hidden;
+  border-radius: 3px;
+  background: #f0f0f0;
+}
+
+// The cover under the cursor opens that post when clicked
+#pwpCreatorPreview .pwpCP-tile:hover {
+  outline: 2px solid #0a84ff;
+  outline-offset: -2px;
+}
+
+#pwpCreatorPreview .pwpCP-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+// Post without an image: its title, clipped to the tile
+#pwpCreatorPreview .pwpCP-noCover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 11px;
+  color: #666;
+  word-break: break-word;
+}
+
+// Loading / failed / empty, laid over the empty grid
+#pwpCreatorPreview .pwpCP-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .pwpPreviewTip {
   padding: 6px 10px;
   font-size: 12px;

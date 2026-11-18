@@ -116,6 +116,38 @@ export const langText = {
     `Images to preload before the current one`,
     `先読みする前の画像の枚数`,
   ],
+  _secCreatorPreview: [
+    `创作者主页预览`,
+    `創作者主頁預覽`,
+    `Creator page preview`,
+    `クリエイターページのプレビュー`,
+  ],
+  _f_PreviewCreator: [
+    `悬停创作者头像时预览其作品`,
+    `懸停創作者頭像時預覽其作品`,
+    `Preview a creator's posts when hovering their avatar`,
+    `クリエイターのアイコンにホバーで作品をプレビュー`,
+  ],
+  _f_previewCreatorCount: [
+    `显示篇数`,
+    `顯示篇數`,
+    `Posts to show`,
+    `表示する件数`,
+  ],
+  _f_keepCreatorPreviewOnFloatHover: [
+    `鼠标停在预览框上时保持显示`,
+    `滑鼠停在預覽框上時保持顯示`,
+    `Keep the preview open while the mouse is on it`,
+    `プレビュー上にマウスがある間は表示を続ける`,
+  ],
+  _creatorPreviewPosts: [`{} 篇作品`, `{} 篇作品`, `{} posts`, `{} 件の作品`],
+  _creatorPreviewEmpty: [
+    `没有作品`,
+    `沒有作品`,
+    `No posts`,
+    `作品がありません`,
+  ],
+
   _previewOn: [
     `悬停预览：开`,
     `懸停預覽：開`,
@@ -456,6 +488,25 @@ export const langText = {
     `How many images before the current one the preview loads in advance (0–10), so scrolling back shows them at once. On the first image it counts back from the last: with 32 images and a value of 3, images 32, 31 and 30 are preloaded.`,
     `プレビュー中、現在の画像の前を何枚先に読み込むか（0–10）。逆方向に切り替えたときにすぐ表示されます。最初の画像では最後の画像から数えます。例：全 32 枚で 3 に設定すると 32・31・30 枚目を先読みします。`,
   ],
+  _d_PreviewCreator: [
+    `鼠标停在创作者头像上（没有头像的创作者链接则是整个链接）时，显示该创作者最新作品的封面。延迟时间与悬停预览相同。`,
+    `滑鼠停在創作者頭像上（沒有頭像的創作者連結則是整個連結）時，顯示該創作者最新作品的封面。延遲時間與懸停預覽相同。`,
+    `Resting the mouse on a creator's avatar (or anywhere on a creator link that has no avatar) shows the covers of their latest posts. Uses the same delay as the hover preview.`,
+    `クリエイターのアイコン（アイコンのないリンクはリンク全体）にマウスを置くと、最新作品のカバーを表示します。遅延時間はホバープレビューと同じです。`,
+  ],
+  _d_previewCreatorCount: [
+    `预览框显示最新的几篇作品（1–50），不能滚动。只会下载这些封面，数字越小越省流量。`,
+    `預覽框顯示最新的幾篇作品（1–50），不能捲動。只會下載這些封面，數字越小越省流量。`,
+    `How many of the latest posts the preview shows (1–50); it does not scroll. Only these covers are downloaded, so a smaller number uses less bandwidth.`,
+    `プレビューに表示する最新作品の件数（1–50）。スクロールはできません。表示するカバーだけを読み込むので、数値が小さいほど通信量が減ります。`,
+  ],
+  _d_keepCreatorPreviewOnFloatHover: [
+    `开启时，鼠标从头像移到预览框上预览会保持显示：点击封面打开该作品，点击其他地方打开创作者主页。关闭时，鼠标一离开头像就停止预览，即使鼠标在预览框上。`,
+    `開啟時，滑鼠從頭像移到預覽框上預覽會保持顯示：點擊封面開啟該作品，點擊其他地方開啟創作者主頁。關閉時，滑鼠一離開頭像就停止預覽，即使滑鼠在預覽框上。`,
+    `On: moving the mouse from the avatar onto the preview keeps it open; click a cover to open that post, or anywhere else to open the creator's page. Off: the preview closes as soon as the mouse leaves the avatar, even if it is on the preview.`,
+    `オン：アイコンからプレビューにマウスを移しても表示が続きます。カバーをクリックするとその作品、それ以外をクリックするとクリエイターページを開きます。オフ：マウスがアイコンから離れるとすぐにプレビューを閉じます（プレビュー上でも閉じます）。`,
+  ],
+
   _d_wheelScrollSwitchImageOnPreviewWork: [
     `预览显示时，鼠标不动滚动滚轮会切换同一帖子的多张图片；一边明显移动鼠标一边滚动则滚动网页（移动距离可在下方设置）。`,
     `預覽顯示時，滑鼠不動時滾動滾輪會切換同一帖子的多張圖片；一邊明顯移動滑鼠一邊滾動則捲動網頁（移動距離可在下方設定）。`,
