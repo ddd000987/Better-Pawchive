@@ -13,6 +13,7 @@ module.exports = {
     content: './src/content.ts',
     background: './src/background.ts',
     folder: './src/folder.ts',
+    viewer: './src/viewer.ts',
   },
   output: {
     filename: '[name].js',

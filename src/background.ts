@@ -11,6 +11,7 @@
  */
 
 import './folder/folderService'
+import './viewer/viewerService'
 
 interface SaveFileMsg {
   msg: string

@@ -135,6 +135,7 @@ const KEY_HINTS: [PreviewHotkeyCommand, LangTextKey][] = [
   ['previewDownloadPost', '_pk_post'],
   ['previewDownloadImage', '_pk_image'],
   ['previewOpenOriginal', '_pk_original'],
+  ['previewOpenWindow', '_pk_window'],
 ]
 
 /** "D whole post, C single, V original, Esc close": only the keys that are

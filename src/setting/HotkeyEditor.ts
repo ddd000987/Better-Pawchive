@@ -67,6 +67,7 @@ const TABLES: Record<HotkeyTableName, HotkeyTable> = {
       { command: 'previewDownloadPost', nameKey: '_hk_previewDownloadPost' },
       { command: 'previewDownloadImage', nameKey: '_hk_previewDownloadImage' },
       { command: 'previewOpenOriginal', nameKey: '_hk_previewOpenOriginal' },
+      { command: 'previewOpenWindow', nameKey: '_hk_previewOpenWindow' },
     ],
   },
 }

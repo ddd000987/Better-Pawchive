@@ -428,10 +428,10 @@ export const langText = {
     `Alt+X でパネルの開閉、Alt+Z で現在のページをクロール、Alt+P でプレビューのオン／オフを切り替えます。変更は「一般」ページで行えます。`,
   ],
   _help_hotkey_2: [
-    `预览中：滚轮切换图片、D 下载整帖、C 下载这张、V 查看原图、Esc 关闭。D／C／V 可以在「预览」页改键或关闭。`,
-    `預覽中：滾輪切換圖片、D 下載整帖、C 下載這張、V 查看原圖、Esc 關閉。D／C／V 可以在「預覽」頁改鍵或關閉。`,
-    `In the preview: mouse wheel switches images, D downloads the whole post, C downloads this image, V views the original, Esc closes. D, C and V can be changed or turned off on the “Preview” page.`,
-    `プレビュー中：ホイールで画像を切り替え、D で投稿全体をダウンロード、C でこの 1 枚をダウンロード、V で原寸画像を表示、Esc で閉じます。D／C／V は「プレビュー」ページで変更またはオフにできます。`,
+    `预览中：滚轮切换图片、D 下载整帖、C 下载这张、V 查看原图、F 在独立窗口打开这张图、Esc 关闭。D／C／V／F 可以在「预览」页改键或关闭。`,
+    `預覽中：滾輪切換圖片、D 下載整帖、C 下載這張、V 查看原圖、F 在獨立視窗開啟這張圖、Esc 關閉。D／C／V／F 可以在「預覽」頁改鍵或關閉。`,
+    `In the preview: mouse wheel switches images, D downloads the whole post, C downloads this image, V views the original, F opens this image in its own window, Esc closes. D, C, V and F can be changed or turned off on the “Preview” page.`,
+    `プレビュー中：ホイールで画像を切り替え、D で投稿全体をダウンロード、C でこの 1 枚をダウンロード、V で原寸画像を表示、F でこの画像を別ウィンドウで開き、Esc で閉じます。D／C／V／F は「プレビュー」ページで変更またはオフにできます。`,
   ],
   // ---------- 設定介紹（懸停半秒顯示，key 固定為 _d_＋設定鍵） ----------
   _d_PreviewWork: [
@@ -719,6 +719,7 @@ export const langText = {
   _pk_post: [`整帖`, `整帖`, `whole post`, `投稿全体`],
   _pk_image: [`单张`, `單張`, `single`, `1枚`],
   _pk_original: [`原图`, `原圖`, `original`, `原寸画像`],
+  _pk_window: [`窗口`, `視窗`, `window`, `ウィンドウ`],
   _pk_close: [`关闭`, `關閉`, `close`, `閉じる`],
   _pk_sep: [` `, ` `, `, `, `、`],
   // ---------- 批次面板 ----------
@@ -1976,6 +1977,24 @@ export const langText = {
     `查看原圖`,
     `View the original image`,
     `原寸画像を表示`,
+  ],
+  _hk_previewOpenWindow: [
+    `在独立窗口打开这张图`,
+    `在獨立視窗開啟這張圖`,
+    `Open this image in its own window`,
+    `この画像を別ウィンドウで開く`,
+  ],
+  _viewerOpenFailed: [
+    `无法打开图片窗口`,
+    `無法開啟圖片視窗`,
+    `Could not open the image window`,
+    `画像ウィンドウを開けませんでした`,
+  ],
+  _viewerHelp: [
+    `滚轮缩放｜拖动：图片放大时平移，否则移动窗口｜双击：适合窗口／原尺寸｜0 适合窗口｜Esc 关闭`,
+    `滾輪縮放｜拖曳：圖片放大時平移，否則移動視窗｜雙擊：符合視窗／原尺寸｜0 符合視窗｜Esc 關閉`,
+    `Wheel zooms | Drag pans a zoomed-in image, otherwise moves the window | Double-click: fit / actual size | 0 fits | Esc closes`,
+    `ホイールで拡大縮小｜ドラッグ：拡大中は移動、それ以外はウィンドウを移動｜ダブルクリック：ウィンドウに合わせる／原寸｜0 で合わせる｜Esc で閉じる`,
   ],
   _hk_command: [`命令`, `命令`, `Command`, `コマンド`],
   _hk_hotkey: [`按键`, `按鍵`, `Hotkey`, `キー`],

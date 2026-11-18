@@ -82,6 +82,7 @@ import {
 import { matchesHotkey } from '../setting/hotkeyRules'
 import { Config } from '../Config'
 import { workThumbnail } from './WorkThumbnail'
+import { openImageWindow } from './openImageWindow'
 import { markTransient } from '../PageRoots'
 
 /** 顯示中的一帖 */
@@ -722,7 +723,35 @@ class PreviewWork {
         imageUrl: originUrls[index] || urls[index],
         placeholderUrl: urls[index],
       })
+    } else if (matchesHotkey(ev, keys.previewOpenWindow)) {
+      this.openWindow()
     }
+  }
+
+  /** Open the current image in its own window: the original when known, with
+   * the copy the preview shows as its placeholder */
+  private openWindow(): void {
+    if (!this.current) return
+    const { urls, originUrls, index, data } = this.current
+    const shownUrl = urls[index]
+    const src = originUrls[index] || shownUrl
+    // The preview may still show the previous image while this one loads
+    const img = this.wrap?.querySelector('img')
+    const loaded =
+      img && img.src === shownUrl && img.naturalWidth > 0
+        ? { w: img.naturalWidth, h: img.naturalHeight }
+        : null
+    const title = data.post.title ?? ''
+    void openImageWindow(
+      {
+        src,
+        placeholder: shownUrl,
+        title:
+          urls.length > 1 ? `${title} (${index + 1}/${urls.length})` : title,
+      },
+      loaded,
+      src === shownUrl
+    )
   }
 
   /** 取消尚未觸發的待顯示計時（關閉開關時用） */

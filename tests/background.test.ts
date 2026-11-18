@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// 本檔只測下載；資料夾服務會多註冊一個 onMessage listener，排除避免干擾 listeners.message[0]
+// Only downloads are tested here; the folder and image window services add
+// their own onMessage listeners, so they are left out to keep the indices
 vi.mock('../src/folder/folderService', () => ({}))
+vi.mock('../src/viewer/viewerService', () => ({}))
 
 type Listener = (...args: any[]) => any
 

@@ -186,7 +186,10 @@ function isHotkeyCombo(v: unknown): v is HotkeyCombo {
 
 /** Keys that act only while the hover preview is open */
 type PreviewHotkeyCommand =
-  'previewDownloadPost' | 'previewDownloadImage' | 'previewOpenOriginal'
+  | 'previewDownloadPost'
+  | 'previewDownloadImage'
+  | 'previewOpenOriginal'
+  | 'previewOpenWindow'
 
 /** Preview command → combo; a cleared command is absent (key turned off) */
 type PreviewHotkeyMap = Partial<Record<PreviewHotkeyCommand, HotkeyCombo>>
@@ -200,11 +203,12 @@ const plainKey = (key: string): HotkeyCombo => ({
   meta: false,
 })
 
-/** Default preview keys (D / C / V, as before they could be changed) */
+/** Default preview keys (D / C / V as before they could be changed, plus F) */
 const defaultPreviewHotkeys: PreviewHotkeyMap = {
   previewDownloadPost: plainKey('KeyD'),
   previewDownloadImage: plainKey('KeyC'),
   previewOpenOriginal: plainKey('KeyV'),
+  previewOpenWindow: plainKey('KeyF'),
 }
 
 /** 清洗快捷鍵表：只收已知命令的有效組合。
