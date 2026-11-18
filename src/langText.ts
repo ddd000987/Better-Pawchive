@@ -104,6 +104,18 @@ export const langText = {
     `Mouse movement (px) before the wheel scrolls the page`,
     `ホイールでページをスクロールするまでのマウス移動量 (px)`,
   ],
+  _f_previewPreloadNext: [
+    `向后预载张数`,
+    `向後預載張數`,
+    `Images to preload after the current one`,
+    `先読みする後続画像の枚数`,
+  ],
+  _f_previewPreloadPrev: [
+    `向前预载张数`,
+    `向前預載張數`,
+    `Images to preload before the current one`,
+    `先読みする前の画像の枚数`,
+  ],
   _previewOn: [
     `悬停预览：开`,
     `懸停預覽：開`,
@@ -431,6 +443,18 @@ export const langText = {
     `預覽顯示時，滑鼠在 0.2 秒內移動超過這個距離（像素），滾輪才會捲動網頁；只動一點點仍然切換圖片。數字越大越不容易誤捲網頁。`,
     `While previewing, the wheel scrolls the page only if the mouse moved at least this far (px) in the last 0.2 s; smaller movements still switch images. A larger number makes accidental page scrolling less likely.`,
     `プレビュー表示中、0.2 秒以内にマウスがこの距離（px）以上動いたときだけホイールでページをスクロールします。少し動いただけなら画像を切り替えます。数値が大きいほど誤ってスクロールしにくくなります。`,
+  ],
+  _d_previewPreloadNext: [
+    `预览时提前载入当前图片之后的几张（0–10），滚轮切换时可立即显示。在最后一张时会从第一张接着算。数字越大越耗流量。`,
+    `預覽時提前載入目前圖片之後的幾張（0–10），滾輪切換時可立即顯示。在最後一張時會從第一張接著算。數字越大越耗流量。`,
+    `How many images after the current one the preview loads in advance (0–10), so the wheel shows them at once. Past the last image it continues from the first. Larger numbers use more bandwidth.`,
+    `プレビュー中、現在の画像の後ろを何枚先に読み込むか（0–10）。ホイールで切り替えたときにすぐ表示されます。最後の画像の次は最初の画像から数えます。数値が大きいほど通信量が増えます。`,
+  ],
+  _d_previewPreloadPrev: [
+    `预览时提前载入当前图片之前的几张（0–10），往回滚动时可立即显示。在第一张时会从最后一张往回算，例如共 32 张、设为 3 时预载第 32、31、30 张。`,
+    `預覽時提前載入目前圖片之前的幾張（0–10），往回捲動時可立即顯示。在第一張時會從最後一張往回算，例如共 32 張、設為 3 時預載第 32、31、30 張。`,
+    `How many images before the current one the preview loads in advance (0–10), so scrolling back shows them at once. On the first image it counts back from the last: with 32 images and a value of 3, images 32, 31 and 30 are preloaded.`,
+    `プレビュー中、現在の画像の前を何枚先に読み込むか（0–10）。逆方向に切り替えたときにすぐ表示されます。最初の画像では最後の画像から数えます。例：全 32 枚で 3 に設定すると 32・31・30 枚目を先読みします。`,
   ],
   _d_wheelScrollSwitchImageOnPreviewWork: [
     `预览显示时，鼠标不动滚动滚轮会切换同一帖子的多张图片；一边明显移动鼠标一边滚动则滚动网页（移动距离可在下方设置）。`,

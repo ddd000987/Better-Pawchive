@@ -37,6 +37,10 @@ interface PreviewSettings {
   wheelScrollSwitchImageOnPreviewWork: boolean
   /** 預覽中滑鼠移動超過這麼多像素時，滾輪改為捲動網頁 */
   wheelScrollPageMoveDistance: number
+  /** How many images after the current one the preview loads ahead of time */
+  previewPreloadNext: number
+  /** How many images before the current one the preview loads ahead of time */
+  previewPreloadPrev: number
   /** 在帖子縮圖上顯示下載按鈕*/
   showDownloadBtnOnThumb: boolean
 }
@@ -213,6 +217,8 @@ const defaultSettings: PawchiveSettings = {
   allowPreviewCoverThumbnail: false,
   wheelScrollSwitchImageOnPreviewWork: true,
   wheelScrollPageMoveDistance: 30,
+  previewPreloadNext: 1,
+  previewPreloadPrev: 0,
   showDownloadBtnOnThumb: true,
   downloadThread: Config.downloadThreadDefault,
   downloadInterval: 0,
@@ -252,6 +258,8 @@ const numberRules: Partial<
 > = {
   previewWorkWait: { min: 0, max: 2000, integer: true },
   wheelScrollPageMoveDistance: { min: 1, max: 2000, integer: true },
+  previewPreloadNext: { min: 0, max: 10, integer: true },
+  previewPreloadPrev: { min: 0, max: 10, integer: true },
   downloadThread: { min: 1, max: Config.downloadThreadMax, integer: true },
   downloadInterval: { min: 0, max: 3600 },
   crawlInterval: { min: 0, max: 10 },

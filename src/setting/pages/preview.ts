@@ -25,6 +25,8 @@ const PREVIEW_LABELS: Record<keyof PreviewSettings, LangTextKey> = {
   allowPreviewCoverThumbnail: '_f_allowPreviewCoverThumbnail',
   wheelScrollSwitchImageOnPreviewWork: '_f_wheelScroll',
   wheelScrollPageMoveDistance: '_f_wheelScrollPageMoveDistance',
+  previewPreloadNext: '_f_previewPreloadNext',
+  previewPreloadPrev: '_f_previewPreloadPrev',
   showDownloadBtnOnThumb: '_f_showDownloadBtnOnThumb',
 }
 
@@ -32,7 +34,11 @@ const PREVIEW_LABELS: Record<keyof PreviewSettings, LangTextKey> = {
 const PREVIEW_BOOL_KEYS: Array<
   Exclude<
     keyof PreviewSettings,
-    'previewWorkWait' | 'wheelScrollPageMoveDistance' | 'previewInfoPlacement'
+    | 'previewWorkWait'
+    | 'wheelScrollPageMoveDistance'
+    | 'previewPreloadNext'
+    | 'previewPreloadPrev'
+    | 'previewInfoPlacement'
   >
 > = [
   'PreviewWork',
@@ -88,6 +94,14 @@ export function buildPreview(host: HTMLDivElement): void {
     undefined,
     { min: '1', max: '2000', step: '5' }
   )
+  // How many images on each side of the current one load ahead of time
+  for (const key of ['previewPreloadNext', 'previewPreloadPrev'] as const) {
+    inputRow(body, key, PREVIEW_LABELS[key], 'number', undefined, {
+      min: '0',
+      max: '10',
+      step: '1',
+    })
+  }
 
   // 資訊列內容：每個欄位獨立選「上方／下方／不顯示」
   const infoBody = section(host, '_previewInfoTitle')

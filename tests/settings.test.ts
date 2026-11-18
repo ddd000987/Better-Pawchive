@@ -49,6 +49,16 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('crawlInterval', 99)).toBe(10)
   })
 
+  it('preview preload counts are clamped to whole numbers 0–10', () => {
+    expect(defaultSettings.previewPreloadNext).toBe(1)
+    expect(defaultSettings.previewPreloadPrev).toBe(0)
+    expect(sanitizeSetting('previewPreloadNext', -1)).toBe(0)
+    expect(sanitizeSetting('previewPreloadNext', 99)).toBe(10)
+    expect(sanitizeSetting('previewPreloadPrev', 2.6)).toBe(3)
+    expect(sanitizeSetting('previewPreloadPrev', NaN)).toBe(0)
+    expect(sanitizeSetting('previewPreloadPrev', '3')).toBe(0)
+  })
+
   it('枚舉鍵白名單', () => {
     expect(sanitizeSetting('textContent', 'xxx')).toBe('txt')
     expect(sanitizeSetting('skipDownloaded', 'both')).toBe('both')

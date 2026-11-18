@@ -56,6 +56,9 @@
  *           重開的閃爍迴圈）；換圖改雙緩衝（新圖載完才換，載入超過 150ms
  *           時舊圖變暗並顯示「載入中」）；V 鍵一律開原圖
  *           （current.originUrls），浮層那張當佔位。
+ *   CHANGED: next-image preload → previewPreloadNext / previewPreloadPrev
+ *           images on each side (previewPreload.ts, wraps like the wheel);
+ *           unfinished preloads are cancelled on post switch and close.
  */
 
 import { EVT } from '../EVT'
@@ -70,6 +73,7 @@ import { settings } from '../setting/Settings'
 import { states } from '../store/States'
 import { fitPreview } from './previewLayout'
 import { imageFiles, imageUrl, parsePostKey } from './previewAssets'
+import { preloadIndices } from './previewPreload'
 import { buildPreviewInfoFields, composePreviewInfo } from './previewInfo'
 import { workThumbnail } from './WorkThumbnail'
 import { markTransient } from '../PageRoots'
@@ -137,6 +141,9 @@ class PreviewWork {
   /** 換圖載入中蓋在舊圖上的提示（雙緩衝期間舊圖還在，不提示會像沒切換） */
   private badge: HTMLDivElement | null = null
   private badgeTimer = 0
+  /** Images of the shown post loaded ahead of time, by URL. Cleared (and the
+   * unfinished ones cancelled) when the preview moves to another post or closes. */
+  private preloads = new Map<string, HTMLImageElement>()
   private readonly onWheel = (ev: WheelEvent): void => this.onWheelScroll(ev)
 
   constructor() {
@@ -314,6 +321,7 @@ class PreviewWork {
     // 都先清掉，摘要條先置載入中
     this.current = null
     this.wrap?.querySelector('img')?.remove()
+    this.cancelPreloads()
     this.setBadge(null)
     this.setTip(lang.transl('_loading'))
 
@@ -475,12 +483,36 @@ class PreviewWork {
       if (!stale()) this.setBadge(lang.transl('_loading'))
     }, BADGE_DELAY)
     img.src = urls[index]
-    // 預載下一張（PBD 同策略）
-    if (urls.length > 1) {
-      const next = new Image()
-      next.src = urls[(index + 1) % urls.length]
-    }
+    this.preloadAround(urls, index)
     this.updateTip()
+  }
+
+  /** Start loading the neighbours of the current image (counts from the
+   * previewPreloadNext/Prev settings), so wheel switching shows them at once.
+   * Called after the current image was requested, so it is fetched first. */
+  private preloadAround(urls: string[], index: number): void {
+    const indices = preloadIndices(
+      index,
+      urls.length,
+      settings.get('previewPreloadNext'),
+      settings.get('previewPreloadPrev')
+    )
+    for (const i of indices) {
+      const url = urls[i]
+      if (!url || this.preloads.has(url)) continue
+      const img = new Image()
+      img.src = url
+      this.preloads.set(url, img)
+    }
+  }
+
+  /** Stop preloads that have not finished: the user left the post, so they
+   * would only use bandwidth (and requests) in the background. */
+  private cancelPreloads(): void {
+    for (const img of this.preloads.values()) {
+      if (!img.complete) img.removeAttribute('src')
+    }
+    this.preloads.clear()
   }
 
   /** 選游標旁空間最大的一側，等比縮放塞進去（扣掉框線與資訊列），
@@ -702,6 +734,7 @@ class PreviewWork {
     window.clearTimeout(this.closeTimer)
     this.loadToken++
     this.current = null
+    this.cancelPreloads()
     this.showPending = false
     this.dataLoading = false
     this.statusText = ''
