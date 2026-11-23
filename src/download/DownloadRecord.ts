@@ -385,12 +385,12 @@ class DownloadRecord {
       type: 'application/json;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)
+    // The anchor stays detached: nothing is added to the page DOM, so the
+    // page cannot observe the blob URL or the click.
     const a = document.createElement('a')
     a.href = url
     a.download = filename
-    document.body.appendChild(a)
     a.click()
-    a.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 3000)
   }
 

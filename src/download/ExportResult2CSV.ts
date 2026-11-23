@@ -73,12 +73,12 @@ class ExportResult2CSV {
       type: 'text/csv;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)
+    // The anchor stays detached: nothing is added to the page DOM, so the
+    // page cannot observe the blob URL or the click.
     const a = document.createElement('a')
     a.href = url
     a.download = `pawchive-result-${Date.now()}.csv`
-    document.body.appendChild(a)
     a.click()
-    a.remove()
     window.setTimeout(() => URL.revokeObjectURL(url), 3000)
     log.success(
       lang.transl('_exportedResults', String(store.resultMeta.length))

@@ -1,6 +1,7 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* 設定中心：通用 DOM 控件（分區、提示卡、開關、輸入、下拉、按鈕列、說明條目） */
 
+import { EVT } from '../../EVT'
 import { lang } from '../../Language'
 import { LangTextKey } from '../../langText'
 import { settings, SettingKey } from '../Settings'
@@ -120,6 +121,15 @@ export function selectRow(
     opt.textContent = labelMap ? labelMap(v) : v
     select.appendChild(opt)
   }
+  if (labelMap) {
+    // Option labels come from labelMap (not from data-xztext marks), so they
+    // are rebuilt here when the UI language changes.
+    EVT.on(EVT.list.langChange, () => {
+      for (const opt of Array.from(select.options)) {
+        opt.textContent = labelMap(opt.value)
+      }
+    })
+  }
   select.value = String(settings.get(key))
   select.addEventListener('change', () => {
     settings.set(key, select.value as never)
@@ -148,14 +158,37 @@ export function btnRow(
   host.appendChild(row)
 }
 
-/** 說明文字條目（帶 data-key，才能被面板搜尋找到） */
-export function helpItem(body: HTMLDivElement, key: LangTextKey): void {
+/** Point a help paragraph at a lang key, with optional {} arguments. The
+ * arguments go into data-xztextargs so a language switch keeps them (a plain
+ * data-xztext would re-render the text with the {} left in). Arguments must
+ * not contain commas. */
+export function setHelpText(
+  p: HTMLElement,
+  key: LangTextKey,
+  args: string[] = []
+): void {
+  if (args.length === 0) {
+    delete p.dataset.xztextargs
+    p.dataset.xztext = key
+  } else {
+    delete p.dataset.xztext
+    p.dataset.xztextargs = [key, ...args].join(',')
+  }
+  p.textContent = lang.transl(key, ...args)
+}
+
+/** 說明文字條目（帶 data-key，才能被面板搜尋找到）；回傳段落供動態更新 */
+export function helpItem(
+  body: HTMLDivElement,
+  key: LangTextKey,
+  args: string[] = []
+): HTMLParagraphElement {
   const p = document.createElement('p')
   p.className = 'pwpSC-row pwpSC-helpItem'
   p.dataset.key = key
-  p.dataset.xztext = key
-  p.textContent = lang.transl(key)
+  setHelpText(p, key, args)
   body.appendChild(p)
+  return p
 }
 
 /** Clipboard API 不可用時的 textarea 複製方案（失敗會丟錯） */

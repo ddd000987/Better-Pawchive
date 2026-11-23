@@ -29,7 +29,7 @@ describe('lang', () => {
     lang.applyUserLang('zh-tw')
     expect(lang.transl('_startCrawl')).toBe('開始抓取')
     expect(lang.transl('_crawlComplete', '3', '10')).toBe(
-      '抓取完成：3帖 / 10檔'
+      '抓取完成：3篇 / 10檔'
     )
     lang.applyUserLang('en')
   })

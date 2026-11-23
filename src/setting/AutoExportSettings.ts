@@ -2,16 +2,22 @@
  * license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
  * derived from: PixivBatchDownloader AutoExportSettings concept
  *          (xuejianxianzun)
- * changes: minimal version — export all keys as JSON via anchor
+ * changes: minimal version — export all keys as JSON via a detached anchor
  *          download; import validates keys against defaults before
- *          applying. No version-migration logic (single settings shape).
+ *          applying. Exports carry a schemaVersion; imports without one are
+ *          treated as legacy and migrated.
  */
 
 import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { log } from '../Log'
 import { toast } from '../Toast'
-import { defaultSettings, migrateLegacySettings, settings } from './Settings'
+import {
+  defaultSettings,
+  parseStoredSettings,
+  SETTINGS_SCHEMA_VERSION,
+  settings,
+} from './Settings'
 
 class AutoExportSettings {
   constructor() {
@@ -20,7 +26,9 @@ class AutoExportSettings {
 
   private bindEvents() {
     EVT.on(EVT.list.exportSettings, () => {
-      const data: Record<string, unknown> = {}
+      const data: Record<string, unknown> = {
+        schemaVersion: SETTINGS_SCHEMA_VERSION,
+      }
       for (const key of Object.keys(defaultSettings)) {
         data[key] = settings.get(key as keyof typeof defaultSettings)
       }
@@ -28,12 +36,12 @@ class AutoExportSettings {
         type: 'application/json;charset=utf-8',
       })
       const url = URL.createObjectURL(blob)
+      // The anchor stays detached: nothing is added to the page DOM, so the
+      // page cannot observe the blob URL or the click.
       const a = document.createElement('a')
       a.href = url
       a.download = `pawchive-settings-${Date.now()}.json`
-      document.body.appendChild(a)
       a.click()
-      a.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 3000)
       toast.show(lang.transl('_settingsExported'))
     })
@@ -58,19 +66,15 @@ class AutoExportSettings {
             ) {
               throw new Error('not an object')
             }
-            // 舊版匯出檔：合併跳過選項、忽略已移除的鍵
-            const data = migrateLegacySettings(
-              parsed as Record<string, unknown>
-            )
+            // Migrates old exports (no schemaVersion), sanitizes every key and
+            // fixes cross-key conflicts (hotkey duplicates, min > max files)
+            const data = parseStoredSettings(parsed, settings.snapshot())
             let n = 0
-            for (const key of Object.keys(defaultSettings) as Array<
+            for (const key of Object.keys(data) as Array<
               keyof typeof defaultSettings
             >) {
-              // 已知鍵直接交給 settings.set（內部統一清洗，非法值回預設）
-              if (data[key] !== undefined) {
-                settings.set(key, data[key] as never)
-                n++
-              }
+              settings.set(key, data[key] as never)
+              n++
             }
             if (n === 0) {
               throw new Error('no known keys')

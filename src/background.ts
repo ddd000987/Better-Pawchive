@@ -126,6 +126,56 @@ function getFileURL(msg: SaveFileMsg): string {
   return ''
 }
 
+/** URL schemes a save request may use: remote files, page blobs, data URLs */
+const ALLOWED_URL_PROTOCOLS = new Set(['https:', 'blob:', 'data:'])
+
+/**
+ * Check a save_work_file request before it reaches chrome.downloads.
+ * Returns why it is refused, or null when it is acceptable. The file name is
+ * relative to the downloads folder: no absolute path, no ".." segment.
+ */
+function checkSaveRequest(msg: SaveFileMsg): string | null {
+  const url = msg.url || msg.dataURL || msg.blobURL
+  if (!url) {
+    return 'No usable download URL'
+  }
+  let protocol = ''
+  try {
+    protocol = new URL(url).protocol
+  } catch {
+    return 'Invalid download URL'
+  }
+  if (!ALLOWED_URL_PROTOCOLS.has(protocol)) {
+    return `Download URL scheme not allowed: ${protocol}`
+  }
+  const name = msg.fileName
+  if (typeof name !== 'string' || name.trim() === '') {
+    return 'Invalid file name'
+  }
+  if (/^[\\/]/.test(name)) {
+    return 'File name must be relative'
+  }
+  if (name.split(/[\\/]/).includes('..')) {
+    return 'File name must not contain ".." segments'
+  }
+  return null
+}
+
+/** The record a download_err reply carries when no browser download exists */
+function failureRecord(msg: SaveFileMsg, tabId: number): DlRecord {
+  return {
+    blobURLFront: msg.blobURL,
+    blobURLBack: '',
+    id: msg.id,
+    tabId,
+    taskBatch: msg.taskBatch,
+    uuid: false,
+    requestedName: msg.fileName,
+    slot: slotOf(tabId, msg.channel),
+    t: Date.now(),
+  }
+}
+
 // Blob URLs are made by the page and revoked by it when the receipt arrives:
 // a service worker has another origin, so revoking them here would do nothing.
 
@@ -138,6 +188,10 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
   if (rawMsg.msg === 'query_saving') {
     return false
   }
+  // Only this extension's own content scripts and pages
+  if (sender.id !== chrome.runtime.id) {
+    return false
+  }
   const msg = rawMsg
   // 是否已回覆過 download_err，避免外層 catch 重複回執
   let replied = false
@@ -146,10 +200,27 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
       await restoreDownloadData()
       const tabId = sender.tab?.id
       if (tabId === undefined) return
-      const conflictAction = msg.conflictAction || 'uniquify'
+      // Anything but the two known values falls back to the default
+      const conflictAction =
+        msg.conflictAction === 'overwrite' ? 'overwrite' : 'uniquify'
 
       // 作品檔案下載
       if (msg.msg === 'save_work_file') {
+        const problem = checkSaveRequest(msg)
+        if (problem) {
+          console.warn('Rejected save request:', problem)
+          replied = true
+          await chrome.tabs
+            .sendMessage(tabId, {
+              msg: 'download_err',
+              data: failureRecord(msg, tabId),
+              err: problem,
+              // Same as a failed create: retrying cannot help
+              saveRequestFailed: true,
+            })
+            .catch((e) => console.error('Reply download_err failed', e))
+          return
+        }
         const slot = slotOf(tabId, msg.channel)
         if (batchNo[slot] !== msg.taskBatch) {
           batchNo[slot] = msg.taskBatch as number
@@ -220,21 +291,10 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
       if (msg.msg === 'save_work_file' && !replied && tabId !== undefined) {
         const runtimeError =
           error instanceof Error ? error.message : String(error)
-        const data: DlRecord = {
-          blobURLFront: msg.blobURL,
-          blobURLBack: '',
-          id: msg.id,
-          tabId,
-          taskBatch: msg.taskBatch,
-          uuid: false,
-          requestedName: msg.fileName,
-          slot: slotOf(tabId, msg.channel),
-          t: Date.now(),
-        }
         chrome.tabs
           .sendMessage(tabId, {
             msg: 'download_err',
-            data,
+            data: failureRecord(msg, tabId),
             err: runtimeError,
             saveRequestFailed: true,
           })
@@ -271,6 +331,10 @@ chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
     typeof rawMsg !== 'object' ||
     (rawMsg as { msg?: unknown }).msg !== 'query_saving'
   ) {
+    return false
+  }
+  // Only this extension's own content scripts and pages
+  if (sender.id !== chrome.runtime.id) {
     return false
   }
   const tabId = sender.tab?.id

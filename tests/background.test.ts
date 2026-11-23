@@ -24,6 +24,7 @@ function makeChrome(
       },
     },
     runtime: {
+      id: 'ext-id',
       onInstalled: {
         addListener: (fn: Listener) => listeners.installed.push(fn),
       },
@@ -74,7 +75,7 @@ describe('background save_work_file', () => {
         blobURL: 'blob:x',
         fileName: 'f',
       },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
 
     await vi.waitFor(() => {
@@ -101,7 +102,7 @@ describe('background save_work_file', () => {
         blobURL: 'blob:x',
         fileName: 'f',
       },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
 
     await vi.waitFor(() => {
@@ -122,7 +123,7 @@ describe('background save_work_file', () => {
     await import('../src/background')
 
     const send = (msg: Record<string, unknown>) =>
-      listeners.message[0](msg, { tab: { id: 1 } })
+      listeners.message[0](msg, { id: 'ext-id', tab: { id: 1 } })
     const main = {
       msg: 'save_work_file',
       id: 'a',
@@ -220,7 +221,7 @@ describe('background query_saving', () => {
     const reply = await ask(
       listeners.message[1],
       { msg: 'query_saving', ids: ['a', 'b', 'c', 'd', 'g'] },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
     expect(reply).toEqual({ saving: [{ id: 'a', taskBatch: 7 }] })
   })
@@ -236,7 +237,7 @@ describe('background query_saving', () => {
     const reply = await ask(
       listeners.message[1],
       { msg: 'query_saving', ids: ['a'] },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
     expect(reply.saving).toEqual([
       { id: 'a', taskBatch: 7 },
@@ -245,18 +246,26 @@ describe('background query_saving', () => {
   })
 
   it.each([
-    ['ids is missing', { msg: 'query_saving' }, { tab: { id: 1 } }],
+    [
+      'ids is missing',
+      { msg: 'query_saving' },
+      { id: 'ext-id', tab: { id: 1 } },
+    ],
     [
       'ids is not an array',
       { msg: 'query_saving', ids: 'a' },
-      { tab: { id: 1 } },
+      { id: 'ext-id', tab: { id: 1 } },
     ],
     [
       'ids holds a non-string',
       { msg: 'query_saving', ids: ['a', 3] },
-      { tab: { id: 1 } },
+      { id: 'ext-id', tab: { id: 1 } },
     ],
-    ['the sender has no tab', { msg: 'query_saving', ids: ['a'] }, {}],
+    [
+      'the sender has no tab',
+      { msg: 'query_saving', ids: ['a'] },
+      { id: 'ext-id' },
+    ],
   ])('answers an empty list when %s', async (_name, msg, sender) => {
     const { listeners, chrome } = await load(
       { 10: rec({ id: 'a' }) },
@@ -279,7 +288,7 @@ describe('background query_saving', () => {
     const reply = await ask(
       listeners.message[1],
       { msg: 'query_saving', ids: ['a'] },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
     expect(reply).toEqual({ saving: [] })
   })
@@ -292,7 +301,7 @@ describe('background query_saving', () => {
     expect(
       listeners.message[1](
         { msg: 'save_work_file' },
-        { tab: { id: 1 } },
+        { id: 'ext-id', tab: { id: 1 } },
         sendResponse
       )
     ).toBe(false)
@@ -300,7 +309,7 @@ describe('background query_saving', () => {
 
     const result = listeners.message[0](
       { msg: 'query_saving', ids: ['a'] },
-      { tab: { id: 1 } }
+      { id: 'ext-id', tab: { id: 1 } }
     )
     expect(result).toBe(false)
     await new Promise((r) => setTimeout(r, 10))
@@ -476,10 +485,140 @@ describe('background save results', () => {
     for (const msg of ['no_reply', 'save_description_file']) {
       listeners.message[0](
         { msg, id: 'x', blobURL: 'blob:x', fileName: 'f' },
-        { tab: { id: 1 } }
+        { id: 'ext-id', tab: { id: 1 } }
       )
     }
     await new Promise((r) => setTimeout(r, 10))
     expect(chrome.downloads.download).not.toHaveBeenCalled()
+  })
+})
+
+describe('background save_work_file request checks', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  const sender = { id: 'ext-id', tab: { id: 1 } }
+  const valid = {
+    msg: 'save_work_file',
+    id: 'a',
+    taskBatch: 5,
+    blobURL: 'blob:https://kemono.su/1234',
+    fileName: 'kemono/patreon/a/1-file.png',
+  }
+
+  async function setup() {
+    const { chrome, listeners } = makeChrome(
+      { batchNo: { 1: 5 }, idList: { 1: [] } },
+      async () => 1
+    )
+    ;(globalThis as any).chrome = chrome
+    await import('../src/background')
+    return { chrome, listeners }
+  }
+
+  it('ignores a message that does not come from this extension', async () => {
+    const { chrome, listeners } = await setup()
+
+    const foreign = listeners.message[0](valid, { id: 'other', tab: { id: 1 } })
+    const anonymous = listeners.message[0](valid, { tab: { id: 1 } })
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(foreign).toBe(false)
+    expect(anonymous).toBe(false)
+    expect(chrome.downloads.download).not.toHaveBeenCalled()
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('also ignores a foreign sender on clearDownloadsTempData and query_saving', async () => {
+    const { chrome, listeners } = await setup()
+    const respond = vi.fn()
+
+    listeners.message[0](
+      { msg: 'clearDownloadsTempData' },
+      { id: 'other', tab: { id: 1 } }
+    )
+    const keep = listeners.message[1](
+      { msg: 'query_saving', ids: ['a'] },
+      { id: 'other', tab: { id: 1 } },
+      respond
+    )
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(keep).toBe(false)
+    expect(respond).not.toHaveBeenCalled()
+    // The batch of tab 1 was not wiped
+    expect(chrome.storage.local.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ idList: {} })
+    )
+  })
+
+  it.each([
+    ['an http URL', { blobURL: undefined, url: 'http://kemono.su/a.png' }],
+    ['a file: URL', { blobURL: undefined, url: 'file:///etc/passwd' }],
+    ['a javascript: URL', { blobURL: undefined, url: 'javascript:alert(1)' }],
+    ['an unparseable URL', { blobURL: undefined, url: 'not a url' }],
+    ['no URL at all', { blobURL: undefined }],
+    ['an empty file name', { fileName: '' }],
+    ['a blank file name', { fileName: '   ' }],
+    ['a non-string file name', { fileName: 42 }],
+    ['a leading slash', { fileName: '/etc/x' }],
+    ['a leading backslash', { fileName: '\\Windows\\x' }],
+    ['a ".." segment', { fileName: 'a/../../b' }],
+    ['a ".." segment with backslashes', { fileName: 'a\\..\\b' }],
+  ])('rejects %s with a download_err reply', async (_name, patch) => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0]({ ...valid, ...patch }, sender)
+
+    await vi.waitFor(() => {
+      expect(chrome.tabs.sendMessage).toHaveBeenCalledTimes(1)
+    })
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        msg: 'download_err',
+        saveRequestFailed: true,
+        data: expect.objectContaining({ id: 'a', tabId: 1, taskBatch: 5 }),
+      })
+    )
+    expect(chrome.downloads.download).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an https URL', { blobURL: undefined, url: 'https://kemono.su/a.png' }],
+    ['a data URL', { blobURL: undefined, dataURL: 'data:text/plain,hi' }],
+    ['a blob URL', {}],
+    ['a name that merely contains dots', { fileName: 'a..b/c...d.txt' }],
+  ])('accepts %s', async (_name, patch) => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0]({ ...valid, ...patch }, sender)
+
+    await vi.waitFor(() => {
+      expect(chrome.downloads.download).toHaveBeenCalledTimes(1)
+    })
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [undefined, 'uniquify'],
+    ['uniquify', 'uniquify'],
+    ['overwrite', 'overwrite'],
+    ['prompt', 'uniquify'],
+    ['bogus', 'uniquify'],
+  ])('conflictAction %s is passed on as %s', async (given, expected) => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0]({ ...valid, conflictAction: given }, sender)
+
+    await vi.waitFor(() => {
+      expect(chrome.downloads.download).toHaveBeenCalledTimes(1)
+    })
+    expect(chrome.downloads.download).toHaveBeenCalledWith(
+      expect.objectContaining({ conflictAction: expected })
+    )
   })
 })

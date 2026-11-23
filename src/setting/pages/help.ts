@@ -1,8 +1,12 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* 設定中心：幫助分頁 */
 
+import { Config } from '../../Config'
+import { EVT } from '../../EVT'
 import { LangTextKey } from '../../langText'
-import { helpItem, section } from './controls'
+import { formatHotkeyCombo } from '../hotkeyRules'
+import { settings } from '../Settings'
+import { helpItem, section, setHelpText } from './controls'
 
 /** 幫助頁分區：標題 key＋條目 key */
 const HELP_SECTIONS: Array<{ titleKey: LangTextKey; items: LangTextKey[] }> = [
@@ -60,11 +64,39 @@ const HELP_SECTIONS: Array<{ titleKey: LangTextKey; items: LangTextKey[] }> = [
   },
 ]
 
+/** Text of the first quick-start step: names the panel hotkey as currently
+ * bound (the user may have changed it, or cleared it). */
+function setPanelStep(p: HTMLElement): void {
+  const combo = settings.get('hotkeys').commandToggleCrawlPanel
+  if (!combo) {
+    setHelpText(p, '_help_quick_1NoHotkey')
+    return
+  }
+  const platform = Config.isMac ? 'mac' : Config.isWin ? 'win' : 'other'
+  setHelpText(p, '_help_quick_1', [formatHotkeyCombo(combo, platform)])
+}
+
 export function buildHelp(host: HTMLDivElement): void {
+  let panelStep: HTMLElement | undefined
   HELP_SECTIONS.forEach(({ titleKey, items }, i) => {
     const body = section(host, titleKey)
     // 只展開第一區，其餘預設收合（搜尋時會自動展開）
     if (i > 0) body.parentElement?.classList.add('collapsed')
-    for (const k of items) helpItem(body, k)
+    for (const k of items) {
+      const p = helpItem(body, k)
+      if (k === '_help_quick_1') panelStep = p
+    }
   })
+  if (panelStep) {
+    const step = panelStep
+    setPanelStep(step)
+    // Follow rebinding (or reset) of the hotkey; also settings import / other tabs
+    EVT.on(EVT.list.settingChange, (ev) => {
+      if (
+        (ev.detail?.data as { key?: string } | undefined)?.key === 'hotkeys'
+      ) {
+        setPanelStep(step)
+      }
+    })
+  }
 }

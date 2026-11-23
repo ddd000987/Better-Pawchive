@@ -97,8 +97,16 @@ class SettingsCenter {
     EVT.on(EVT.list.settingInitialized, () => this.build(), {
       once: true,
     })
-    EVT.on(EVT.list.settingSaveBlocked, () => {
-      toast.error(lang.transl('_settingsLoadFailed'))
+    EVT.on(EVT.list.settingSaveBlocked, (ev) => {
+      const reason = (ev.detail?.data as { reason?: string } | undefined)
+        ?.reason
+      toast.error(
+        lang.transl(
+          reason === 'writeFailed'
+            ? '_settingsSaveFailed'
+            : '_settingsLoadFailed'
+        )
+      )
     })
     this.bindGlobalCommands()
   }
@@ -194,6 +202,7 @@ class SettingsCenter {
 
     this.center = document.createElement('div')
     this.center.id = 'pwpSettingsCenter'
+    this.center.lang = lang.htmlLang()
     this.center.style.display = 'none'
     this.center.innerHTML = `
       <div class="pwpSC-top">
@@ -254,6 +263,7 @@ class SettingsCenter {
     )
     this.descTip = document.createElement('div')
     this.descTip.id = 'pwpSCDescTip'
+    this.descTip.lang = lang.htmlLang()
     this.descTip.style.display = 'none'
     document.body.appendChild(this.descTip)
     keepInBody(this.descTip)
@@ -644,6 +654,10 @@ class SettingsCenter {
     }) as EventListener)
     // 語言切換後刷新動態狀態列（靜態標籤由 lang.register 處理）
     EVT.on(EVT.list.langChange, () => {
+      // Screen readers and font selection follow the lang attribute
+      const tag = lang.htmlLang()
+      this.center.lang = tag
+      this.descTip.lang = tag
       this.refreshStatus()
       this.naming.refresh()
       this.cache.render()

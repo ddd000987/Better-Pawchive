@@ -37,9 +37,18 @@ describe('filter.checkPost', () => {
 
   it('非數字 ID 篩選值忽略，不會靜默誤濾', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    settings.set('filterPostIdFrom', 'abc')
+    // settings.set() already refuses a non-numeric bound; write the store
+    // directly to reach the filter's own guard (older saves, other writers)
+    ;(
+      settings as unknown as { store: Record<string, unknown> }
+    ).store.filterPostIdFrom = 'abc'
     expect(filter.checkPost(input())).toBe(true)
     expect(warn).toHaveBeenCalled()
+  })
+
+  it('settings.set 不收非數字的 ID 篩選值', () => {
+    settings.set('filterPostIdFrom', 'abc')
+    expect(settings.get('filterPostIdFrom')).toBe('')
   })
 
   it('預設全部通過', () => {

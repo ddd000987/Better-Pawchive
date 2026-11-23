@@ -2,9 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EVT } from '../src/EVT'
 import { Config } from '../src/Config'
 import {
+  defaultHotkeys,
   defaultSettings,
   migrateLegacySettings,
+  migrateSettingsObject,
+  parseStoredSettings,
+  sanitizeHotkeys,
+  sanitizePreviewHotkeys,
   sanitizeSetting,
+  SETTINGS_SCHEMA_VERSION,
   settings,
 } from '../src/setting/Settings'
 import type { SettingKey } from '../src/setting/Settings'
@@ -394,5 +400,358 @@ describe('settings that could not be read at startup', () => {
     )[Config.settingStoreName]
     expect(written.filterTitle).toBe('mine')
     expect(written.crawlInterval).toBe(5)
+  })
+})
+
+describe('sanitizeSetting: filter formats', () => {
+  it('date bounds are empty or a real YYYY-MM-DD date', () => {
+    expect(sanitizeSetting('filterDateFrom', '')).toBe('')
+    expect(sanitizeSetting('filterDateFrom', '2024-01-31')).toBe('2024-01-31')
+    expect(sanitizeSetting('filterDateTo', ' 2024-02-29 ')).toBe('2024-02-29')
+    for (const bad of [
+      '2024-02-30',
+      '2023-02-29',
+      '2024-13-01',
+      '2024/01/01',
+      '24-01-01',
+      '2024-1-1',
+      'yesterday',
+    ]) {
+      expect(sanitizeSetting('filterDateFrom', bad)).toBe('')
+      expect(sanitizeSetting('filterDateTo', bad)).toBe('')
+    }
+    expect(sanitizeSetting('filterDateFrom', 20240101)).toBe('')
+  })
+
+  it('post id bounds are empty or digits only', () => {
+    expect(sanitizeSetting('filterPostIdFrom', '12345')).toBe('12345')
+    expect(sanitizeSetting('filterPostIdTo', ' 99 ')).toBe('99')
+    expect(sanitizeSetting('filterPostIdFrom', '')).toBe('')
+    for (const bad of ['abc', '12a', '-5', '1.5', '1'.repeat(40)]) {
+      expect(sanitizeSetting('filterPostIdFrom', bad)).toBe('')
+      expect(sanitizeSetting('filterPostIdTo', bad)).toBe('')
+    }
+  })
+
+  it('services are a comma-separated list of plain names', () => {
+    expect(sanitizeSetting('filterServices', '')).toBe('')
+    expect(sanitizeSetting('filterServices', 'patreon')).toBe('patreon')
+    expect(sanitizeSetting('filterServices', 'patreon, Fanbox ,')).toBe(
+      'patreon,Fanbox'
+    )
+    expect(sanitizeSetting('filterServices', 'pa treon,<b>,fanbox')).toBe(
+      'fanbox'
+    )
+    expect(sanitizeSetting('filterServices', 'a'.repeat(100))).toBe('')
+  })
+})
+
+function plain(key: string) {
+  return { key, ctrl: false, alt: false, shift: false, meta: false }
+}
+
+describe('parseStoredSettings: cross-key checks', () => {
+  it('swaps a file-count range whose minimum is above its maximum', () => {
+    const out = parseStoredSettings({ filterMinFiles: 9, filterMaxFiles: 3 })
+    expect(out.filterMinFiles).toBe(3)
+    expect(out.filterMaxFiles).toBe(9)
+  })
+
+  it('leaves a range alone when a bound is unset (0) or already ordered', () => {
+    expect(
+      parseStoredSettings({ filterMinFiles: 9, filterMaxFiles: 0 })
+    ).toMatchObject({ filterMinFiles: 9, filterMaxFiles: 0 })
+    expect(
+      parseStoredSettings({ filterMinFiles: 2, filterMaxFiles: 5 })
+    ).toMatchObject({ filterMinFiles: 2, filterMaxFiles: 5 })
+  })
+
+  it('checks a lone bound against the current value of the other', () => {
+    const out = parseStoredSettings(
+      { filterMinFiles: 9 },
+      { ...defaultSettings, filterMaxFiles: 4 }
+    )
+    expect(out.filterMinFiles).toBe(4)
+    expect('filterMaxFiles' in out).toBe(false)
+  })
+
+  it('a preview key that shares a combo with a global hotkey gives way', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = parseStoredSettings({
+      hotkeys: { commandToggleCrawlPanel: plain('KeyD') },
+      previewHotkeys: { previewDownloadPost: plain('KeyD') },
+    })
+    expect(out.hotkeys?.commandToggleCrawlPanel).toEqual(plain('KeyD'))
+    // Its own default (D) is taken by the global key, so it is left unbound
+    expect(out.previewHotkeys?.previewDownloadPost).toBeUndefined()
+  })
+
+  it('a lone imported global hotkey gives way to the current preview keys', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = parseStoredSettings(
+      { hotkeys: { commandToggleCrawlPanel: plain('KeyD') } },
+      defaultSettings
+    )
+    // Falls back to its default Alt+X
+    expect(out.hotkeys?.commandToggleCrawlPanel).toEqual(
+      defaultHotkeys.commandToggleCrawlPanel
+    )
+  })
+})
+
+describe('imported hotkey duplicates', () => {
+  const alt = (key: string) => ({ ...plain(key), alt: true })
+
+  it('the later command falls back to its default when that is free', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('KeyX'),
+      commandStartDefaultCrawl: alt('KeyX'),
+    })
+    expect(out.commandToggleCrawlPanel).toEqual(alt('KeyX'))
+    expect(out.commandStartDefaultCrawl).toEqual(alt('KeyZ'))
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('the later command is left unbound when its default is taken too', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('KeyZ'),
+      commandStartDefaultCrawl: alt('KeyZ'),
+    })
+    expect(out.commandToggleCrawlPanel).toEqual(alt('KeyZ'))
+    expect(out.commandStartDefaultCrawl).toBeUndefined()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a fallback default never takes a combo a later command holds', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = sanitizeHotkeys({
+      commandToggleCrawlPanel: alt('KeyP'),
+      commandStartDefaultCrawl: alt('KeyP'),
+      commandTogglePreviewWork: alt('KeyZ'),
+    })
+    // The duplicate would default to Alt+Z, but the third command holds it
+    expect(out.commandStartDefaultCrawl).toBeUndefined()
+    expect(out.commandTogglePreviewWork).toEqual(alt('KeyZ'))
+  })
+
+  it('applies to the preview keys too', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const out = sanitizePreviewHotkeys({
+      previewDownloadPost: plain('KeyG'),
+      previewDownloadImage: plain('KeyG'),
+    })
+    expect(out.previewDownloadPost).toEqual(plain('KeyG'))
+    expect(out.previewDownloadImage).toEqual(plain('KeyC'))
+  })
+
+  it('distinct combos and cleared commands are untouched', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const input = {
+      commandToggleCrawlPanel: alt('KeyQ'),
+      commandStartDefaultCrawl: { ...alt('KeyQ'), shift: true },
+    }
+    expect(sanitizeHotkeys(input)).toEqual(input)
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('schemaVersion', () => {
+  const legacy = {
+    deduplication: true,
+    skipExistingFiles: true,
+    crawlInterval: 2,
+  }
+
+  it('an object with no version is legacy: migrated, then stamped', () => {
+    const out = migrateSettingsObject(legacy)
+    expect(out.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
+    expect(SETTINGS_SCHEMA_VERSION).toBe(1)
+    expect(out.skipDownloaded).toBe('both')
+    expect('deduplication' in out).toBe(false)
+  })
+
+  it('a versioned object skips the legacy migration', () => {
+    const out = migrateSettingsObject({ ...legacy, schemaVersion: 1 })
+    expect(out.skipDownloaded).toBeUndefined()
+    expect(out.schemaVersion).toBe(1)
+  })
+
+  it('an invalid version counts as missing; a newer one is kept', () => {
+    expect(
+      migrateSettingsObject({ ...legacy, schemaVersion: 'x' })
+    ).toMatchObject({ skipDownloaded: 'both', schemaVersion: 1 })
+    expect(migrateSettingsObject({ schemaVersion: 7 }).schemaVersion).toBe(7)
+  })
+
+  it('parseStoredSettings migrates an old export and ignores the version key', () => {
+    const out = parseStoredSettings(legacy)
+    expect(out.skipDownloaded).toBe('both')
+    expect(out.crawlInterval).toBe(2)
+    expect('schemaVersion' in out).toBe(false)
+  })
+
+  it('does not change the input object', () => {
+    const input = { ...legacy }
+    migrateSettingsObject(input)
+    expect(input).toEqual(legacy)
+  })
+})
+
+describe('saving settings', () => {
+  const flush = () => new Promise((r) => setTimeout(r, 80))
+  const NAME = Config.settingStoreName
+
+  /** A fresh Settings over an in-memory storage that tests can change. */
+  async function setup(initial?: Record<string, unknown>) {
+    vi.resetModules()
+    const mod = await import('../src/setting/Settings')
+    const { EVT: evt } = await import('../src/EVT')
+    const mem: Record<string, unknown> = initial ? { [NAME]: initial } : {}
+    vi.spyOn(chrome.storage.local, 'get').mockImplementation((async () => ({
+      ...mem,
+    })) as never)
+    const set = vi
+      .spyOn(chrome.storage.local, 'set')
+      .mockImplementation((async (items: Record<string, unknown>) => {
+        Object.assign(mem, items)
+      }) as never)
+    await mod.settings.restore()
+    const blocked: unknown[] = []
+    evt.on(evt.list.settingSaveBlocked, (ev) => blocked.push(ev.detail.data))
+    return { fresh: mod.settings, mod, set, mem, blocked }
+  }
+
+  const stored = (mem: Record<string, unknown>) =>
+    mem[NAME] as Record<string, unknown>
+
+  it('writes a schemaVersion with the settings', async () => {
+    const { fresh, mem } = await setup()
+    fresh.set('filterTitle', 'x')
+    await flush()
+    expect(stored(mem).schemaVersion).toBe(1)
+    expect(stored(mem).filterTitle).toBe('x')
+  })
+
+  it('a change made by another tab to a different key is not overwritten', async () => {
+    const { fresh, mem } = await setup({ schemaVersion: 1, crawlInterval: 1 })
+    // Another tab saves other keys while this tab sits idle
+    mem[NAME] = {
+      schemaVersion: 1,
+      crawlInterval: 9,
+      namingRule: 'other-tab/{title}',
+    }
+
+    fresh.set('filterTitle', 'mine')
+    await flush()
+
+    expect(stored(mem)).toMatchObject({
+      filterTitle: 'mine',
+      crawlInterval: 9,
+      namingRule: 'other-tab/{title}',
+    })
+  })
+
+  it('this tab still wins for a key it changed itself', async () => {
+    const { fresh, mem } = await setup({ schemaVersion: 1, crawlInterval: 1 })
+    mem[NAME] = { schemaVersion: 1, crawlInterval: 9 }
+
+    fresh.set('crawlInterval', 4)
+    await flush()
+
+    expect(stored(mem).crawlInterval).toBe(4)
+  })
+
+  it('writes only the keys this tab changed (plus the version)', async () => {
+    const { fresh, set } = await setup({ schemaVersion: 1, crawlInterval: 3 })
+    fresh.set('filterTitle', 'mine')
+    await flush()
+    const written = (set.mock.calls[0][0] as Record<string, any>)[NAME]
+    expect(Object.keys(written).sort()).toEqual(
+      ['crawlInterval', 'filterTitle', 'schemaVersion'].sort()
+    )
+  })
+
+  it('upgrades a legacy stored object when it saves', async () => {
+    const { fresh, mem } = await setup({
+      deduplication: false,
+      skipExistingFiles: true,
+    })
+    fresh.set('filterTitle', 'x')
+    await flush()
+    expect(stored(mem)).toMatchObject({
+      schemaVersion: 1,
+      skipDownloaded: 'folder',
+      filterTitle: 'x',
+    })
+    expect('deduplication' in stored(mem)).toBe(false)
+  })
+
+  it('keeps the keys dirty when the write fails, and tells the user once', async () => {
+    const { fresh, set, mem, blocked } = await setup()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    set.mockRejectedValueOnce(new Error('quota'))
+    set.mockRejectedValueOnce(new Error('quota'))
+
+    fresh.set('filterTitle', 'first')
+    await flush()
+    fresh.set('crawlInterval', 3)
+    await flush()
+
+    expect(blocked).toEqual([{ reason: 'writeFailed' }])
+    expect(mem[NAME]).toBeUndefined()
+    const dirty = (fresh as unknown as { dirtyRev: Map<string, number> })
+      .dirtyRev
+    expect([...dirty.keys()].sort()).toEqual(['crawlInterval', 'filterTitle'])
+
+    // Storage works again: the next change carries every unsaved key
+    fresh.set('filterMaxFiles', 5)
+    await flush()
+    expect(stored(mem)).toMatchObject({
+      filterTitle: 'first',
+      crawlInterval: 3,
+      filterMaxFiles: 5,
+    })
+    expect(dirty.size).toBe(0)
+  })
+
+  it('an unreadable store at save time is a failed save, not a blind write', async () => {
+    const { fresh, set, blocked } = await setup({ crawlInterval: 4 })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(chrome.storage.local, 'get').mockRejectedValue(new Error('gone'))
+
+    fresh.set('filterTitle', 'x')
+    await flush()
+
+    expect(set).not.toHaveBeenCalled()
+    expect(blocked).toEqual([{ reason: 'writeFailed' }])
+  })
+
+  it('a change made while a write is in flight stays dirty for the next one', async () => {
+    const { fresh, set, mem } = await setup()
+    let release!: () => void
+    set.mockImplementationOnce((async (items: Record<string, unknown>) => {
+      await new Promise<void>((r) => (release = r))
+      Object.assign(mem, items)
+    }) as never)
+
+    fresh.set('filterTitle', 'a')
+    await flush()
+    fresh.set('filterTitle', 'b')
+    release()
+    await flush()
+    await flush()
+
+    expect(stored(mem).filterTitle).toBe('b')
+  })
+
+  it('parses an old export (no schemaVersion) against the current values', async () => {
+    const { fresh, mod } = await setup()
+    const parsed = mod.parseStoredSettings(
+      { crawlInterval: 2, deduplication: false, skipExistingFiles: false },
+      fresh.snapshot()
+    )
+    expect(parsed).toMatchObject({ crawlInterval: 2, skipDownloaded: 'none' })
   })
 })

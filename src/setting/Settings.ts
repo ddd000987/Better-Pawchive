@@ -15,7 +15,7 @@ import {
   sanitizePreviewInfoPlacement,
 } from '../preview/previewInfo'
 import type { PreviewInfoPlacement } from '../preview/previewInfo'
-import { isAllowedHotkeyCombo } from './hotkeyRules'
+import { isAllowedHotkeyCombo, sameHotkeyCombo } from './hotkeyRules'
 
 /** 預覽設定（注意拼字已修正，非 PBD 的 swicthImageByKeyboard） */
 interface PreviewSettings {
@@ -108,7 +108,7 @@ interface FilterSettings {
 
 /** 通用設定：語言＋去重＋命名規則 */
 interface MetaSettings {
-  /** 介面語言（auto 跟頁面 html lang） */
+  /** UI language (auto follows the browser language, then the page html lang) */
   userSetLang: 'auto' | 'zh-tw' | 'zh-cn' | 'en' | 'ja'
   /** 跳過已下載的檔案：none 不跳過 / record 按下載記錄 / folder 按已授權資料夾
    * 中同路徑已有的檔案 / both 兩者都用 */
@@ -215,41 +215,150 @@ const defaultPreviewHotkeys: PreviewHotkeyMap = {
  * 缺鍵保持缺（對齊 PBD 語義：「清除」後重載不復活；舊存檔本來就沒
  * hotkeys 鍵，走 defaultSettings 的完整預設，不受影響）。 */
 function sanitizeHotkeys(input: unknown): HotkeyMap {
-  return sanitizeComboMap(input, Object.keys(defaultHotkeys) as HotkeyCommand[])
+  return sanitizeComboMap(
+    input,
+    Object.keys(defaultHotkeys) as HotkeyCommand[],
+    defaultHotkeys
+  )
 }
 
 /** Same as sanitizeHotkeys, for the preview key table */
 function sanitizePreviewHotkeys(input: unknown): PreviewHotkeyMap {
   return sanitizeComboMap(
     input,
-    Object.keys(defaultPreviewHotkeys) as PreviewHotkeyCommand[]
+    Object.keys(defaultPreviewHotkeys) as PreviewHotkeyCommand[],
+    defaultPreviewHotkeys
   )
 }
 
-/** Keep only the listed commands that hold a valid, allowed combo */
+/** Keep only the listed commands that hold a valid, allowed combo. The editor
+ * refuses two commands on one combo, so an imported table gets the same rule:
+ * the first command (in table order) keeps the combo, a later one falls back
+ * to its default combo if that is free, otherwise it is left unbound. */
 function sanitizeComboMap<C extends string>(
   input: unknown,
-  commands: C[]
+  commands: C[],
+  defaults: Partial<Record<C, HotkeyCombo>>
 ): Partial<Record<C, HotkeyCombo>> {
   const out: Partial<Record<C, HotkeyCombo>> = {}
   if (!input || typeof input !== 'object') {
     return out
   }
   const src = input as Record<string, unknown>
+  const duplicates: C[] = []
   for (const cmd of commands) {
     // Same rules as the recorder: stored/imported hotkeys get no free pass
     const c = src[cmd]
     if (isHotkeyCombo(c) && isAllowedHotkeyCombo(c)) {
-      out[cmd] = {
+      const combo: HotkeyCombo = {
         key: c.key,
         ctrl: c.ctrl,
         alt: c.alt,
         shift: c.shift,
         meta: c.meta,
       }
+      if (
+        Object.values<HotkeyCombo | undefined>(out).some(
+          (o) => o && sameHotkeyCombo(o, combo)
+        )
+      ) {
+        duplicates.push(cmd)
+        continue
+      }
+      out[cmd] = combo
+    }
+  }
+  // Second pass, so a fallback default never takes a combo that a later
+  // command holds explicitly
+  for (const cmd of duplicates) {
+    const fallback = defaults[cmd]
+    const free =
+      fallback &&
+      !Object.values<HotkeyCombo | undefined>(out).some(
+        (o) => o && sameHotkeyCombo(o, fallback)
+      )
+    console.warn(
+      `[PawchivePro] hotkey for "${cmd}" duplicates another command; ` +
+        (free ? 'using its default' : 'left unbound')
+    )
+    if (free) {
+      out[cmd] = { ...fallback }
     }
   }
   return out
+}
+
+/** Remove the commands of `map` whose combo is also bound in `others`; each
+ * falls back to its default combo when that is free, else stays unbound. */
+function dropComboConflicts<C extends string>(
+  map: Partial<Record<C, HotkeyCombo>>,
+  defaults: Partial<Record<C, HotkeyCombo>>,
+  others: HotkeyCombo[]
+): Partial<Record<C, HotkeyCombo>> {
+  const taken = (combo: HotkeyCombo, own: HotkeyCombo[]) =>
+    [...others, ...own].some((o) => sameHotkeyCombo(o, combo))
+  const out: Partial<Record<C, HotkeyCombo>> = {}
+  const dropped: C[] = []
+  for (const cmd of Object.keys(map) as C[]) {
+    const combo = map[cmd]
+    if (!combo) {
+      continue
+    }
+    if (others.some((o) => sameHotkeyCombo(o, combo))) {
+      dropped.push(cmd)
+    } else {
+      out[cmd] = combo
+    }
+  }
+  for (const cmd of dropped) {
+    const fallback = defaults[cmd]
+    const free =
+      fallback &&
+      !taken(
+        fallback,
+        Object.values<HotkeyCombo | undefined>(out).filter(
+          (o): o is HotkeyCombo => !!o
+        )
+      )
+    console.warn(
+      `[PawchivePro] hotkey for "${cmd}" is already used by another table; ` +
+        (free ? 'using its default' : 'left unbound')
+    )
+    if (free) {
+      out[cmd] = { ...fallback }
+    }
+  }
+  return out
+}
+
+/** A global hotkey swallows its key before the hover preview sees it, so the
+ * two tables may not share a combo either (the editor enforces this). Which
+ * table gives way is decided by `loser`. */
+function resolveHotkeyTables(
+  hotkeys: HotkeyMap,
+  previewHotkeys: PreviewHotkeyMap,
+  loser: 'hotkeys' | 'previewHotkeys'
+): { hotkeys: HotkeyMap; previewHotkeys: PreviewHotkeyMap } {
+  const combos = (m: Partial<Record<string, HotkeyCombo>>) =>
+    Object.values(m).filter((c): c is HotkeyCombo => !!c)
+  if (loser === 'previewHotkeys') {
+    return {
+      hotkeys,
+      previewHotkeys: dropComboConflicts(
+        previewHotkeys,
+        defaultPreviewHotkeys,
+        combos(hotkeys)
+      ),
+    }
+  }
+  return {
+    hotkeys: dropComboConflicts(
+      hotkeys,
+      defaultHotkeys,
+      combos(previewHotkeys)
+    ),
+    previewHotkeys,
+  }
 }
 
 type PawchiveSettings = PreviewSettings &
@@ -332,6 +441,57 @@ const enumWhitelists: Partial<Record<SettingKey, readonly string[]>> = {
   skipDownloaded: ['none', 'record', 'folder', 'both'],
 }
 
+/** Whether a string is a real calendar date written as YYYY-MM-DD */
+function isIsoDate(text: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!m) {
+    return false
+  }
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const date = new Date(Date.UTC(y, mo - 1, d))
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === mo - 1 &&
+    date.getUTCDate() === d
+  )
+}
+
+/** A date filter is empty or YYYY-MM-DD; anything else counts as unset */
+const sanitizeDateFilter = (v: string): string => {
+  const t = v.trim()
+  return t === '' || isIsoDate(t) ? t : ''
+}
+
+/** A post id bound is empty or digits only (the filter ignores anything else,
+ * so keeping it would only mislead). Length is capped as a sanity limit. */
+const sanitizePostIdBound = (v: string): string => {
+  const t = v.trim()
+  return /^\d{1,32}$/.test(t) ? t : ''
+}
+
+/** The service list is comma-separated service names; entries that are not
+ * plain names are dropped, and the list is capped. */
+const sanitizeServiceList = (v: string): string =>
+  v
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^[A-Za-z0-9_-]{1,32}$/.test(s))
+    .slice(0, 32)
+    .join(',')
+
+/** String keys with a format rule (the value is already known to be a string) */
+const stringRules: Partial<Record<SettingKey, (v: string) => string>> = {
+  filterDateFrom: sanitizeDateFilter,
+  filterDateTo: sanitizeDateFilter,
+  filterPostIdFrom: sanitizePostIdBound,
+  filterPostIdTo: sanitizePostIdBound,
+  filterServices: sanitizeServiceList,
+}
+
+/** Version of the stored settings object. Bump it when a stored key changes
+ * meaning and add the matching step to migrateSettingsObject. */
+const SETTINGS_SCHEMA_VERSION = 1
+
 /** 舊版存檔／匯入檔的相容轉換：舊的 deduplication／skipExistingFiles 合併成
  * skipDownloaded（新鍵已存在則以新鍵為準），並丟掉已移除的舊鍵
  * （dupliStrategy／switchImageByKeyboard 一併忽略）。回傳新物件，不改原物件。 */
@@ -393,15 +553,42 @@ function sanitizeSetting<K extends SettingKey>(
       whitelist.includes(value as string) ? value : def
     ) as PawchiveSettings[K]
   }
+  const stringRule = stringRules[key]
+  if (stringRule) {
+    return stringRule(value as string) as PawchiveSettings[K]
+  }
   // 其餘布林／字串鍵：型別正確即原樣回傳
   return value as PawchiveSettings[K]
 }
 
-/** Run a raw stored/imported settings object through the legacy migration and
- * per-key sanitizing (shared by restore() and the cross-tab storage listener).
- * Keys absent from the input are absent from the result. */
-function parseStoredSettings(raw: object): Partial<PawchiveSettings> {
-  const saved = migrateLegacySettings(
+/** Schema version of a stored/imported object; 0 when missing or invalid */
+function readSchemaVersion(input: Record<string, unknown>): number {
+  const v = input.schemaVersion
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 ? v : 0
+}
+
+/** Bring a stored or imported object up to the current schema. An object with
+ * no schemaVersion is legacy: the legacy migration runs on it. The result is
+ * a new object that carries the current schemaVersion (a newer one is kept). */
+function migrateSettingsObject(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const version = readSchemaVersion(input)
+  const out = version === 0 ? migrateLegacySettings(input) : { ...input }
+  out.schemaVersion = Math.max(version, SETTINGS_SCHEMA_VERSION)
+  return out
+}
+
+/** Run a raw stored/imported settings object through the migration and
+ * per-key sanitizing (shared by restore(), settings import and the cross-tab
+ * storage listener). Keys absent from the input are absent from the result.
+ * `current` supplies the other side of the cross-key checks (hotkey tables,
+ * file-count range) for keys that the input does not carry. */
+function parseStoredSettings(
+  raw: object,
+  current?: Partial<PawchiveSettings>
+): Partial<PawchiveSettings> {
+  const saved = migrateSettingsObject(
     raw as Record<string, unknown>
   ) as Partial<PawchiveSettings>
   const out: Record<string, unknown> = {}
@@ -411,15 +598,42 @@ function parseStoredSettings(raw: object): Partial<PawchiveSettings> {
       out[key] = sanitizeSetting(key, saved[key])
     }
   }
-  return out as Partial<PawchiveSettings>
+  const result = out as Partial<PawchiveSettings>
+
+  // Min above max (both set; 0 = unset) can match nothing: swap them
+  const min = result.filterMinFiles ?? current?.filterMinFiles ?? 0
+  const max = result.filterMaxFiles ?? current?.filterMaxFiles ?? 0
+  if (min > 0 && max > 0 && min > max) {
+    if (
+      result.filterMinFiles !== undefined &&
+      result.filterMaxFiles !== undefined
+    ) {
+      result.filterMinFiles = max
+      result.filterMaxFiles = min
+    } else if (result.filterMinFiles !== undefined) {
+      // Only min came in: it gives way to the stored max
+      result.filterMinFiles = max
+    } else {
+      result.filterMaxFiles = min
+    }
+  }
+
+  // A preview key may not share a combo with a global hotkey
+  if (result.hotkeys || result.previewHotkeys) {
+    const resolved = resolveHotkeyTables(
+      result.hotkeys ?? current?.hotkeys ?? {},
+      result.previewHotkeys ?? current?.previewHotkeys ?? {},
+      result.hotkeys && !result.previewHotkeys ? 'hotkeys' : 'previewHotkeys'
+    )
+    if (result.hotkeys) result.hotkeys = resolved.hotkeys
+    if (result.previewHotkeys) result.previewHotkeys = resolved.previewHotkeys
+  }
+  return result
 }
 
 class Settings {
   private store: PawchiveSettings = { ...defaultSettings }
   private saveTimer = 0
-  /** Keys changed locally and not yet written; a remote change must not
-   * overwrite them (they are about to be saved over it). */
-  private dirtyKeys = new Set<SettingKey>()
   /** Set when restore() has finished; storage events before that are held. */
   private restored = false
   /** Latest storage value seen while restore() was still running. */
@@ -428,6 +642,17 @@ class Settings {
    * later read succeeds, so defaults never overwrite the saved settings. */
   private loadFailed = false
   private saveBlockedNotified = false
+  /** Set once a write has failed, cleared by the next success, so the user is
+   * told once per outage and not on every change. */
+  private saveFailedNotified = false
+  /** Keys changed locally and not yet written, each with the revision of its
+   * latest change. A remote change must not overwrite them (they are about to
+   * be saved over it); a key is cleaned after a write only if it was not
+   * changed again while that write was in flight. */
+  private dirtyRev = new Map<SettingKey, number>()
+  private revCounter = 0
+  /** Serializes saves: each one reads storage, so two must not interleave. */
+  private saveChain: Promise<void> = Promise.resolve()
 
   constructor() {
     // Other tabs share chrome.storage.local: pick up their changes so this
@@ -454,9 +679,9 @@ class Settings {
    * assigned; each fires settingChange like set() but nothing is saved, so
    * there is no write-back loop. Keys absent from the value are untouched. */
   private applyRemote(raw: object): void {
-    const incoming = parseStoredSettings(raw)
+    const incoming = parseStoredSettings(raw, this.store)
     for (const key of Object.keys(incoming) as SettingKey[]) {
-      if (this.dirtyKeys.has(key)) {
+      if (this.dirtyRev.has(key)) {
         continue
       }
       const value = incoming[key]
@@ -472,11 +697,16 @@ class Settings {
     return this.store[key]
   }
 
+  /** Shallow copy of every current value (context for cross-key checks) */
+  public snapshot(): PawchiveSettings {
+    return { ...this.store }
+  }
+
   public set<K extends SettingKey>(key: K, value: PawchiveSettings[K]): void {
     // 所有鍵統一清洗（擋掉面板輸入與設定匯入的髒資料）
     value = sanitizeSetting(key, value)
     this.store[key] = value
-    this.dirtyKeys.add(key)
+    this.dirtyRev.set(key, ++this.revCounter)
     EVT.fire('settingChange', { key, value })
     this.scheduleSave()
   }
@@ -490,7 +720,9 @@ class Settings {
 
   private scheduleSave(): void {
     window.clearTimeout(this.saveTimer)
-    this.saveTimer = window.setTimeout(() => void this.save(), 50)
+    this.saveTimer = window.setTimeout(() => {
+      this.saveChain = this.saveChain.then(() => this.save())
+    }, 50)
   }
 
   private async save(): Promise<void> {
@@ -504,10 +736,40 @@ class Settings {
       }
       return
     }
-    this.dirtyKeys.clear()
-    chrome.storage.local
-      .set({ [Config.settingStoreName]: this.store })
-      .catch((e) => console.error('[PawchivePro] save settings failed', e))
+    const sent = new Map(this.dirtyRev)
+    if (sent.size === 0) {
+      return
+    }
+    try {
+      // Read-modify-write: another tab may have changed other keys since this
+      // tab last looked, so only this tab's dirty keys are laid over what is
+      // stored now. Writing the whole store would undo their changes.
+      const data = await chrome.storage.local.get(Config.settingStoreName)
+      const raw = data?.[Config.settingStoreName] as unknown
+      const stored: Record<string, unknown> =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? migrateSettingsObject(raw as Record<string, unknown>)
+          : { schemaVersion: SETTINGS_SCHEMA_VERSION }
+      for (const key of sent.keys()) {
+        stored[key] = this.store[key]
+      }
+      await chrome.storage.local.set({ [Config.settingStoreName]: stored })
+    } catch (e) {
+      // Keep the keys dirty: the next change retries them, and a remote value
+      // must not overwrite them in the meantime.
+      console.error('[PawchivePro] save settings failed', e)
+      if (!this.saveFailedNotified) {
+        this.saveFailedNotified = true
+        EVT.fire('settingSaveBlocked', { reason: 'writeFailed' })
+      }
+      return
+    }
+    this.saveFailedNotified = false
+    for (const [key, rev] of sent) {
+      if (this.dirtyRev.get(key) === rev) {
+        this.dirtyRev.delete(key)
+      }
+    }
   }
 
   /** Second attempt at the read that failed in restore(). Keys changed in the
@@ -534,7 +796,7 @@ class Settings {
       const raw = data[Config.settingStoreName] as unknown
       if (raw && typeof raw === 'object') {
         // 舊版存檔先做相容轉換、逐鍵清洗（與跨分頁同步共用）
-        Object.assign(this.store, parseStoredSettings(raw))
+        Object.assign(this.store, parseStoredSettings(raw, this.store))
       }
     } catch (e) {
       console.error('[PawchivePro] restore settings failed, use defaults', e)
@@ -581,6 +843,9 @@ export {
   sanitizePreviewHotkeys,
   sanitizeSetting,
   migrateLegacySettings,
+  migrateSettingsObject,
+  parseStoredSettings,
+  SETTINGS_SCHEMA_VERSION,
 }
 export type {
   PreviewSettings,
