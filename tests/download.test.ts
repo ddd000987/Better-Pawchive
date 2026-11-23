@@ -203,12 +203,7 @@ beforeEach(() => {
     Object.values(group).forEach((f) => f.mockClear())
   }
   for (const k of Object.keys(events)) delete events[k]
-  record(
-    'skipDownload',
-    'downloadError',
-    'sendBrowserDownload',
-    'requestPauseDownload'
-  )
+  record('skipDownload', 'downloadError', 'sendBrowserDownload')
 })
 
 afterEach(() => {
@@ -455,7 +450,6 @@ describe('Download：錯誤與重試', () => {
     expect(fetchMock).toHaveBeenCalledTimes(Config.retryMax)
     expect(events.downloadError).toEqual(['patreon/u1/1#0'])
     expect(sendMessage).not.toHaveBeenCalled()
-    expect(events.requestPauseDownload).toHaveLength(0)
   })
 
   it('網路錯誤秒失敗達上限 → 走 downloadError（批次稍後重試），不暫停整批', async () => {
@@ -465,13 +459,8 @@ describe('Download：錯誤與重試', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(Config.retryMax)
     expect(events.downloadError).toEqual(['patreon/u1/1#0'])
-    expect(events.requestPauseDownload).toHaveLength(0)
     expect(m.log.log).toHaveBeenCalledWith(
       expect.stringContaining('_retryLater')
-    )
-    // The old "disk may be full" guess is gone
-    expect(m.log.error).not.toHaveBeenCalledWith(
-      expect.stringContaining('_diskMaybeFull')
     )
   })
 
@@ -500,7 +489,6 @@ describe('Download：錯誤與重試', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(Config.retryMax)
     expect(events.downloadError).toEqual(['patreon/u1/1#0'])
-    expect(events.requestPauseDownload).toHaveLength(0)
   })
 })
 
@@ -555,7 +543,6 @@ describe('Download：停滯偵測', () => {
     await tick(400000)
     expect(fetchMock).toHaveBeenCalledTimes(Config.retryMax)
     expect(events.downloadError).toEqual(['patreon/u1/1#0'])
-    expect(events.requestPauseDownload).toHaveLength(0)
   })
 })
 

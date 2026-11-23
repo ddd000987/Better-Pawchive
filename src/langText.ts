@@ -864,6 +864,12 @@ export const langText = {
     `Saved to cache: {}`,
     `キャッシュに保存しました：{}`,
   ],
+  _cacheIncompleteTag: [
+    `（不完整）`,
+    `（不完整）`,
+    `(incomplete)`,
+    `（不完全）`,
+  ],
   _cacheFull: [
     `快取已满（{} 笔），请先删除旧的`,
     `快取已滿（{} 筆），請先刪除舊的`,
@@ -1680,12 +1686,6 @@ export const langText = {
     `Crawling stopped (partial results kept)`,
     `クロールを停止しました（一部の結果は保持）`,
   ],
-  _rateLimited: [
-    `429 限流，等待 60 秒后重试 ({}/{})`,
-    `429 限流，等待 60 秒後重試 ({}/{})`,
-    `Rate limited (429), retrying in 60s ({}/{})`,
-    `429 レート制限。60 秒後に再試行します ({}/{})`,
-  ],
   _transientRetry: [
     `请求失败（{}），{} 秒后重试（{}/{}）`,
     `請求失敗（{}），{} 秒後重試（{}/{}）`,
@@ -1735,10 +1735,10 @@ export const langText = {
     `ネットワークエラー（ステータス {}）：{}`,
   ],
   _rateLimitHint: [
-    `遇到 429 限流，抓取引擎会等待 60 秒后重试`,
-    `遇到 429 限流，抓取引擎會等待 60 秒後重試`,
-    `Rate limited (429); the crawler will retry in 60s`,
-    `429 レート制限を受けました。クローラーは 60 秒待機して再試行します`,
+    `遇到 429 限流，抓取引擎会稍后重试`,
+    `遇到 429 限流，抓取引擎會稍後重試`,
+    `Rate limited (429); the crawler will retry later`,
+    `429 レート制限を受けました。クローラーは後で再試行します`,
   ],
   // ---------- 下載管線 ----------
   _intervalOn: [
@@ -1807,12 +1807,6 @@ export const langText = {
     `下載器不會再重試下載它`,
     `Will not retry it anymore`,
     `このファイルは再試行されません`,
-  ],
-  _diskMaybeFull: [
-    `多次请求快速失败，可能是磁盘空间不足，已暂停下载`,
-    `多次請求快速失敗，可能是磁碟空間不足，已暫停下載`,
-    `Repeated fast failures; disk may be full. Download paused`,
-    `リクエストが短時間に何度も失敗しました。ディスク容量不足の可能性があるため、ダウンロードを一時停止しました`,
   ],
   _diskWriteFailedPaused: [
     `浏览器无法写入文件（{}，文件 {}），可能是磁盘空间不足或下载文件夹没有写入权限，已暂停下载。处理后可继续下载`,

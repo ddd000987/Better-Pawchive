@@ -521,7 +521,9 @@ class Engine {
 
   /** Finish: some results were kept, but the run lost posts or was cut short (msg says how) */
   private finishIncomplete(msg: string): void {
-    // Downstream behaviour matches finishDone: crawlComplete fires and the kept results stay downloadable
+    // Downstream behaviour matches finishDone: crawlComplete fires and the kept results stay downloadable;
+    // the crawl cache reads the flag to mark its snapshot as incomplete
+    states.crawlIncomplete = true
     EVT.fire('crawlComplete')
     log.warning(msg)
     toast.warning(msg)

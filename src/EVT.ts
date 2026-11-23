@@ -52,7 +52,6 @@ class EVENT {
     /** 開始下載 */
     downloadStart: 'downloadStart',
     /** 請求暫停下載 */
-    requestPauseDownload: 'requestPauseDownload',
     /** 下載暫停 */
     downloadPause: 'downloadPause',
     /** 下載停止 */

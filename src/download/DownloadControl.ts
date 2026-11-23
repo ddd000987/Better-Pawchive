@@ -193,11 +193,6 @@ class DownloadControl {
       toast.error(lang.transl('_saveFileErrorToast'))
     })
 
-    EVT.on(EVT.list.requestPauseDownload, () => {
-      // 請求暫停下載
-      this.pauseDownload()
-    })
-
     // 瀏覽器保存檔案後長時間無回應（常見於另存為視窗卡住），提示用戶。
     // 多執行緒下要逐檔計時，否則別的檔案成功就會把卡住的檔案一起清掉
     EVT.on(EVT.list.sendBrowserDownload, (ev: CustomEventInit) => {

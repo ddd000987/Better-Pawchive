@@ -36,6 +36,8 @@ export interface CacheEntry {
   postCount: number
   fileCount: number
   createdAt: number
+  /** Saved from a crawl that lost posts or was cut short */
+  incomplete?: boolean
   results: Result[]
   metas: Result[]
 }
@@ -277,6 +279,7 @@ class CrawlCache {
     // 必須在任何 await 之前同步擷取：之後旗標可能已被下一輪改寫
     const quick = opts.quick ?? states.quickCrawl
     const stopped = opts.stopped ?? states.stopCrawl
+    const incomplete = states.crawlIncomplete
     await this.ensureLoaded()
     // 縮圖單帖快抓、用戶中途停止的不完整結果都不存
     if (quick || stopped) {
@@ -300,6 +303,7 @@ class CrawlCache {
       postCount: store.resultMeta.length,
       fileCount: store.result.length,
       createdAt: Date.now(),
+      ...(incomplete ? { incomplete: true } : {}),
       results: JSON.parse(JSON.stringify(store.result)),
       metas: JSON.parse(JSON.stringify(store.resultMeta)),
     }
@@ -397,8 +401,8 @@ class CrawlCache {
         return false
       }
     }
-    // 去重表、等待佇列、下載計數都會跟著重建，否則後續 addResult 去重／
-    // removeWorkById 會對不上這批結果
+    // 去重表、等待佇列、下載計數都會跟著重建，否則後續 addResult 去重
+    // 會對不上這批結果
     this.applyToStore(entry.results, entry.metas, entry.title, false)
     this.mountedId = id
     this.mountedUnsaved = false

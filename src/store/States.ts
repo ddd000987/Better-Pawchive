@@ -28,6 +28,10 @@ class States {
   /** 指示是否應該停止抓取 */
   public stopCrawl = false
 
+  /** The last crawl kept results but lost posts or was cut short; set by the
+   * engine right before crawlComplete, cleared when the next crawl starts */
+  public crawlIncomplete = false
+
   /** 抓取是否處於暫停中（暫停時 busy 仍為 true） */
   public crawlPaused = false
 
@@ -103,6 +107,7 @@ class States {
 
     EVT.on(EVT.list.crawlStart, () => {
       this.stopCrawl = false
+      this.crawlIncomplete = false
     })
 
     // 下載結束或中止時復位快速下載標記（避免快速抓取旗標殘留）

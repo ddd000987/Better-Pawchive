@@ -49,7 +49,9 @@ export class CacheView {
         'pwpSC-row pwpSC-cacheCard' + (mountedHere ? ' mounted' : '')
       const head = document.createElement('div')
       head.className = 'pwpSC-cacheTitle'
-      head.textContent = e.title
+      head.textContent = e.incomplete
+        ? `${e.title} ${lang.transl('_cacheIncompleteTag')}`
+        : e.title
       const meta = document.createElement('div')
       meta.className = 'pwpSC-row pwpSC-status'
       meta.textContent = lang.transl(
