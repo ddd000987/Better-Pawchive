@@ -18,13 +18,15 @@ import { states } from '../store/States'
 import { store } from '../store/Store'
 import type { IDData } from '../store/StoreType'
 import { toast } from '../Toast'
-import { workThumbnail } from './WorkThumbnail'
+import { workThumbnail, WorkThumbnail } from './WorkThumbnail'
 import { keepInBody } from '../PageRoots'
 
 /** 帖子縮圖上的下載按鈕（hover 卡片時在右上角顯示，點擊下載整帖） */
 class ThumbDownloadButton {
   private btn: HTMLButtonElement
   private currentPostKey = ''
+  /** The card the button was last shown on */
+  private card: HTMLAnchorElement | null = null
 
   private hideTimer = 0
   private delay = 100
@@ -40,6 +42,11 @@ class ThumbDownloadButton {
     this.btn.textContent = '⬇'
     this.btn.dataset.xztitle = '_downloadPost'
     this.btn.title = lang.transl('_downloadPost')
+    // The glyph alone says nothing to a screen reader
+    this.btn.setAttribute('aria-label', lang.transl('_downloadPost'))
+    EVT.on(EVT.list.langChange, () => {
+      this.btn.setAttribute('aria-label', lang.transl('_downloadPost'))
+    })
     lang.register(this.btn)
     document.body.appendChild(this.btn)
     keepInBody(this.btn)
@@ -51,6 +58,9 @@ class ThumbDownloadButton {
     workThumbnail.onLeave(() => {
       this.hideDelay()
     })
+    // The cursor on the button is still on its card (see findCardUnderCursor)
+    workThumbnail.registerOverlay(this.btn, () => this.cardUnderButton())
+    this.bindKeyboard()
 
     this.btn.addEventListener('mouseenter', () => {
       window.clearTimeout(this.hideTimer)
@@ -72,10 +82,68 @@ class ThumbDownloadButton {
     })
   }
 
+  /** The card the visible button belongs to (null while it is hidden) */
+  public cardUnderButton(): HTMLAnchorElement | null {
+    const card = this.card
+    if (!card || !card.isConnected || this.btn.style.display === 'none') {
+      return null
+    }
+    return card
+  }
+
+  /** Keyboard access: the button sits at the end of <body>, outside the tab
+   * order of the cards, so show it when its card gets focus and let Tab step
+   * from the card to the button and on to whatever follows the card. */
+  private bindKeyboard(): void {
+    document.addEventListener(
+      'focusin',
+      (ev) => {
+        const t = ev.target
+        if (t === this.btn) {
+          window.clearTimeout(this.hideTimer)
+          return
+        }
+        if (!(t instanceof HTMLAnchorElement) || t.dataset.pwp !== '1') return
+        const key = WorkThumbnail.parsePostKey(t.href)
+        if (!key) return
+        this.currentPostKey = key
+        this.show(t)
+      },
+      true
+    )
+    document.addEventListener(
+      'focusout',
+      (ev) => {
+        const to = ev.relatedTarget
+        if (to === this.btn || to === this.card) return
+        if (ev.target === this.btn || ev.target === this.card) this.hideDelay()
+      },
+      true
+    )
+    document.addEventListener(
+      'keydown',
+      (ev) => {
+        if (ev.key !== 'Tab' || ev.ctrlKey || ev.altKey || ev.metaKey) return
+        const card = this.cardUnderButton()
+        if (!card) return
+        if (ev.target === card && !ev.shiftKey) {
+          ev.preventDefault()
+          this.btn.focus()
+        } else if (ev.target === this.btn) {
+          // Back to the card; a forward Tab then continues after the card
+          if (ev.shiftKey) ev.preventDefault()
+          card.focus()
+        }
+      },
+      true
+    )
+  }
+
   private show(card: HTMLAnchorElement): void {
     if (this.noShow || !settings.get('showDownloadBtnOnThumb')) {
       return
     }
+    this.card = card
     window.clearTimeout(this.hideTimer)
     const rect = card.getBoundingClientRect()
     this.btn.style.left =
@@ -101,7 +169,11 @@ class ThumbDownloadButton {
   }
 
   private download(): void {
+    const card = this.card
+    const hadFocus = document.activeElement === this.btn
     this.hideNow()
+    // A hidden button cannot keep focus: hand it back to the card
+    if (hadFocus) card?.focus()
     if (!this.currentPostKey) {
       return
     }

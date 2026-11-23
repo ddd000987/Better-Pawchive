@@ -110,6 +110,18 @@ class Lang {
     return 'en'
   }
 
+  /** BCP 47 tag of the current UI language, for the `lang` attribute of the
+   * extension's own pages (screen readers pick the voice and fonts by it) */
+  public htmlLang(): string {
+    const tags: Record<LangTypes, string> = {
+      'zh-cn': 'zh-CN',
+      'zh-tw': 'zh-TW',
+      en: 'en',
+      ja: 'ja',
+    }
+    return tags[this.type]
+  }
+
   // translate
   public transl(name: LangTextKey, ...args: string[]) {
     if (name in langText === false) {

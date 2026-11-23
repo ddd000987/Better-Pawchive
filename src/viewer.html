@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -25,6 +25,7 @@
         -webkit-user-drag: none;
       }
       #help,
+      #notice,
       #error {
         position: fixed;
         left: 50%;
@@ -52,12 +53,16 @@
       #error {
         top: 50%;
       }
+      #notice {
+        top: 12px;
+      }
     </style>
   </head>
   <body>
     <img id="img" alt="" hidden />
     <div id="help" hidden></div>
-    <div id="error" hidden></div>
+    <div id="notice" role="status" hidden></div>
+    <div id="error" role="alert" hidden></div>
     <script src="js/viewer.js"></script>
   </body>
 </html>

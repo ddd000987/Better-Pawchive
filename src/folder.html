@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -61,6 +61,10 @@
         color: var(--fg);
         font: inherit;
         cursor: pointer;
+      }
+      button[aria-disabled='true'] {
+        opacity: 0.5;
+        cursor: default;
       }
       button.primary {
         border-color: var(--accent);

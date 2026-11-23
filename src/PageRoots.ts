@@ -59,4 +59,7 @@ function hideFromSnapshot(): void {
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('htmx:beforeHistorySave', hideFromSnapshot, true)
   document.addEventListener('htmx:historyRestore', repairRoots, true)
+  // A boosted swap that replaces <body> content would also drop our persistent
+  // elements; repairRoots is idempotent and does one cheap attribute query
+  document.addEventListener('htmx:afterSettle', repairRoots, true)
 }

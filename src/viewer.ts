@@ -10,6 +10,7 @@
  * While the image fits, resizing the window resizes the image with it.
  */
 
+import { EVT } from './EVT'
 import { lang } from './Language'
 import { settings } from './setting/Settings'
 import { parseViewerQuery } from './viewer/viewerLink'
@@ -24,6 +25,7 @@ const MOVE_THRESHOLD = 3
 const img = document.getElementById('img') as HTMLImageElement
 const help = document.getElementById('help') as HTMLDivElement
 const error = document.getElementById('error') as HTMLDivElement
+const notice = document.getElementById('notice') as HTMLDivElement
 
 const image = parseViewerQuery(location.search)
 
@@ -54,6 +56,14 @@ function fit(): void {
 function showError(): void {
   error.textContent = lang.transl('_imageLoadFailed')
   error.hidden = false
+}
+
+/** The original failed but the preview copy is on screen: say so, without
+ * covering the picture */
+function showOriginalFailedNotice(): void {
+  error.hidden = true
+  notice.textContent = lang.transl('_viewerOriginalFailed')
+  notice.hidden = false
 }
 
 /** Show a loaded picture. Swapping the placeholder for the full image keeps
@@ -93,11 +103,15 @@ async function start(): Promise<void> {
   document.title = image.title || 'PawchivePro'
   const full = load(image.src)
   let shown = false
+  let fullFailed = false
   if (image.placeholder !== image.src) {
     // Usually already in the cache from the preview, so it shows at once
     load(image.placeholder)
       .then((size) => {
-        if (!shown) show(image.placeholder, size)
+        if (shown) return
+        show(image.placeholder, size)
+        // The original failed first: this blurry copy is all there is
+        if (fullFailed) showOriginalFailedNotice()
       })
       .catch(() => undefined)
   }
@@ -107,7 +121,12 @@ async function start(): Promise<void> {
     show(image.src, size)
   } catch (e) {
     console.error('[PawchivePro]', e)
-    if (!natural) showError()
+    fullFailed = true
+    if (natural) {
+      showOriginalFailedNotice()
+    } else {
+      showError()
+    }
   }
 }
 
@@ -248,9 +267,16 @@ function endDrag(): void {
 window.addEventListener('pointerup', endDrag)
 window.addEventListener('pointercancel', endDrag)
 
+/** Keep <html lang> on the UI language, for screen readers and font choice */
+function syncHtmlLang(): void {
+  document.documentElement.lang = lang.htmlLang()
+}
+
 async function init(): Promise<void> {
   // Settings first, so the help line uses the chosen interface language
   await settings.restore()
+  syncHtmlLang()
+  EVT.on(EVT.list.langChange, syncHtmlLang)
   help.textContent = lang.transl('_viewerHelp')
   help.hidden = false
   window.setTimeout(() => help.classList.add('fade'), HELP_TIME)

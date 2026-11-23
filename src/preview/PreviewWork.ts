@@ -73,7 +73,7 @@ import { settings } from '../setting/Settings'
 import { states } from '../store/States'
 import { fitPreview } from './previewLayout'
 import { imageFiles, imageUrl, parsePostKey } from './previewAssets'
-import { preloadIndices } from './previewPreload'
+import { preloadIndices, stalePreloadUrls } from './previewPreload'
 import {
   buildPreviewInfoFields,
   composePreviewInfo,
@@ -151,6 +151,8 @@ class PreviewWork {
   /** Images of the shown post loaded ahead of time, by URL. Cleared (and the
    * unfinished ones cancelled) when the preview moves to another post or closes. */
   private preloads = new Map<string, HTMLImageElement>()
+  /** The image element renderCurrent is loading (not yet in the DOM) */
+  private pendingImg: HTMLImageElement | null = null
   private readonly onWheel = (ev: WheelEvent): void => this.onWheelScroll(ev)
 
   constructor() {
@@ -334,6 +336,7 @@ class PreviewWork {
     // 都先清掉，摘要條先置載入中
     this.current = null
     this.wrap?.querySelector('img')?.remove()
+    this.cancelPendingImage()
     this.cancelPreloads()
     this.setBadge(null)
     this.setTip(lang.transl('_loading'))
@@ -401,7 +404,7 @@ class PreviewWork {
     if (this.wrap) return
     const wrap = document.createElement('div')
     wrap.id = 'previewWorkWrap'
-    wrap.style.left = `${Math.min(mouseX + 24, window.innerWidth - 100)}px`
+    wrap.style.left = `${Math.min(mouseX + 24, document.documentElement.clientWidth - 100)}px`
     wrap.style.top = `${Math.max(8, mouseY - 100)}px`
     // DOM 順序＝上列 → 圖片 → 下列（圖片由 insertImage 插在兩列之間）
     const tipTop = this.makeTipBar('previewWorkTipTop')
@@ -477,7 +480,10 @@ class PreviewWork {
     const seq = ++this.renderSeq
     const stale = () =>
       seq !== this.renderSeq || this.current !== cur || !this.wrap
+    // The previous image is superseded: stop its download if it is still going
+    this.cancelPendingImage()
     const img = document.createElement('img')
+    this.pendingImg = img
     img.onload = () => {
       if (stale()) return
       this.setBadge(null)
@@ -510,9 +516,15 @@ class PreviewWork {
       settings.get('previewPreloadNext'),
       settings.get('previewPreloadPrev')
     )
-    for (const i of indices) {
-      const url = urls[i]
-      if (!url || this.preloads.has(url)) continue
+    const wanted = indices.map((i) => urls[i]).filter(Boolean)
+    // Entries the new window no longer needs: cancel and drop them
+    for (const url of stalePreloadUrls(this.preloads.keys(), wanted)) {
+      const old = this.preloads.get(url)
+      if (old && !old.complete) old.removeAttribute('src')
+      this.preloads.delete(url)
+    }
+    for (const url of wanted) {
+      if (this.preloads.has(url)) continue
       const img = new Image()
       img.src = url
       this.preloads.set(url, img)
@@ -526,6 +538,17 @@ class PreviewWork {
       if (!img.complete) img.removeAttribute('src')
     }
     this.preloads.clear()
+  }
+
+  /** Cancel the image requested by the last renderCurrent if it is still
+   * loading (wheel switched on, or the preview closed). */
+  private cancelPendingImage(): void {
+    const img = this.pendingImg
+    this.pendingImg = null
+    if (!img || img.complete) return
+    img.onload = null
+    img.onerror = null
+    img.removeAttribute('src')
   }
 
   /** 選游標旁空間最大的一側，等比縮放塞進去（扣掉框線與資訊列），
@@ -549,8 +572,9 @@ class PreviewWork {
       naturalH: img.naturalHeight,
       chromeW,
       chromeH,
-      viewW: window.innerWidth,
-      viewH: window.innerHeight,
+      // clientWidth/Height exclude a classic scrollbar; the float is fixed
+      viewW: document.documentElement.clientWidth,
+      viewH: document.documentElement.clientHeight,
     })
     img.style.width = `${fit.imgW}px`
     img.style.height = `${fit.imgH}px`
@@ -771,6 +795,7 @@ class PreviewWork {
     window.clearTimeout(this.closeTimer)
     this.loadToken++
     this.current = null
+    this.cancelPendingImage()
     this.cancelPreloads()
     this.showPending = false
     this.dataLoading = false

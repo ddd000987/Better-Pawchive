@@ -761,8 +761,11 @@
 }
 
 #pwpCreatorPreview .pwpCP-name {
+  // min-width: 0 lets the name shrink below its text so the ellipsis applies
+  min-width: 0;
   font-weight: bold;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
@@ -969,6 +972,11 @@ a[href][data-pwp-picked]::after {
 
   &:hover {
     opacity: 0.8;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -4px;
   }
 }
 

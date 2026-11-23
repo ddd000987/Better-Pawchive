@@ -290,14 +290,19 @@ class PreviewCreator {
       naturalH,
       chromeW: 2,
       chromeH,
-      viewW: window.innerWidth,
-      viewH: window.innerHeight,
+      // clientWidth/Height exclude a classic scrollbar; the float is fixed
+      viewW: document.documentElement.clientWidth,
+      viewH: document.documentElement.clientHeight,
     })
     const tile = Math.max(24, (fit.imgW - (cols + 1) * GAP) / cols)
     this.grid.style.setProperty('--pwpcp-cols', String(cols))
     this.grid.style.setProperty('--pwpcp-tile', `${tile}px`)
     this.grid.style.width = `${fit.imgW}px`
     this.grid.style.height = `${fit.imgH}px`
+    // Fix the wrap width (content box, plus the 1px borders = chromeW 2) so a
+    // long creator name in the nowrap head cannot widen the float past the
+    // planned size; the name ellipsizes instead
+    this.wrap.style.width = `${fit.imgW}px`
     this.wrap.style.left = `${fit.x}px`
     this.wrap.style.top = `${fit.y}px`
   }

@@ -54,6 +54,10 @@ interface HoveredCard {
 class WorkThumbnail {
   private enterListeners: EnterListener[] = []
   private leaveListeners: LeaveListener[] = []
+  private overlays: {
+    el: HTMLElement
+    card: () => HTMLAnchorElement | null
+  }[] = []
   private observer: MutationObserver | null = null
   private intervalId = 0
   /** 最後已知游標位置（clientX/Y）：指標不動、卡片自己冒出來時無 mouseenter 可聽 */
@@ -123,6 +127,14 @@ class WorkThumbnail {
 
   constructor() {
     EVT.on(EVT.list.settingChange, this.onSettingChange)
+    // restore() does not fire settingChange: the first syncActive() below ran
+    // with default settings, so re-sync once the saved ones are loaded (a user
+    // who turned both features off then gets no listener, observer or scans)
+    EVT.on(EVT.list.settingInitialized, () => {
+      this.syncActive()
+      // allowPreviewCoverThumbnail may differ from the default as well
+      if (this.started) this.refreshBindings()
+    })
     // 掃描只在有功能需要時啟動；離開頁面（含 BFCache）時停掉，回來再視設定重啟
     window.addEventListener('pagehide', () => this.destroy())
     window.addEventListener('pageshow', () => this.syncActive())
@@ -193,6 +205,15 @@ class WorkThumbnail {
 
   public onLeave(fn: LeaveListener): void {
     this.leaveListeners.push(fn)
+  }
+
+  /** Register an element drawn over cards (outside them in the DOM) so that
+   * the cursor on it counts as being on `card()`, the card it belongs to now */
+  public registerOverlay(
+    el: HTMLElement,
+    card: () => HTMLAnchorElement | null
+  ): void {
+    this.overlays.push({ el, card })
   }
 
   private scan(root: HTMLElement): void {
@@ -274,7 +295,14 @@ class WorkThumbnail {
   public findCardUnderCursor(): HoveredCard | null {
     if (this.cursor) {
       const hit = document.elementFromPoint(this.cursor.x, this.cursor.y)
-      const a = hit instanceof Element ? hit.closest('a[href*="/post/"]') : null
+      let a = hit instanceof Element ? hit.closest('a[href*="/post/"]') : null
+      // Our own button floats over the card's corner: the cursor on it is
+      // still on that card (otherwise the preview closes and flickers)
+      if (!a && hit instanceof Element) {
+        for (const o of this.overlays) {
+          if (o.el.contains(hit)) a = o.card()
+        }
+      }
       if (a instanceof HTMLAnchorElement && a.dataset.pwp === '1') {
         const postKey = this.keyOf(a)
         if (postKey) {

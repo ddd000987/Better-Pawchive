@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { preloadIndices } from '../src/preview/previewPreload'
+import { preloadIndices, stalePreloadUrls } from '../src/preview/previewPreload'
 
 /** 1-based image numbers, as the user sees them */
 const numbers = (index: number, total: number, next: number, prev: number) =>
@@ -40,5 +40,20 @@ describe('preloadIndices', () => {
     expect(preloadIndices(0, 32, 0, 0)).toEqual([])
     expect(preloadIndices(0, 1, 5, 5)).toEqual([])
     expect(preloadIndices(0, 0, 5, 5)).toEqual([])
+  })
+})
+
+describe('stalePreloadUrls', () => {
+  it('returns held URLs that the new window no longer needs', () => {
+    expect(stalePreloadUrls(['a', 'b', 'c'], ['b', 'd'])).toEqual(['a', 'c'])
+  })
+
+  it('keeps everything when the window is unchanged', () => {
+    expect(stalePreloadUrls(['a', 'b'], ['b', 'a'])).toEqual([])
+  })
+
+  it('drops everything when the window is empty', () => {
+    expect(stalePreloadUrls(new Set(['a', 'b']), [])).toEqual(['a', 'b'])
+    expect(stalePreloadUrls([], ['a'])).toEqual([])
   })
 })

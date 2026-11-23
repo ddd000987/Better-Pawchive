@@ -42,3 +42,23 @@ export function preloadIndices(
   }
   return out
 }
+
+/**
+ * URLs that are still held as preloads but no longer wanted: the user moved to
+ * another image, so those loads are only background traffic. The caller
+ * cancels the unfinished ones and drops all of them.
+ *
+ * @param held URLs currently preloaded
+ * @param wanted URLs the new preload window needs
+ */
+export function stalePreloadUrls(
+  held: Iterable<string>,
+  wanted: Iterable<string>
+): string[] {
+  const keep = new Set(wanted)
+  const out: string[] = []
+  for (const url of held) {
+    if (!keep.has(url)) out.push(url)
+  }
+  return out
+}

@@ -2044,6 +2044,12 @@ export const langText = {
     `Wheel zooms | Drag pans a zoomed-in image, otherwise moves the window | Double-click: fit / actual size | 0 fits | Esc closes`,
     `ホイールで拡大縮小｜ドラッグ：拡大中は移動、それ以外はウィンドウを移動｜ダブルクリック：ウィンドウに合わせる／原寸｜0 で合わせる｜Esc で閉じる`,
   ],
+  _viewerOriginalFailed: [
+    `原图载入失败，目前显示的是预览图`,
+    `原圖載入失敗，目前顯示的是預覽圖`,
+    `Original failed to load; showing the preview copy`,
+    `元の画像を読み込めませんでした。プレビュー画像を表示しています`,
+  ],
   _hk_command: [`命令`, `命令`, `Command`, `コマンド`],
   _hk_hotkey: [`按键`, `按鍵`, `Hotkey`, `キー`],
   _hk_action: [`操作`, `操作`, `Action`, `操作`],

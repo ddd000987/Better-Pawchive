@@ -8,6 +8,7 @@
  * 只決定哪一顆按鈕是主要按鈕。
  */
 
+import { EVT } from './EVT'
 import { lang } from './Language'
 import { settings } from './setting/Settings'
 import {
@@ -54,8 +55,11 @@ function button(
 ): HTMLButtonElement {
   const btn = el('button', label, primary ? 'primary' : undefined)
   btn.type = 'button'
-  btn.disabled = busy
-  btn.addEventListener('click', onClick)
+  // aria-disabled instead of disabled: a disabled button cannot keep focus
+  btn.setAttribute('aria-disabled', String(busy))
+  btn.addEventListener('click', () => {
+    if (!busy) onClick()
+  })
   return btn
 }
 
@@ -69,6 +73,12 @@ async function refresh(): Promise<void> {
 }
 
 function render(): void {
+  // Rebuilding drops keyboard focus to <body>: remember which button had it
+  const focused = document.activeElement
+  const focusedIndex =
+    focused instanceof HTMLButtonElement && app.contains(focused)
+      ? Array.from(app.querySelectorAll('button')).indexOf(focused)
+      : -1
   app.replaceChildren()
   app.appendChild(el('h1', lang.transl('_folderPageTitle')))
   app.appendChild(
@@ -117,11 +127,24 @@ function render(): void {
     p.setAttribute('role', 'status')
     app.appendChild(p)
   }
+
+  if (focusedIndex >= 0) {
+    // The same position, or the last button if the row got shorter
+    const all = app.querySelectorAll('button')
+    all[Math.min(focusedIndex, all.length - 1)]?.focus()
+  }
 }
 
 function setBusy(value: boolean): void {
   busy = value
-  render()
+  if (value) {
+    // Starting an action: only mark the existing buttons, so focus stays put
+    for (const btn of app.querySelectorAll('button')) {
+      btn.setAttribute('aria-disabled', 'true')
+    }
+  } else {
+    render()
+  }
 }
 
 async function pickFolder(): Promise<void> {
@@ -184,9 +207,19 @@ async function allowAccess(): Promise<void> {
   }
 }
 
+/** Keep <html lang> on the UI language, for screen readers and font choice */
+function syncHtmlLang(): void {
+  document.documentElement.lang = lang.htmlLang()
+}
+
 async function init(): Promise<void> {
   // 讀回設定，介面語言才會跟著使用者的選擇
   await settings.restore()
+  syncHtmlLang()
+  EVT.on(EVT.list.langChange, () => {
+    syncHtmlLang()
+    render()
+  })
   await refresh()
   render()
 }
