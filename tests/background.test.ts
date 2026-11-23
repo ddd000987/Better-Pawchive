@@ -161,10 +161,12 @@ describe('background query_saving', () => {
     vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
   })
 
+  // Fresh records are never pruned at startup, so these tests see them as-is
   const rec = (extra: Record<string, unknown>) => ({
     tabId: 1,
     taskBatch: 7,
     uuid: false,
+    t: Date.now(),
     ...extra,
   })
 
@@ -203,7 +205,6 @@ describe('background query_saving', () => {
         11: rec({ id: 'b' }), // completed
         12: rec({ id: 'c' }), // interrupted
         13: rec({ id: 'd', tabId: 2 }), // another tab
-        14: rec({ id: 'e', noReply: true }), // text file, no reply
         15: rec({ id: 'f' }), // not requested
         16: rec({ id: 'g' }), // browser no longer knows the download
       },
@@ -212,14 +213,13 @@ describe('background query_saving', () => {
         11: 'complete',
         12: 'interrupted',
         13: 'in_progress',
-        14: 'in_progress',
         15: 'in_progress',
       }
     )
 
     const reply = await ask(
       listeners.message[1],
-      { msg: 'query_saving', ids: ['a', 'b', 'c', 'd', 'e', 'g'] },
+      { msg: 'query_saving', ids: ['a', 'b', 'c', 'd', 'g'] },
       { tab: { id: 1 } }
     )
     expect(reply).toEqual({ saving: [{ id: 'a', taskBatch: 7 }] })
@@ -305,6 +305,181 @@ describe('background query_saving', () => {
     expect(result).toBe(false)
     await new Promise((r) => setTimeout(r, 10))
     expect(warn).not.toHaveBeenCalled()
+    expect(chrome.downloads.download).not.toHaveBeenCalled()
+  })
+})
+
+describe('background dlData pruning', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
+  })
+
+  const old = (extra: Record<string, unknown>) => ({
+    tabId: 1,
+    taskBatch: 7,
+    uuid: false,
+    ...extra,
+  })
+
+  /** Load the worker; resolves with the dlData keys of the last save */
+  async function loadAndSettle(
+    dlData: Record<string, any>,
+    states: Record<string, string | Error>,
+    goneTabs: number[] = []
+  ) {
+    const { chrome, listeners } = makeChrome(
+      { batchNo: {}, idList: {}, dlData },
+      async () => 1
+    )
+    ;(chrome.tabs as any).get = vi.fn(async (id: number) => {
+      if (goneTabs.includes(id)) throw new Error('No tab with id')
+      return {}
+    })
+    ;(chrome.downloads as any).search = vi.fn(async (q: { id: number }) => {
+      const s = states[q.id]
+      if (s instanceof Error) throw s
+      return s ? [{ id: q.id, state: s }] : []
+    })
+    ;(globalThis as any).chrome = chrome
+    await import('../src/background')
+    // Startup cleanup runs in the background: let it finish
+    await new Promise((r) => setTimeout(r, 20))
+    const saves = (chrome.storage.local.set as any).mock.calls
+      .map((c: any[]) => c[0])
+      .filter((o: any) => 'dlData' in o)
+    const last = saves[saves.length - 1]
+    return {
+      chrome,
+      listeners,
+      saved: last ? Object.keys(last.dlData).sort() : null,
+    }
+  }
+
+  it('drops entries whose tab is gone or whose download is no longer in progress', async () => {
+    const { saved } = await loadAndSettle(
+      {
+        10: old({ id: 'a' }), // still downloading: kept
+        11: old({ id: 'b' }), // finished while no event reached us: dropped
+        12: old({ id: 'c', tabId: 9 }), // tab closed: dropped
+        13: old({ id: 'd' }), // the browser forgot the download: dropped
+      },
+      { 10: 'in_progress', 11: 'complete', 12: 'in_progress' },
+      [9]
+    )
+    expect(saved).toEqual(['10'])
+  })
+
+  it('keeps recent entries even when the browser does not report them yet', async () => {
+    const { saved, chrome } = await loadAndSettle(
+      {
+        10: old({ id: 'a', t: Date.now() }),
+        11: old({ id: 'b', tabId: 9, t: Date.now() }),
+      },
+      {},
+      [9]
+    )
+    // Nothing to prune: no save and no lookups for them
+    expect(saved).toBeNull()
+    expect((chrome.downloads as any).search).not.toHaveBeenCalled()
+  })
+
+  it('keeps an entry when its state cannot be read', async () => {
+    const { saved } = await loadAndSettle(
+      {
+        10: old({ id: 'a' }),
+        11: old({ id: 'b' }),
+      },
+      { 10: new Error('search failed'), 11: 'complete' }
+    )
+    expect(saved).toEqual(['10'])
+  })
+
+  it('asks the browser about a tab only once', async () => {
+    const { chrome } = await loadAndSettle(
+      { 10: old({ id: 'a' }), 11: old({ id: 'b' }), 12: old({ id: 'c' }) },
+      { 10: 'in_progress', 11: 'in_progress', 12: 'in_progress' }
+    )
+    // idList is empty, so only the prune asks
+    expect(chrome.tabs.get).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('background save results', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
+  })
+
+  async function load(rec: Record<string, unknown>) {
+    const { chrome, listeners } = makeChrome(
+      {
+        batchNo: {},
+        idList: {},
+        dlData: {
+          20: { tabId: 1, taskBatch: 7, uuid: false, t: Date.now(), ...rec },
+        },
+      },
+      async () => 1
+    )
+    ;(chrome.downloads as any).search = vi.fn(async () => [])
+    ;(globalThis as any).chrome = chrome
+    await import('../src/background')
+    return { chrome, listeners }
+  }
+
+  const finish = async (
+    listeners: Record<string, Listener[]>,
+    name: string
+  ) => {
+    await listeners.changed[0]({ id: 20, filename: { current: name } })
+    await listeners.changed[0]({ id: 20, state: { current: 'complete' } })
+  }
+
+  const sentData = (chrome: any) => chrome.tabs.sendMessage.mock.calls[0][1]
+
+  it('flags a file saved under a random UUID name we did not ask for', async () => {
+    const { chrome, listeners } = await load({
+      id: 'a',
+      requestedName: 'kemono/p/1-a.png',
+    })
+    await finish(
+      listeners,
+      'C:\\Users\\u\\Downloads\\3f2c1a9e-1b2c-4d5e-8f90-123456789abc.png'
+    )
+    expect(sentData(chrome)).toMatchObject({
+      msg: 'downloaded',
+      data: { id: 'a', uuid: true },
+    })
+  })
+
+  it('does not flag the name we asked for, nor an ordinary rename', async () => {
+    let t = await load({ id: 'a', requestedName: 'kemono/p/1-a.png' })
+    await finish(t.listeners, '/home/u/Downloads/kemono/p/1-a (1).png')
+    expect(sentData(t.chrome).data.uuid).toBe(false)
+
+    vi.resetModules()
+    // The post's own file is named like a UUID and was requested that way
+    t = await load({
+      id: 'a',
+      requestedName: 'kemono/p/3f2c1a9e-1b2c-4d5e-8f90-123456789abc.png',
+    })
+    await finish(
+      t.listeners,
+      '/home/u/Downloads/kemono/p/3f2c1a9e-1b2c-4d5e-8f90-123456789abc.png'
+    )
+    expect(sentData(t.chrome).data.uuid).toBe(false)
+  })
+
+  it('no longer handles no_reply / save_description_file', async () => {
+    const { chrome, listeners } = await load({ id: 'a' })
+    for (const msg of ['no_reply', 'save_description_file']) {
+      listeners.message[0](
+        { msg, id: 'x', blobURL: 'blob:x', fileName: 'f' },
+        { tab: { id: 1 } }
+      )
+    }
+    await new Promise((r) => setTimeout(r, 10))
     expect(chrome.downloads.download).not.toHaveBeenCalled()
   })
 })

@@ -52,6 +52,7 @@ class ExportResult2CSV {
       'status',
     ]
     const lines = [header.join(',')]
+    const statuses = this.postStatuses()
     for (const r of store.resultMeta) {
       lines.push(
         [
@@ -64,7 +65,7 @@ class ExportResult2CSV {
           csvCell(r.fileCount),
           csvCell(r.pending),
           csvCell(r.postKey),
-          csvCell(this.postStatus(r.postKey)),
+          csvCell(statuses.get(r.postKey) ?? 'pending'),
         ].join(',')
       )
     }
@@ -84,23 +85,32 @@ class ExportResult2CSV {
     )
   }
 
-  /** 一帖的下載狀態：附件全完成 done、部分完成 partial、否則 pending */
-  private postStatus(postKey: string): string {
-    let total = 0
-    let done = 0
+  /**
+   * 每帖的下載狀態：附件全完成 done、部分完成 partial、否則 pending。
+   * One pass over the results; a post without results is not in the map.
+   */
+  private postStatuses(): Map<string, string> {
+    const counts = new Map<string, { total: number; done: number }>()
     for (let i = 0; i < store.result.length; i++) {
-      if (store.result[i].postKey !== postKey) {
-        continue
+      const key = store.result[i].postKey
+      let c = counts.get(key)
+      if (!c) {
+        c = { total: 0, done: 0 }
+        counts.set(key, c)
       }
-      total++
+      c.total++
       if (downloadStates.states[i] === 1) {
-        done++
+        c.done++
       }
     }
-    if (total === 0 || done === 0) {
-      return 'pending'
+    const statuses = new Map<string, string>()
+    for (const [key, { total, done }] of counts) {
+      statuses.set(
+        key,
+        done === 0 ? 'pending' : done === total ? 'done' : 'partial'
+      )
     }
-    return done === total ? 'done' : 'partial'
+    return statuses
   }
 }
 

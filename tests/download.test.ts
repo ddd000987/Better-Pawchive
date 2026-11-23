@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
     checkFileSize: vi.fn((_s: number, _picked?: boolean) => true),
   },
   record: { checkDeduplication: vi.fn(async (_r: unknown) => false) },
+  interval: { wait: vi.fn(async (c: () => boolean = () => false) => !c()) },
   states: { downloading: true },
   settings: { get: vi.fn((_k: string): unknown => false) },
 }))
@@ -41,7 +42,7 @@ vi.mock('../src/download/DownloadRecord', () => ({
 }))
 // 下載間隔：不等待，只尊重 cancelled（與真實實作的取消語義一致）
 vi.mock('../src/download/DownloadInterval', () => ({
-  downloadInterval: { wait: async (c: () => boolean = () => false) => !c() },
+  downloadInterval: m.interval,
 }))
 vi.mock('../src/setting/Settings', () => ({ settings: m.settings }))
 vi.mock('../src/store/States', () => ({ states: m.states }))
@@ -198,7 +199,7 @@ beforeEach(() => {
   m.filter.isKindAllowed.mockImplementation(() => true)
   m.filter.checkFileSize.mockImplementation(() => true)
   m.record.checkDeduplication.mockImplementation(async () => false)
-  for (const group of [m.progressBar, m.toast, m.log]) {
+  for (const group of [m.progressBar, m.toast, m.log, m.interval]) {
     Object.values(group).forEach((f) => f.mockClear())
   }
   for (const k of Object.keys(events)) delete events[k]
@@ -237,8 +238,10 @@ describe('Download：成功路徑', () => {
     expect(sent.dataURL).toBeUndefined()
     expect(sent.url).toBeUndefined()
     expect(events.sendBrowserDownload).toEqual([
-      { id: 'patreon/u1/1#0', fileName: 'patreon/u1/1#0.png' },
+      { id: 'patreon/u1/1#0', fileName: 'patreon/u1/1#0.png', direct: false },
     ])
+    // A normal batch leaves the conflict action to the background default
+    expect(sent).not.toHaveProperty('conflictAction')
     expect(m.progressBar.errorColor).toHaveBeenLastCalledWith(0, false)
     expect(events.skipDownload).toHaveLength(0)
     expect(events.downloadError).toHaveLength(0)
@@ -295,7 +298,42 @@ describe('Download：成功路徑', () => {
       url: 'https://n1.kemono.su/data/ab/cd/x.png',
     })
     expect(sent.blobURL).toBeUndefined()
-    expect(events.sendBrowserDownload).toHaveLength(1)
+    expect(events.sendBrowserDownload).toEqual([
+      { id: 'patreon/u1/1#0', fileName: 'patreon/u1/1#0.png', direct: true },
+    ])
+  })
+
+  it('a "restart all" batch asks the browser to overwrite (blob, text and direct)', async () => {
+    setFetch(okFetch())
+    start(arg({ force: true }))
+    await tick(10)
+    expect(sendMessage.mock.calls[0][0].conflictAction).toBe('overwrite')
+
+    start(
+      arg({
+        force: true,
+        result: result({ kind: 'text', ext: 'txt', textData: 'hello' }),
+      })
+    )
+    await tick(10)
+    expect(sendMessage.mock.calls[1][0].conflictAction).toBe('overwrite')
+
+    setFetch((_u, init) =>
+      Promise.resolve(
+        fakeResponse({
+          headers: {
+            'Content-Length': String(Config.directDownloadThreshold + 1),
+          },
+          signal: init.signal,
+        })
+      )
+    )
+    start(arg({ force: true }))
+    await tick(10)
+    expect(sendMessage.mock.calls[2][0]).toMatchObject({
+      url: 'https://n1.kemono.su/data/ab/cd/x.png',
+      conflictAction: 'overwrite',
+    })
   })
 
   it('隱身模式用較低門檻（32MiB 以上即直下）', async () => {
@@ -420,14 +458,34 @@ describe('Download：錯誤與重試', () => {
     expect(events.requestPauseDownload).toHaveLength(0)
   })
 
-  it('網路錯誤秒失敗達上限 → 視為磁碟／網路異常，請求暫停而非 downloadError', async () => {
+  it('網路錯誤秒失敗達上限 → 走 downloadError（批次稍後重試），不暫停整批', async () => {
     setFetch(() => Promise.reject(new TypeError('Failed to fetch')))
     start()
     await tick(120000)
 
     expect(fetchMock).toHaveBeenCalledTimes(Config.retryMax)
-    expect(events.requestPauseDownload).toHaveLength(1)
-    expect(events.downloadError).toHaveLength(0)
+    expect(events.downloadError).toEqual(['patreon/u1/1#0'])
+    expect(events.requestPauseDownload).toHaveLength(0)
+    expect(m.log.log).toHaveBeenCalledWith(
+      expect.stringContaining('_retryLater')
+    )
+    // The old "disk may be full" guess is gone
+    expect(m.log.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('_diskMaybeFull')
+    )
+  })
+
+  it('a retry waits on the download interval once, not twice', async () => {
+    setFetch(statusFetch(503), okFetch())
+    start()
+    await tick(10)
+    expect(m.interval.wait).toHaveBeenCalledTimes(1)
+
+    await tick(2500) // backoff, then the second attempt
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // One wait per attempt (inside download()), none extra after the backoff
+    expect(m.interval.wait).toHaveBeenCalledTimes(2)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
   it('網路錯誤但每次都耗時很久（>10s）→ 走 downloadError', async () => {
@@ -607,9 +665,13 @@ describe('Download: ordered downloads', () => {
     new Download(0, arg({ id: r.id, result: r, index: 1 }), 1)
   }
 
-  afterEach(() => {
+  afterEach(async () => {
+    // End any download still waiting for its turn, so it cannot be woken by
+    // the next test's state changes
+    m.states.downloading = false
     store.result = []
     downloadStates.clear()
+    await tick(0)
   })
 
   it('waits while the previous file is still in progress', async () => {
@@ -618,6 +680,47 @@ describe('Download: ordered downloads', () => {
     await tick(1000)
 
     expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('moves on the moment the previous file settles, without polling', async () => {
+    orderedSetup()
+    startSecond()
+    await tick(1000)
+    expect(sendMessage).not.toHaveBeenCalled()
+    // Only the slow safety timer is pending, not a 50 ms poll
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(1)
+
+    downloadStates.setStateById('a#0', 1)
+    await tick(0)
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops waiting when the batch is paused, and sends nothing', async () => {
+    orderedSetup()
+    startSecond()
+    await tick(1000)
+
+    m.states.downloading = false
+    EVT.fire('downloadPause')
+    await tick(0)
+    expect(vi.getTimerCount()).toBe(0)
+
+    downloadStates.setStateById('a#0', 1)
+    await tick(10)
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('still re-checks on the safety timer if no event arrives', async () => {
+    orderedSetup()
+    startSecond()
+    await tick(1000)
+
+    // A write that bypasses the setters raises no event
+    downloadStates.states[0] = 1
+    await tick(6000)
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
   it('proceeds once the previous file is marked failed', async () => {

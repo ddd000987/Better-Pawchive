@@ -5,9 +5,10 @@
  *   - browser.* → chrome.* (no webextension-polyfill)
  *   - DELETED: save_novel_*, save_novel_series_file, save_work_file_a_download
  *     (novel pipeline + ugoira a.download fast path not in scope)
- *   - KEPT: save_work_file + save_description_file/no_reply (content.txt/html)
- *     + clearDownloadsTempData (download temp cleanup, NOT novel-specific)
- *     + batchNo/idList/dlData persistence for SW hibernation survival
+ *   - KEPT: save_work_file + clearDownloadsTempData (download temp cleanup,
+ *     NOT novel-specific) + batchNo/idList/dlData persistence for SW
+ *     hibernation survival
+ *   - DELETED: no_reply / save_description_file (nothing sends them)
  */
 
 import './folder/folderService'
@@ -20,7 +21,7 @@ interface SaveFileMsg {
   taskBatch?: number
   blobURL?: string
   dataURL?: string
-  /** 遠端檔案網址：大檔由瀏覽器直接下載（非 blob/data URL，不可 revoke） */
+  /** 遠端檔案網址：大檔由瀏覽器直接下載（非 blob/data URL） */
   url?: string
   blob?: Blob
   conflictAction?: chrome.downloads.FilenameConflictAction
@@ -34,11 +35,16 @@ interface DlRecord {
   id?: string
   tabId: number
   taskBatch?: number
+  /** The saved file got a random UUID name that we did not ask for (another
+   * extension overrode the name) */
   uuid?: boolean
-  noReply?: boolean
   browserSetFilename?: string
+  /** The file name we asked the browser to use */
+  requestedName?: string
   /** batchNo/idList 的分槽鍵（重啟後仍能釋放正確的 id） */
   slot?: string
+  /** When the record was created (ms). Missing on records from older versions */
+  t?: number
 }
 
 type BatchNoMap = Record<string, number>
@@ -120,15 +126,8 @@ function getFileURL(msg: SaveFileMsg): string {
   return ''
 }
 
-function revoke(url?: string) {
-  if (url && url.startsWith('blob:')) {
-    try {
-      URL.revokeObjectURL(url)
-    } catch {
-      /* noop */
-    }
-  }
-}
+// Blob URLs are made by the page and revoked by it when the receipt arrives:
+// a service worker has another origin, so revoking them here would do nothing.
 
 chrome.runtime.onMessage.addListener((rawMsg, sender) => {
   if (!isMsg(rawMsg)) {
@@ -163,7 +162,7 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
           idList[slot].push(msg.id as string)
           setData({ idList })
           const data: DlRecord = {
-            // 直下模式沒有前台 blobURL；遠端 url 不記進這兩個欄位，
+            // 直下模式沒有前台 blobURL；遠端 url 不記進這個欄位，
             // 避免完成回執時被當成 blob URL 處理
             blobURLFront: msg.blobURL,
             blobURLBack: '',
@@ -171,11 +170,12 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
             tabId,
             taskBatch: msg.taskBatch,
             uuid: false,
+            requestedName: msg.fileName,
             slot,
+            t: Date.now(),
           }
           try {
             const url = getFileURL(msg)
-            data.blobURLBack = url.startsWith('blob:') ? url : ''
             const downloadId = await chrome.downloads.download({
               url,
               filename: msg.fileName,
@@ -186,8 +186,6 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
             await saveDLData()
           } catch (error) {
             console.error('Create download failed', error)
-            revoke(data.blobURLFront)
-            revoke(data.blobURLBack)
             await releaseDownloadId(slot, data.taskBatch, data.id)
             const runtimeError =
               error instanceof Error ? error.message : String(error)
@@ -203,33 +201,6 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
               })
               .catch((e) => console.error('Reply download_err failed', e))
           }
-        }
-      }
-
-      // 文字檔（content.txt/html）走 no-reply 模式（仿 PBD save_description_file）
-      if (msg.msg === 'no_reply' || msg.msg === 'save_description_file') {
-        try {
-          const url = getFileURL(msg)
-          const downloadId = await chrome.downloads.download({
-            url,
-            filename: msg.fileName,
-            conflictAction,
-            saveAs: false,
-          })
-          dlData[downloadId] = {
-            blobURLFront: msg.blobURL,
-            blobURLBack: url.startsWith('blob:') ? url : '',
-            id: msg.id,
-            taskBatch: msg.taskBatch,
-            tabId,
-            uuid: false,
-            noReply: true,
-            slot: slotOf(tabId, msg.channel),
-          }
-          await saveDLData()
-        } catch (error) {
-          console.error('Create text download failed', error)
-          revoke(msg.blobURL)
         }
       }
 
@@ -256,7 +227,9 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
           tabId,
           taskBatch: msg.taskBatch,
           uuid: false,
+          requestedName: msg.fileName,
           slot: slotOf(tabId, msg.channel),
+          t: Date.now(),
         }
         chrome.tabs
           .sendMessage(tabId, {
@@ -313,7 +286,6 @@ chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
       for (const [downloadId, rec] of Object.entries(dlData)) {
         if (
           rec.tabId !== tabId ||
-          rec.noReply ||
           rec.id === undefined ||
           rec.taskBatch === undefined ||
           !wanted.has(rec.id)
@@ -334,8 +306,23 @@ chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
   return true
 })
 
-const UUIDRegexp =
-  /[0-9a-z]{8}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{12}/
+const UUIDNameRegexp =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^.]*)?$/i
+
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? ''
+}
+
+/**
+ * The saved file is named like a random UUID although we asked for another
+ * name: some other extension's onDeterminingFilename overrode ours. A file
+ * whose requested name is a UUID itself (taken from the post) does not count.
+ */
+function isOverriddenByUuid(saved: string, requested?: string): boolean {
+  const name = baseName(saved)
+  if (!UUIDNameRegexp.test(name)) return false
+  return requested === undefined || baseName(requested) !== name
+}
 
 chrome.downloads.onChanged.addListener(async (detail) => {
   await restoreDownloadData()
@@ -344,7 +331,9 @@ chrome.downloads.onChanged.addListener(async (detail) => {
   let msg = ''
   let err = ''
   if (detail.filename?.current) {
-    if (detail.filename.current.match(UUIDRegexp) !== null) rec.uuid = true
+    if (isOverriddenByUuid(detail.filename.current, rec.requestedName)) {
+      rec.uuid = true
+    }
     rec.browserSetFilename = detail.filename.current
   }
   if (detail.state?.current === 'complete') msg = 'downloaded'
@@ -358,17 +347,59 @@ chrome.downloads.onChanged.addListener(async (detail) => {
     )
   }
   if (msg) {
-    if (!rec.noReply) {
-      chrome.tabs
-        .sendMessage(rec.tabId, { msg, data: rec, err })
-        .catch((e) => console.error('Send download result failed', e))
-    }
-    revoke(rec.blobURLFront)
-    revoke(rec.blobURLBack)
+    chrome.tabs
+      .sendMessage(rec.tabId, { msg, data: rec, err })
+      .catch((e) => console.error('Send download result failed', e))
     delete dlData[detail.id]
   }
   await saveDLData()
 })
+
+/** Records younger than this are never pruned: their events may still come */
+const DL_RECORD_GRACE_MS = 60_000
+
+/**
+ * Drop dlData entries that can never be answered: the tab is gone (ids are
+ * reused after a restart) or the browser no longer has the download in
+ * progress (e.g. it was interrupted by a crash, so no event will come).
+ * When the state cannot be read the entry is kept.
+ */
+async function pruneDlData() {
+  const tabAlive = new Map<number, boolean>()
+  let changed = false
+  for (const [key, rec] of Object.entries(dlData)) {
+    if (rec.t !== undefined && Date.now() - rec.t < DL_RECORD_GRACE_MS) {
+      continue
+    }
+    let stale = false
+    try {
+      let alive = tabAlive.get(rec.tabId)
+      if (alive === undefined) {
+        alive = await chrome.tabs.get(rec.tabId).then(
+          () => true,
+          () => false
+        )
+        tabAlive.set(rec.tabId, alive)
+      }
+      if (!alive) {
+        stale = true
+      } else {
+        const items = await chrome.downloads.search({ id: Number(key) })
+        stale = items?.[0]?.state !== 'in_progress'
+      }
+    } catch {
+      continue
+    }
+    // The change event may have answered and removed it while we looked
+    if (stale && dlData[key] === rec) {
+      delete dlData[key]
+      changed = true
+    }
+  }
+  if (changed) {
+    await saveDLData()
+  }
+}
 
 async function clearData() {
   await restoreDownloadData()
@@ -383,6 +414,7 @@ async function clearData() {
     }
   }
   await setData({ batchNo, idList })
+  await pruneDlData()
 }
 
 // MV3 service worker 的 setInterval 會在休眠時被清掉、不可靠；

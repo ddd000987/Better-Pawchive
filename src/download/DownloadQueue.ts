@@ -2,8 +2,8 @@
  * license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
  * 下載佇列：把多筆抓取快取排隊，依序「掛載 → 開始下載 → 結束後換下一筆」，
  * 例如睡前排好幾個作者讓它一次載完。
- * - 結束訊號：downloadComplete（完成）；downloadGiveUp（自動重試用完）→
- *   標成部分失敗、停掉這一筆、換下一筆。已存好的檔案有下載記錄，重跑時會跳過。
+ * - 結束訊號：downloadComplete（完成）；downloadGiveUp（自動重試用完，緊接著
+ *   還會有一個 downloadComplete）→ 標成部分失敗、換下一筆。已存好的檔案有下載記錄，重跑時會跳過。
  * - 使用者手動停止下載＝暫停佇列，目前那一筆回到等待。
  * - 「暫停佇列」只是不再接下一筆，目前那一筆照常下載完。
  * - 佇列項目（快取 id 與狀態）存在 chrome.storage.local；執行中旗標不存，
@@ -78,8 +78,6 @@ class DownloadQueue {
   private running = false
   /** 目前由佇列驅動下載的快取 id */
   private currentId: string | null = null
-  /** 佇列自己呼叫 stopDownload 時，忽略隨之而來的 downloadStop */
-  private selfStopping = false
   private loadPromise: Promise<void> | null = null
   private saveTimer = 0
   private advanceTimer = 0
@@ -105,19 +103,14 @@ class DownloadQueue {
       item.status = 'partial'
       this.currentId = null
       log.warning(lang.transl('_queueItemPartial', item.title))
-      // 任務停在下載中，不停掉的話下一筆掛載會被拒絕
-      this.selfStopping = true
-      try {
-        downloadControl.stopDownload({ quiet: true })
-      } finally {
-        this.selfStopping = false
-      }
+      // No stopDownload here: DownloadControl ends the batch through the
+      // normal downloadComplete right after this event (the item is no longer
+      // current by then, so the queue advances only once)
       this.changed()
       this.scheduleNext()
     })
 
     EVT.on(EVT.list.downloadStop, () => {
-      if (this.selfStopping) return
       const item = this.current()
       if (item) {
         item.status = 'waiting'

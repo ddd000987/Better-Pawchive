@@ -42,6 +42,23 @@ class DownloadStates {
    * errored items are reset to -1 (init/resume/replace/clear). */
   private failedIds = new Set<string>()
 
+  /** Callbacks told whenever a state or failed mark changes (ordered waits) */
+  private listeners = new Set<() => void>()
+
+  /** Subscribe to state changes. Returns the unsubscribe function. */
+  public onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private notify() {
+    for (const listener of [...this.listeners]) {
+      listener()
+    }
+  }
+
   private bindEvents() {
     // 新一輪抓取：完整重建
     EVT.on(EVT.list.crawlComplete, () => {
@@ -58,6 +75,7 @@ class DownloadStates {
     this.resultIds = store.result.map((r) => r.id)
     this.states = new Array(this.resultIds.length).fill(-1)
     this.failedIds.clear()
+    this.notify()
   }
 
   // 按 id 把舊狀態搬到新結果的索引；長度對不上時退回完整重建
@@ -75,12 +93,14 @@ class DownloadStates {
       }
     }
     this.resultIds = newIds
+    this.notify()
   }
 
   /** Mark an item as failed for this round (its state stays 0). */
   public markFailedById(id: string) {
     if (this.findIndexById(id) !== -1) {
       this.failedIds.add(id)
+      this.notify()
     }
   }
 
@@ -106,6 +126,7 @@ class DownloadStates {
       return false
     }
     this.states[index] = value
+    this.notify()
     return true
   }
 
@@ -126,6 +147,7 @@ class DownloadStates {
   public replace(states: DLStatesI) {
     this.states = states
     this.failedIds.clear()
+    this.notify()
   }
 
   // 恢復之前的下載任務
@@ -144,6 +166,7 @@ class DownloadStates {
     }
     // Errored items are -1 again and will be retried: they block successors again
     this.failedIds.clear()
+    this.notify()
   }
 
   // 獲取第一個“未開始下載”標記的索引
@@ -161,12 +184,14 @@ class DownloadStates {
   // 設置已下載列表中的標記
   public setState(index: number, value: -1 | 0 | 1) {
     this.states[index] = value
+    this.notify()
   }
 
   public clear() {
     this.states = []
     this.resultIds = []
     this.failedIds.clear()
+    this.notify()
   }
 }
 

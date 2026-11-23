@@ -172,14 +172,17 @@ describe('downloadQueue', () => {
     expect(q.isRunning()).toBe(false)
   })
 
-  it('重試用完：標成部分失敗、安靜停掉、換下一筆', async () => {
+  it('重試用完：標成部分失敗、換下一筆；緊接的 downloadComplete 不會再推進一次', async () => {
     const { q, ids, stop, start } = await fresh()
     await q.add(ids[0])
     await q.add(ids[1])
     await q.start()
+    // DownloadControl ends a given-up batch with downloadGiveUp, then the
+    // normal downloadComplete
     evt.fire('downloadGiveUp')
+    evt.fire('downloadComplete')
     await flush()
-    expect(stop).toHaveBeenCalledWith({ quiet: true })
+    expect(stop).not.toHaveBeenCalled()
     expect(statuses(q)).toEqual(['partial', 'running'])
     expect(start).toHaveBeenCalledTimes(2)
     expect(q.isRunning()).toBe(true)

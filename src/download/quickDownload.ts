@@ -54,7 +54,7 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
   }
   const m = msg as {
     msg?: string
-    data?: { taskBatch?: unknown; id?: unknown }
+    data?: { taskBatch?: unknown; id?: unknown; uuid?: unknown }
     err?: unknown
   }
   if (m.msg !== 'downloaded' && m.msg !== 'download_err') {
@@ -81,7 +81,11 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
     pending.delete(m.data.taskBatch)
   }
   if (m.msg === 'downloaded') {
-    void downloadRecord.addRecord(result)
+    // A file another extension renamed to a random name gets no record (the
+    // main pipeline warns about it)
+    if (m.data?.uuid !== true) {
+      void downloadRecord.addRecord(result)
+    }
   } else {
     log.error(
       lang.transl(

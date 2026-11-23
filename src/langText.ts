@@ -1778,6 +1778,12 @@ export const langText = {
     `Repeated fast failures; disk may be full. Download paused`,
     `リクエストが短時間に何度も失敗しました。ディスク容量不足の可能性があるため、ダウンロードを一時停止しました`,
   ],
+  _diskWriteFailedPaused: [
+    `浏览器无法写入文件（{}，文件 {}），可能是磁盘空间不足或下载文件夹没有写入权限，已暂停下载。处理后可继续下载`,
+    `瀏覽器無法寫入檔案（{}，檔案 {}），可能是磁碟空間不足或下載資料夾沒有寫入權限，已暫停下載。處理後可繼續下載`,
+    `The browser could not write to disk ({}, file {}). The disk may be full or the download folder not writable. Download paused; fix it, then resume`,
+    `ブラウザーがディスクに書き込めませんでした（{}、ファイル {}）。ディスク容量不足、またはダウンロードフォルダーへの書き込み権限がない可能性があるため、ダウンロードを一時停止しました。解決後に再開してください`,
+  ],
   _skipSize: [
     `不保存文件因为体积过大：{}`,
     `不保存檔案因為體積過大：{}`,
@@ -1819,6 +1825,12 @@ export const langText = {
     `保存檔案失敗，請檢查瀏覽器下載設定`,
     `Failed to save file; check your browser download settings`,
     `ファイルの保存に失敗しました。ブラウザのダウンロード設定を確認してください`,
+  ],
+  _filenameOverriddenByExtension: [
+    `有其他扩展程序把下载的文件改成了随机名称，请停用会修改下载文件名的扩展程序（这些文件不会记入下载记录）`,
+    `有其他擴充功能把下載的檔案改成了隨機名稱，請停用會修改下載檔名的擴充功能（這些檔案不會記入下載記錄）`,
+    `Another extension renamed downloaded files to random names; disable extensions that change download filenames (these files are not added to the download record)`,
+    `別の拡張機能がダウンロードしたファイルをランダムな名前に変更しています。ダウンロードのファイル名を変更する拡張機能を無効にしてください（これらのファイルはダウンロード記録に追加されません）`,
   ],
   _downloadStuck: [
     `文件 {}（{}）交给浏览器保存后超过 5 分钟没有回应，请到浏览器下载页检查（是否卡在另存为窗口或网络中断）`,

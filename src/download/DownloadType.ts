@@ -46,7 +46,7 @@ export interface SendToBackEndData {
   dataURL?: string
   /** 遠端檔案網址：大檔由瀏覽器直接下載，不經分頁記憶體 */
   url?: string
-  /** 同名檔案處理方式。未指定時後台預設 overwrite */
+  /** 同名檔案處理方式。未指定時後台預設 uniquify；全部重下批次送 overwrite */
   conflictAction?: 'uniquify' | 'overwrite' | 'prompt'
 }
 
@@ -61,9 +61,8 @@ export interface DownloadSuccessData {
   /** 所屬下載批次 */
   taskBatch: number
   tabId: number
+  /** true = 瀏覽器存成了隨機 UUID 檔名（別的擴充功能改了檔名） */
   uuid: boolean
-  /** 當該標記為 true 時，後台不會向前台返回這個檔案的下載結果 */
-  noReply?: boolean
   /** 瀏覽器實際保存這個檔案時使用的檔名，可能和前台傳遞的不同 */
   browserSetFilename?: string
 }

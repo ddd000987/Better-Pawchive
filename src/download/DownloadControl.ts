@@ -96,6 +96,10 @@ class DownloadControl {
 
   /** 交給瀏覽器存檔後的逾時提醒：檔案 id → 計時器 */
   private saveTimers = new Map<string, number>()
+  /** Ids handed over as direct (browser-fetched) downloads: no stuck timer */
+  private directSaveIds = new Set<string>()
+  /** The batch for which the "files were renamed" warning was already shown */
+  private renameWarnedBatch = 0
 
   /**
    * Ids handed to the browser whose save receipt has not arrived yet, mapped
@@ -198,13 +202,21 @@ class DownloadControl {
     // 多執行緒下要逐檔計時，否則別的檔案成功就會把卡住的檔案一起清掉
     EVT.on(EVT.list.sendBrowserDownload, (ev: CustomEventInit) => {
       const data = ev.detail?.data as
-        { id?: string; fileName?: string } | undefined
+        { id?: string; fileName?: string; direct?: boolean } | undefined
       if (!data?.id) {
         return
       }
       const id = data.id
       const name = data.fileName ?? ''
       this.savingIds.set(id, this.taskBatch)
+      // A direct download is fetched by the browser itself, and no progress
+      // reaches this side: a big file on a slow link would trip the
+      // "stuck" reminder falsely, so only blob saves get the timer
+      if (data.direct) {
+        this.directSaveIds.add(id)
+        return
+      }
+      this.directSaveIds.delete(id)
       this.armSaveTimer(id, name)
     })
 
@@ -252,8 +264,10 @@ class DownloadControl {
         msg.data?.id &&
         (!this.taskBatch || msg.data.taskBatch !== this.taskBatch)
       ) {
+        this.warnIfRenamed(msg.data)
         const work = store.findResult(msg.data.id)
-        if (work) {
+        // A renamed file cannot be recognised later, so it gets no record
+        if (work && !msg.data.uuid) {
           void downloadRecord.addRecord(work)
         }
       }
@@ -290,7 +304,11 @@ class DownloadControl {
           EVT.fire('downloadSuccess', msg.data)
           this.saveRequestFailStreak = 0
           this.saveRetryCounts.delete(msg.data.id)
-          this.downloadOrSkipAFile(msg.data)
+          this.warnIfRenamed(msg.data)
+          // The file is saved, but under a name another extension chose: do
+          // not record it, or the dedupe record would point at a name that
+          // does not exist on disk
+          this.downloadOrSkipAFile(msg.data, !msg.data.uuid)
         } catch (error) {
           console.error('downloaded 分支執行出錯', error)
         }
@@ -328,6 +346,13 @@ class DownloadControl {
             'userCanceledSave'
           )
           this.skipFailedFile(msg.data)
+          return
+        }
+
+        // The disk is full or not writable: every further file would fail the
+        // same way, so pause for the user to fix it instead of retrying
+        if (DownloadControl.isDiskError(msg.err)) {
+          this.pauseOnDiskError(msg.err, msg.data.id)
           return
         }
 
@@ -392,6 +417,38 @@ class DownloadControl {
     'noUrl',
   ]
 
+  /** chrome.downloads interrupt reasons that mean the disk cannot take files */
+  private static readonly DISK_ERRORS = ['FILE_NO_SPACE', 'FILE_ACCESS_DENIED']
+
+  private static isDiskError(err: string | undefined): err is string {
+    return err !== undefined && DownloadControl.DISK_ERRORS.includes(err)
+  }
+
+  /** Report a disk error once and pause the batch so the user can fix it */
+  private pauseOnDiskError(err: string, id: string) {
+    // Several in-flight files fail together: say it once
+    if (!this.pause) {
+      const msg = lang.transl('_diskWriteFailedPaused', err, id)
+      log.error(msg)
+      toast.error(msg)
+    }
+    this.pauseDownload()
+  }
+
+  /**
+   * Another extension renamed the saved file (the background saw a random
+   * UUID name). Say so once per batch; the user has to disable that extension.
+   */
+  private warnIfRenamed(data: DownloadSuccessData) {
+    if (!data.uuid || this.renameWarnedBatch === data.taskBatch) {
+      return
+    }
+    this.renameWarnedBatch = data.taskBatch
+    const msg = lang.transl('_filenameOverriddenByExtension')
+    log.warning(msg)
+    toast.warning(msg)
+  }
+
   /** A new batch begins (or the batch is abandoned): forget failure counts */
   private resetFailureCounters() {
     this.saveRequestFailStreak = 0
@@ -431,6 +488,9 @@ class DownloadControl {
 
   /** Re-arm the reminder of a carried save (the pause cleared all timers) */
   private armCarriedSaveTimer(id: string) {
+    if (this.directSaveIds.has(id)) {
+      return
+    }
     const work = store.findResult(id)
     this.armSaveTimer(id, work ? fileName.createFileName(work) : '')
   }
@@ -841,6 +901,13 @@ class DownloadControl {
       return
     }
 
+    // Disk full / not writable: pause. The file stays "in progress", so the
+    // resumed batch fetches it again
+    if (DownloadControl.isDiskError(msg.err)) {
+      this.pauseOnDiskError(msg.err, id)
+      return
+    }
+
     // Any other failure: let the batch-level retry round fetch it again
     log.error(
       lang.transl(
@@ -885,7 +952,8 @@ class DownloadControl {
     }
   }
 
-  private setDownloaded() {
+  /** gaveUp: the batch ends because the auto-retry rounds ran out */
+  private setDownloaded(gaveUp = false) {
     this.downloaded = downloadStates.downloadedCount()
 
     // 設置總下載進度條
@@ -908,6 +976,12 @@ class DownloadControl {
 
       window.setTimeout(() => {
         // 延後觸發下載完成的事件（派生事件晚於上游事件）
+        if (gaveUp) {
+          // The download queue marks the item as partly failed on this event.
+          // It goes first so the downloadComplete right after finds no
+          // current item and the queue advances only once.
+          EVT.fire('downloadGiveUp')
+        }
         EVT.fire('downloadComplete')
       }, 0)
       // The batch is over: a receipt that shows up later must not settle it
@@ -1074,13 +1148,21 @@ class DownloadControl {
       this.errorIdList.length > 0 &&
       this.downloaded + this.errorIdList.length === store.result.length
     ) {
-      // 重試用完：報错並停下，不再無限重開（用戶可手動繼續下載）
+      // 重試用完：報错並結束本批，不再無限重開（用戶可手動重新下載失敗的檔案）
       if (this.errorRetryCount >= DownloadControl.ERROR_RETRY_MAX) {
         log.error(
           lang.transl('_retryGiveUp', String(DownloadControl.ERROR_RETRY_MAX))
         )
-        // 下載佇列靠這個事件換下一筆（否則整晚卡在這一筆）
-        EVT.fire('downloadGiveUp')
+        // End the batch as "complete with failures", once: the failed files
+        // count as finished-but-not-saved, so the normal completion path runs
+        // (downloadComplete, waiting work drains, temp data is cleared) and
+        // nothing is left in the downloading state
+        this.failedSkipCount += this.errorIdList.length
+        for (const failedId of this.errorIdList) {
+          downloadStates.setStateById(failedId, 1)
+        }
+        this.errorIdList = []
+        this.setDownloaded(true)
         return
       }
       // 退避重試：常態 429 下固定 2 秒重開等於無限迴圈，這裡按次數退避

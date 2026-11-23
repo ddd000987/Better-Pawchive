@@ -58,7 +58,6 @@ class Download {
   }
 
   private retry = 0 // 重試次數
-  private retryInterval: number[] = [] // 每次失敗時，請求本身花費的時間（不含退避等待）
 
   private sizeChecked = false // 是否對檔案體積進行了檢查
   private skip = false // 這個下載是否應該被跳過
@@ -157,7 +156,14 @@ class Download {
       await this.waitPreviousFileDownload()
 
       this.setProgressBar(_fileName, blob.size, blob.size)
-      this.sendDownload(blob, blobURL, _fileName, arg.id, arg.taskBatch)
+      this.sendDownload(
+        blob,
+        blobURL,
+        _fileName,
+        arg.id,
+        arg.taskBatch,
+        arg.force
+      )
       return
     }
 
@@ -186,11 +192,8 @@ class Download {
     let retryAfter: string | null = null
     // 主動中斷改走直接下載時，不能進到 catch 的重試流程
     let switchedToDirect = false
-    // 本次請求開始時間：只量測請求本身耗時，不含退避等待
-    let requestStartTime = 0
 
     try {
-      requestStartTime = Date.now()
       watchdog.kick()
       const response = await fetch(fileUrl, {
         signal: controller.signal,
@@ -236,7 +239,13 @@ class Download {
         }
         progressBar.errorColor(this.progressBarIndex, false)
         this.setProgressBar(_fileName, 1, 1)
-        this.sendDirectDownload(fileUrl, _fileName, arg.id, arg.taskBatch)
+        this.sendDirectDownload(
+          fileUrl,
+          _fileName,
+          arg.id,
+          arg.taskBatch,
+          arg.force
+        )
         return
       }
 
@@ -274,7 +283,13 @@ class Download {
           }
           progressBar.errorColor(this.progressBarIndex, false)
           this.setProgressBar(_fileName, 1, 1)
-          this.sendDirectDownload(fileUrl, _fileName, arg.id, arg.taskBatch)
+          this.sendDirectDownload(
+            fileUrl,
+            _fileName,
+            arg.id,
+            arg.taskBatch,
+            arg.force
+          )
           return
         }
 
@@ -289,6 +304,9 @@ class Download {
         response.headers.get('Content-Type')?.split(';')[0].trim() ||
         'application/octet-stream'
       const file: Blob = new Blob(chunks as BlobPart[], { type: contentType })
+      // The Blob owns the data now; drop the chunk list so the bytes are not
+      // held twice while this file waits for its turn / the background
+      chunks.length = 0
 
       // 無 Content-Length 時上面無從檢查，組包後用實際大小回查一次
       if (!this.checkFinalSize(result, file.size)) {
@@ -313,7 +331,14 @@ class Download {
       await this.waitPreviousFileDownload()
 
       // 發送下載任務
-      this.sendDownload(file, blobURL, _fileName, arg.id, arg.taskBatch)
+      this.sendDownload(
+        file,
+        blobURL,
+        _fileName,
+        arg.id,
+        arg.taskBatch,
+        arg.force
+      )
     } catch (error) {
       if (switchedToDirect || this.cancel) {
         return
@@ -359,18 +384,12 @@ class Download {
         })
       }
 
-      // 記錄請求本身花費的時間（不含退避與下載間隔等待）
-      if (this.retryInterval.length > 10) {
-        this.retryInterval.shift()
-      }
-      this.retryInterval.push(Date.now() - requestStartTime)
-
       progressBar.errorColor(this.progressBarIndex, true)
       this.retry++
 
       if (this.retry >= Config.retryMax) {
         // 重試達到最大次數
-        this.afterReTryMax(status, arg.id)
+        this.afterReTryMax(arg.id)
       } else {
         // 先退避（429／503 依 Retry-After），避免瞬間打爆配額
         if (
@@ -380,13 +399,7 @@ class Download {
         ) {
           return
         }
-        // 再走一次使用者設定的下載間隔
-        if (!(await downloadInterval.wait(() => this.cancel))) {
-          return
-        }
-        if (this.cancel) {
-          return
-        }
+        // download() 開頭會走使用者設定的下載間隔，這裡不重複等待
         return this.download(arg)
       }
     } finally {
@@ -418,21 +431,10 @@ class Download {
   }
 
   /** 當重試達到最大次數時 */
-  private afterReTryMax(status: number, fileId: string) {
-    const errorMsg = lang.transl('_cannotDownload', fileId, String(status))
-
-    // 狀態碼為 0 可能是磁碟空間不足或網路錯誤，暫停下載讓用戶檢查
-    if (status === 0) {
-      const timeLimit = 10000
-      const result = this.retryInterval.filter((val) => val <= timeLimit)
-      if (result.length >= Config.retryMax) {
-        log.error(errorMsg, 'cannotDownload')
-        log.error(lang.transl('_diskMaybeFull'))
-        return EVT.fire('requestPauseDownload')
-      }
-    }
-
-    // 5xx／網路錯誤已按上限重試，仍失敗則暫時跳過，最後再重試
+  private afterReTryMax(fileId: string) {
+    // 5xx／網路錯誤（含狀態碼 0）已按上限重試，仍失敗則暫時跳過，最後再重試。
+    // Disk-full never shows up as a fetch failure; it arrives as a browser
+    // download error and is handled where that receipt is processed
     log.log(lang.transl('_retryLater'))
     this.error = true
     EVT.fire('downloadError', fileId)
@@ -496,9 +498,43 @@ class Download {
         return
       }
 
-      await sleep(50)
+      await this.waitOrderChange()
     }
   }
+
+  /**
+   * Sleep until something that can end the ordered wait happens: the download
+   * states changed, or the batch was paused/stopped/replaced. Event-driven, so
+   * a tab hidden for a long time (timers throttled to about one per minute)
+   * still moves on as soon as the previous file settles. The slow timer is
+   * only a safety net for a change that raised no event.
+   */
+  private waitOrderChange(): Promise<void> {
+    return new Promise((resolve) => {
+      let timer = 0
+      const wake = () => {
+        window.clearTimeout(timer)
+        unsubscribe()
+        for (const type of Download.ORDER_WAKE_EVENTS) {
+          EVT.off(type, wake)
+        }
+        resolve()
+      }
+      const unsubscribe = downloadStates.onChange(wake)
+      for (const type of Download.ORDER_WAKE_EVENTS) {
+        EVT.on(type, wake)
+      }
+      timer = window.setTimeout(wake, Download.ORDER_WAIT_SAFETY_MS)
+    })
+  }
+
+  /** Events after which a download waiting for its turn must re-check */
+  private static readonly ORDER_WAKE_EVENTS = [
+    EVT.list.downloadPause,
+    EVT.list.downloadStop,
+    EVT.list.downloadStart,
+  ] as const
+  private static readonly ORDER_WAIT_SAFETY_MS = 5000
 
   /** 可中斷的退避等待：取消時回傳 false（每 200ms 檢查一次） */
   private async waitBackoff(ms: number): Promise<boolean> {
@@ -520,7 +556,8 @@ class Download {
     blobURL: string,
     fileName: string,
     id: string,
-    taskBatch: number
+    taskBatch: number,
+    force?: boolean
   ) {
     // 如果任務已停止，就不再下載這個檔案
     if (this.cancel) {
@@ -539,9 +576,21 @@ class Download {
       dataURL: chrome.extension.inIncognitoContext
         ? await blobToDataURL(blob)
         : undefined,
+      ...this.conflictOption(force),
     }
 
     this.sendToBackground(sendData)
+  }
+
+  /**
+   * A "restart all" batch must replace the files it saved before; otherwise
+   * the browser would write "name (1).ext" copies next to them. Normal
+   * batches keep the background default (uniquify).
+   */
+  private conflictOption(force?: boolean): {
+    conflictAction?: SendToBackEndData['conflictAction']
+  } {
+    return force ? { conflictAction: 'overwrite' } : {}
   }
 
   /** 大檔直下：只把網址交給後台，由瀏覽器自己下載，不經分頁記憶體 */
@@ -549,7 +598,8 @@ class Download {
     url: string,
     fileName: string,
     id: string,
-    taskBatch: number
+    taskBatch: number,
+    force?: boolean
   ) {
     // 如果任務已停止，就不再下載這個檔案
     if (this.cancel) {
@@ -562,6 +612,7 @@ class Download {
       id,
       taskBatch,
       url,
+      ...this.conflictOption(force),
     })
   }
 
@@ -572,6 +623,9 @@ class Download {
       EVT.fire('sendBrowserDownload', {
         id: sendData.id,
         fileName: sendData.fileName,
+        // A direct download runs in the browser and may take long on a slow
+        // link; the receiver must not treat the wait as a stuck save
+        direct: !!sendData.url,
       })
     } catch (error) {
       let msg = lang.transl('_unknownRefresh', (error as Error).message)

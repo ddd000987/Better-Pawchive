@@ -34,6 +34,37 @@ export interface RecordItem {
   /** 展開形狀指紋（textContent|noCoverFile）。缺失的舊記錄視為形狀未知，
    * 查詢時走檔名比對，切換設定後不會位移誤判 */
   s?: string
+  /** Identity of the file inside its post: a short hash of the file URL path
+   * ('#text' for the text file). Unlike the id it does not move when the
+   * expand shape changes the file indices. Missing on older records. */
+  p?: string
+}
+
+/** FNV-1a 32-bit hash in base 36: short and stable, for the file identity */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(36)
+}
+
+/** Identity of a result's file inside its post (see RecordItem.p). The host
+ * and the thumbnail/data prefix are dropped: the same file can be reached
+ * through several file servers and as a thumbnail. */
+function fileIdentity(result: Pick<Result, 'kind' | 'fileUrl'>): string {
+  if (result.kind === 'text') {
+    return '#text'
+  }
+  let path = result.fileUrl
+  try {
+    path = new URL(result.fileUrl).pathname
+  } catch {
+    // Not an absolute URL: hash it as it is
+  }
+  path = path.replace(/^\/thumbnail(?=\/)/, '').replace(/^\/data(?=\/)/, '')
+  return shortHash(path)
 }
 
 class DownloadRecord {
@@ -107,7 +138,31 @@ class DownloadRecord {
   private setRecord(item: RecordItem): void {
     this.records[item.id] = item
     this.pending.set(item.id, item)
-    this.postIndex = null
+    this.indexRecord(item)
+  }
+
+  /** Keep the post index current without rebuilding it: a batch adds a record
+   * per file and every one would otherwise throw the whole index away. */
+  private indexRecord(item: RecordItem): void {
+    if (!this.postIndex) {
+      return
+    }
+    const hash = item.id.lastIndexOf('#')
+    if (hash < 0) {
+      return
+    }
+    const postKey = item.id.slice(0, hash)
+    const list = this.postIndex.get(postKey)
+    if (!list) {
+      this.postIndex.set(postKey, [item])
+      return
+    }
+    const at = list.findIndex((r) => r.id === item.id)
+    if (at >= 0) {
+      list[at] = item
+    } else {
+      list.push(item)
+    }
   }
 
   private persist(): void {
@@ -185,6 +240,7 @@ class DownloadRecord {
       n: fileName.createFileName(result),
       d: result.published,
       s: this.expandShape(),
+      p: fileIdentity(result),
     }
   }
 
@@ -214,23 +270,52 @@ class DownloadRecord {
     }
 
     const record = await this.getRecord(result.id)
-    if (record === null) {
+
+    // Same expand shape: the id (post + file index) still points at the same
+    // file. A changed publish date means a new file.
+    if (record !== null && record.s === this.expandShape()) {
+      // 只認 id（命名規則改了也不重下）
+      return record.d === result.published
+    }
+
+    // The shape changed (or the record predates the fingerprint): file
+    // indices moved, so the record under this id may belong to another file,
+    // and this file's record may sit under another index. Look through the
+    // records of the same post instead.
+    return this.matchInPost(result)
+  }
+
+  /**
+   * Is this file recorded under another index of its post? Matches by file
+   * identity (and publish date); records that predate the identity fall back
+   * to comparing the generated file name.
+   */
+  private matchInPost(result: Result): boolean {
+    // The index is keyed by the id prefix, which is the post key
+    const hash = result.id.lastIndexOf('#')
+    const siblings =
+      hash < 0 ? undefined : this.buildPostIndex().get(result.id.slice(0, hash))
+    if (!siblings) {
       return false
     }
-
-    // 發布日期變了視為新檔案
-    if (record.d !== result.published) {
-      return false
+    const identity = fileIdentity(result)
+    let name: string | undefined
+    for (const r of siblings) {
+      if (r.d !== result.published) {
+        continue
+      }
+      if (r.p !== undefined) {
+        if (r.p === identity) {
+          return true
+        }
+        continue
+      }
+      name ??= fileName.createFileName(result)
+      if (r.n === name) {
+        return true
+      }
     }
-
-    // 展開形狀變了（或舊記錄無指紋）：位置鍵不可信，退回檔名比對
-    // （否則切 textContent/noCoverFile 會整帖誤判跳過或漏判）
-    if (record.s !== this.expandShape()) {
-      return fileName.createFileName(result) === record.n
-    }
-
-    // 只認 id（命名規則改了也不重下）
-    return true
+    return false
   }
 
   /** 建立 postKey → 記錄列表的索引（只建一次，記錄異動時作廢） */
@@ -260,19 +345,19 @@ class DownloadRecord {
   public async hasPost(
     postKey: string,
     published: string,
-    expectedNames: string[]
+    expectedCount: number
   ): Promise<boolean> {
     await this.load()
-    if (expectedNames.length === 0) {
+    if (expectedCount <= 0) {
       return false
     }
-    const matched = (this.buildPostIndex().get(postKey) ?? []).filter(
-      (r) => r.d === published
-    )
-    if (matched.length === 0) {
-      return false
+    let matched = 0
+    for (const r of this.buildPostIndex().get(postKey) ?? []) {
+      if (r.d === published) {
+        matched++
+      }
     }
-    return matched.length >= expectedNames.length
+    return matched > 0 && matched >= expectedCount
   }
 
   public async count(): Promise<number> {
@@ -375,6 +460,7 @@ class DownloadRecord {
                     n: String(r.n ?? ''),
                     d: String(r.d ?? ''),
                     s: typeof r.s === 'string' ? r.s : undefined,
+                    p: typeof r.p === 'string' ? r.p : undefined,
                   })
                   n++
                 }

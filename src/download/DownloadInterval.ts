@@ -11,7 +11,6 @@ import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { log } from '../Log'
 import { settings } from '../setting/Settings'
-import { sleep } from '../Tools'
 
 class DownloadInterval {
   constructor() {
@@ -57,6 +56,9 @@ class DownloadInterval {
 
   private reset() {
     this.allowDownloadTime = 0
+    // Waiters computed their sleep from the old time (or from a cancel state
+    // that just changed): let them re-check now
+    this.wakeAll()
   }
 
   private addTime() {
@@ -67,6 +69,32 @@ class DownloadInterval {
   /** 檢查是否不符合啟用“添加下載間隔”的條件。true 表示不啟用 */
   public checkDisable() {
     return settings.get('downloadInterval') === 0
+  }
+
+  /** Waiters currently sleeping; each one wakes itself up and re-checks */
+  private sleepers = new Set<() => void>()
+
+  /** Wake every sleeping waiter so it re-checks cancel / the interval */
+  private wakeAll() {
+    for (const wake of [...this.sleepers]) {
+      wake()
+    }
+  }
+
+  /**
+   * Sleep for `ms` in one timer (no polling, so a throttled background tab
+   * does not stretch the wait), or until wakeAll() is called.
+   */
+  private sleepOrWake(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const wake = () => {
+        window.clearTimeout(timer)
+        this.sleepers.delete(wake)
+        resolve()
+      }
+      const timer = window.setTimeout(wake, ms)
+      this.sleepers.add(wake)
+    })
   }
 
   /** 等待到下一個允許下載的時間。cancelled 回傳 true 時立刻結束並回傳 false */
@@ -81,13 +109,15 @@ class DownloadInterval {
       }
 
       // 可以立即開始下載
-      if (Date.now() >= this.allowDownloadTime) {
+      const remaining = this.allowDownloadTime - Date.now()
+      if (remaining <= 0) {
         this.addTime()
         return true
       }
 
-      // 繼續等待
-      await sleep(50)
+      // Sleep exactly until the slot opens; a pause/stop/new batch wakes the
+      // waiter early so it can notice the cancel without waiting it out
+      await this.sleepOrWake(remaining)
     }
   }
 }

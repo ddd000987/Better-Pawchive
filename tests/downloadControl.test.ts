@@ -1331,3 +1331,273 @@ describe('DownloadControl: queued tasks and a stopped crawl', () => {
     expect(fired).toEqual(['commandStartDefaultCrawl'])
   })
 })
+
+describe('DownloadControl: giving up on failed files', () => {
+  const failAll = (n: number) => {
+    for (let i = 0; i < n; i++) {
+      mods.EVT.fire('downloadError', id(i))
+    }
+  }
+  /** Run the three auto-retry rounds, leaving the batch at the point where
+   * the next all-failed round gives up */
+  async function exhaustRetries() {
+    for (const d of [30_000, 60_000, 120_000]) {
+      failAll(2)
+      await tick(d + 5)
+    }
+  }
+  const sent = (msg: string) =>
+    g.chrome.runtime.sendMessage.mock.calls.filter(
+      (c: any[]) => c[0]?.msg === msg
+    )
+
+  it('ends the batch once: downloadComplete, a failure summary, temp data cleared', async () => {
+    const giveUps: unknown[] = []
+    mods.EVT.on('downloadGiveUp', () => giveUps.push(1))
+    await startWith(2)
+    await exhaustRetries()
+    expect(events.downloadComplete).toHaveLength(0)
+
+    failAll(2)
+    await tick(1)
+
+    expect(m.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('_retryGiveUp')
+    )
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(giveUps).toHaveLength(1)
+    expect(mods.states.downloading).toBe(false)
+    expect(mods.states.busy).toBe(false)
+    expect(m.log.warning).toHaveBeenCalledWith('_downloadFinishedWithFailed|2')
+    expect(m.toast.warning).toHaveBeenCalledWith(
+      '_downloadFinishedWithFailed|2',
+      expect.anything()
+    )
+    expect(m.toast.success).not.toHaveBeenCalled()
+    expect(sent('clearDownloadsTempData')).toHaveLength(1)
+    // The failed files were not saved, so they get no download record
+    expect(m.record.addRecord).not.toHaveBeenCalled()
+    // The status says "finished", not "paused"
+    expect(mods.downloadStates.downloadedCount()).toBe(2)
+  })
+
+  it('does not fire again on later calls or leftover receipts', async () => {
+    const giveUps: unknown[] = []
+    mods.EVT.on('downloadGiveUp', () => giveUps.push(1))
+    await startWith(2)
+    await exhaustRetries()
+    const batch = m.downloads[m.downloads.length - 1].data.taskBatch
+    failAll(2)
+    await tick(1)
+
+    // A late error event and a late receipt of the finished batch
+    mods.EVT.fire('downloadError', id(0))
+    onMessage(downloaded(0, batch))
+    await tick(300_000)
+
+    expect(giveUps).toHaveLength(1)
+    expect(events.downloadComplete).toHaveLength(1)
+    expect(sent('clearDownloadsTempData')).toHaveLength(1)
+  })
+
+  it('drains queued work after giving up', async () => {
+    const fired: string[] = []
+    for (const t of ['crawlIdList', 'commandStartDefaultCrawl'] as const) {
+      mods.EVT.on(t, () => fired.push(t))
+    }
+    await startWith(2)
+    await exhaustRetries()
+    mods.store.waitingIdList = [{ id: 'patreon/u2/5', type: 'post' as const }]
+
+    failAll(2)
+    await tick(10)
+
+    expect(mods.store.waitingIdList).toEqual([])
+    expect(fired).toEqual(['crawlIdList'])
+    // Queued work replaces the completion toast
+    expect(m.toast.warning).not.toHaveBeenCalledWith(
+      '_downloadFinishedWithFailed|2',
+      expect.anything()
+    )
+  })
+
+  it('a manual start after giving up begins a fresh batch', async () => {
+    await startWith(2)
+    await exhaustRetries()
+    failAll(2)
+    await tick(1)
+    const before = m.downloads.length
+
+    await mods.downloadControl.restartDownload()
+    await tick(1)
+
+    expect(m.downloads.length).toBeGreaterThan(before)
+    expect(events.downloadStart.length).toBeGreaterThan(1)
+  })
+})
+
+describe('DownloadControl: disk errors from the browser', () => {
+  it.each(['FILE_NO_SPACE', 'FILE_ACCESS_DENIED'])(
+    '%s pauses the batch with a message instead of retrying',
+    async (err) => {
+      await startWith(5)
+      const batch = m.downloads[0].data.taskBatch
+      const before = m.downloads.length
+
+      onMessage(downloadErr(0, batch, { err }))
+
+      expect(events.downloadPause).toHaveLength(1)
+      expect(events.saveFileError).toHaveLength(0)
+      expect(m.toast.error).toHaveBeenCalledWith(
+        expect.stringContaining(`_diskWriteFailedPaused|${err}|${id(0)}`)
+      )
+      await tick(10_000)
+      // No in-place retry and no new download
+      expect(m.downloads).toHaveLength(before)
+    }
+  )
+
+  it('says it once when several in-flight files fail the same way', async () => {
+    await startWith(5)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(downloadErr(0, batch, { err: 'FILE_NO_SPACE' }))
+    onMessage(downloadErr(1, batch, { err: 'FILE_NO_SPACE' }))
+    onMessage(downloadErr(2, batch, { err: 'FILE_NO_SPACE' }))
+
+    expect(events.downloadPause).toHaveLength(1)
+    expect(m.toast.error).toHaveBeenCalledTimes(1)
+  })
+
+  it('resuming after the pause fetches the unsaved files again', async () => {
+    await startWith(3)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloadErr(0, batch, { err: 'FILE_NO_SPACE' }))
+    const before = m.downloads.length
+
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+
+    expect(m.downloads.length).toBeGreaterThan(before)
+    expect(mods.downloadStates.states).not.toContain(1)
+  })
+
+  it('other save errors still retry in place', async () => {
+    await startWith(5)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloadErr(0, batch, { err: 'NETWORK_FAILED' }))
+    expect(events.saveFileError).toHaveLength(1)
+    expect(events.downloadPause).toHaveLength(0)
+  })
+})
+
+describe('DownloadControl: receipts of renamed files', () => {
+  const renamed = (i: number, taskBatch: number) => {
+    const r = downloaded(i, taskBatch)
+    r.data.uuid = true
+    return r
+  }
+
+  it('finishes the file but adds no record, and warns once per batch', async () => {
+    await startWith(3)
+    const batch = m.downloads[0].data.taskBatch
+
+    onMessage(renamed(0, batch))
+    onMessage(renamed(1, batch))
+    onMessage(downloaded(2, batch))
+
+    expect(mods.downloadStates.states).toEqual([1, 1, 1])
+    expect(m.record.addRecord).toHaveBeenCalledTimes(1) // only the normal file
+    expect(m.record.addRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ id: id(2) })
+    )
+    const warned = m.log.warning.mock.calls.filter((c: any[]) =>
+      String(c[0]).includes('_filenameOverriddenByExtension')
+    )
+    expect(warned).toHaveLength(1)
+    expect(m.toast.warning).toHaveBeenCalledTimes(1)
+  })
+
+  it('a normal receipt never warns', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+    onMessage(downloaded(0, batch))
+    expect(m.toast.warning).not.toHaveBeenCalled()
+    expect(m.record.addRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns again in the next batch', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+    const renameWarnings = () =>
+      m.toast.warning.mock.calls.filter((c: any[]) =>
+        String(c[0]).includes('_filenameOverriddenByExtension')
+      ).length
+    onMessage(renamed(0, batch))
+    expect(renameWarnings()).toBe(1)
+
+    mods.downloadControl.stopDownload()
+    vi.setSystemTime(Date.now() + 5000)
+    await startWith(2)
+    const batch2 = m.downloads[m.downloads.length - 1].data.taskBatch
+    expect(batch2).not.toBe(batch)
+    onMessage(renamed(0, batch2))
+    expect(renameWarnings()).toBe(2)
+  })
+
+  it('a receipt of an abandoned batch is not recorded either', async () => {
+    await startWith(2)
+    const batch = m.downloads[0].data.taskBatch
+    mods.downloadControl.stopDownload()
+    mods.store.result = results(2)
+
+    onMessage(renamed(0, batch))
+    onMessage(downloaded(1, batch))
+
+    expect(m.record.addRecord).toHaveBeenCalledTimes(1)
+    expect(m.record.addRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ id: id(1) })
+    )
+  })
+})
+
+describe('DownloadControl: the stuck-save reminder', () => {
+  const handedOver = (i: number, direct: boolean) =>
+    mods.EVT.fire('sendBrowserDownload', {
+      id: id(i),
+      fileName: `f${i}.png`,
+      direct,
+    })
+
+  it('fires for a blob save that never reports back', async () => {
+    await startWith(2)
+    handedOver(0, false)
+    await tick(300_001)
+    expect(m.toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining('_downloadStuck')
+    )
+  })
+
+  it('does not fire for a direct download of a big file', async () => {
+    await startWith(2)
+    handedOver(0, true)
+    await tick(900_000)
+    expect(m.toast.warning).not.toHaveBeenCalled()
+  })
+
+  it('a direct download still counts as saving for a resume', async () => {
+    await startWith(2)
+    handedOver(0, true)
+    querySavingAnswer = () => ({
+      saving: [{ id: id(0), taskBatch: m.downloads[0].data.taskBatch }],
+    })
+    mods.downloadControl.pauseDownload()
+    vi.setSystemTime(Date.now() + 5000)
+    await mods.downloadControl.startDownload()
+    await tick(1)
+    // The carried direct save gets no reminder after the resume either
+    await tick(900_000)
+    expect(m.toast.warning).not.toHaveBeenCalled()
+  })
+})

@@ -73,49 +73,35 @@ describe('downloadRecord', () => {
     ).toBe(false)
   })
 
-  it('hasPost：檔齊才算整帖下完（檔名集合比對）', async () => {
+  it('hasPost：檔齊才算整帖下完（數量比對）', async () => {
     const r0 = file('patreon/u1/999#0')
     const r1 = file('patreon/u1/999#1', { fileIndex: 1, fileName: '2.png' })
-    const { fileName } = await import('../src/filename/FileName')
-    const n0 = fileName.createFileName(r0)
-    const n1 = fileName.createFileName(r1)
     const published = '2024-01-02T03:04:05'
     await downloadRecord.addRecord(r0)
-    expect(
-      await downloadRecord.hasPost('patreon/u1/999', published, [n0, n1])
-    ).toBe(false)
+    expect(await downloadRecord.hasPost('patreon/u1/999', published, 2)).toBe(
+      false
+    )
     await downloadRecord.addRecord(r1)
-    expect(
-      await downloadRecord.hasPost('patreon/u1/999', published, [n0, n1])
-    ).toBe(true)
-    expect(await downloadRecord.hasPost('patreon/u1/999', published, [])).toBe(
+    expect(await downloadRecord.hasPost('patreon/u1/999', published, 2)).toBe(
+      true
+    )
+    expect(await downloadRecord.hasPost('patreon/u1/999', published, 0)).toBe(
       false
     )
     // 發布日期變了：舊記錄不算數
     expect(
-      await downloadRecord.hasPost('patreon/u1/999', '2024-03-03T00:00:00', [
-        n0,
-        n1,
-      ])
+      await downloadRecord.hasPost('patreon/u1/999', '2024-03-03T00:00:00', 2)
     ).toBe(false)
   })
 
-  it('hasPost：只看數量，不比對檔名', async () => {
+  it('hasPost：只看數量', async () => {
     const postKey = 'patreon/u1/999'
     const published = '2024-01-02T03:04:05'
-    const r = file('patreon/u1/999#0')
-    const { fileName } = await import('../src/filename/FileName')
-    const name = fileName.createFileName(r)
-    await downloadRecord.addRecord(r)
+    await downloadRecord.addRecord(file('patreon/u1/999#0'))
 
-    expect(
-      await downloadRecord.hasPost(postKey, published, ['other.png'])
-    ).toBe(true)
-    expect(await downloadRecord.hasPost(postKey, published, [name])).toBe(true)
+    expect(await downloadRecord.hasPost(postKey, published, 1)).toBe(true)
     // 期望數量多於記錄數：不算整帖下完
-    expect(
-      await downloadRecord.hasPost(postKey, published, [name, 'other.png'])
-    ).toBe(false)
+    expect(await downloadRecord.hasPost(postKey, published, 2)).toBe(false)
   })
 
   it('hasPost：新增記錄後索引會更新', async () => {
@@ -123,27 +109,100 @@ describe('downloadRecord', () => {
     const published = '2024-01-02T03:04:05'
     const r0 = file('patreon/u1/999#0')
     const r1 = file('patreon/u1/999#1', { fileIndex: 1, fileName: '2.png' })
-    const { fileName } = await import('../src/filename/FileName')
-    const n0 = fileName.createFileName(r0)
-    const n1 = fileName.createFileName(r1)
     await downloadRecord.addRecord(r0)
-    expect(await downloadRecord.hasPost(postKey, published, [n0, n1])).toBe(
-      false
-    )
+    expect(await downloadRecord.hasPost(postKey, published, 2)).toBe(false)
     await downloadRecord.addRecord(r1)
-    expect(await downloadRecord.hasPost(postKey, published, [n0, n1])).toBe(
-      true
-    )
+    expect(await downloadRecord.hasPost(postKey, published, 2)).toBe(true)
+    // Updating a record that is already indexed must not count it twice
+    await downloadRecord.addRecord(r1)
+    expect(await downloadRecord.hasPost(postKey, published, 3)).toBe(false)
   })
 
-  it('切換 textContent 後不位移誤判（形狀變了退回檔名比對）', async () => {
-    settings.set('textContent', 'txt')
-    const r = file('patreon/u1/999#0')
-    await downloadRecord.addRecord(r)
-    // 同形狀：認 id，通過
-    expect(await downloadRecord.checkDeduplication(r)).toBe(true)
-    // 切換形狀：退回檔名比對，同名仍判重複（不誤判新檔）
+  it('新記錄帶檔案識別 p；文字檔記 #text；縮圖與原圖網址同識別', async () => {
+    await downloadRecord.addRecord(file('patreon/u1/999#0'))
+    await downloadRecord.addRecord(
+      file('patreon/u1/999#1', { kind: 'text', fileUrl: '', ext: 'txt' })
+    )
+    await downloadRecord.addRecord(
+      file('patreon/u1/999#2', {
+        fileUrl: 'https://img.kemono.cr/thumbnail/data/ab/cd/x.png',
+      })
+    )
+    await downloadRecord.addRecord(
+      file('patreon/u1/999#3', {
+        fileUrl: 'https://n1.kemono.cr/data/ab/cd/x.png',
+      })
+    )
+    const p = async (i: number) =>
+      (await downloadRecord.getRecord(`patreon/u1/999#${i}`))?.p
+    expect(typeof (await p(0))).toBe('string')
+    expect(await p(1)).toBe('#text')
+    expect(await p(2)).toBe(await p(3))
+    expect(await p(2)).not.toBe(await p(0))
+  })
+
+  it('切換 textContent 後不位移誤判（形狀變了按檔案識別比對）', async () => {
     settings.set('textContent', 'none')
+    const a = file('patreon/u1/999#0', { fileUrl: 'https://x/data/a.png' })
+    const b = file('patreon/u1/999#1', {
+      fileIndex: 1,
+      fileUrl: 'https://x/data/b.png',
+    })
+    await downloadRecord.addRecord(a)
+    await downloadRecord.addRecord(b)
+    // 同形狀：認 id，通過
+    expect(await downloadRecord.checkDeduplication(a)).toBe(true)
+
+    // 開啟 textContent：文字檔變成 #0，a 變 #1、b 變 #2（序號全部位移）
+    settings.set('textContent', 'txt')
+    const text = file('patreon/u1/999#0', {
+      kind: 'text',
+      fileUrl: '',
+      ext: 'txt',
+    })
+    const a2 = { ...a, id: 'patreon/u1/999#1', fileIndex: 1 }
+    const b2 = { ...b, id: 'patreon/u1/999#2', fileIndex: 2 }
+    // 同一個檔案換了序號仍判重複（包含原本沒有記錄的最後序號）
+    expect(await downloadRecord.checkDeduplication(a2)).toBe(true)
+    expect(await downloadRecord.checkDeduplication(b2)).toBe(true)
+    // 位置鍵碰巧撞上別的檔案的記錄（#0 記的是 a）：文字檔不能被誤判跳過
+    expect(await downloadRecord.checkDeduplication(text)).toBe(false)
+
+    // 命名規則改了仍認檔案識別
+    settings.set('namingRule', '{post_id}/{index}.{ext}')
+    expect(await downloadRecord.checkDeduplication(a2)).toBe(true)
+
+    // 發布日期變了視為新檔
+    expect(
+      await downloadRecord.checkDeduplication({
+        ...a2,
+        published: '2024-02-02T00:00:00',
+      })
+    ).toBe(false)
+
+    // 文字檔下載後，以 #text 比對（序號再位移也認得）
+    await downloadRecord.addRecord(text)
+    settings.set('textContent', 'none')
+    expect(
+      await downloadRecord.checkDeduplication({
+        ...text,
+        id: 'patreon/u1/999#5',
+      })
+    ).toBe(true)
+    settings.set('textContent', 'txt')
+  })
+
+  it('沒有 p 的舊記錄：形狀變了退回檔名比對', async () => {
+    const r = file('patreon/u1/999#0')
+    const { fileName } = await import('../src/filename/FileName')
+    // 舊版寫入的記錄：只有 id/n/d/s，沒有 p
+    ;(downloadRecord as any).setRecord({
+      id: r.id,
+      n: fileName.createFileName(r),
+      d: r.published,
+      s: 'old|shape',
+    })
+    // 形狀不同、檔名相同：仍判重複
     expect(await downloadRecord.checkDeduplication(r)).toBe(true)
     // 檔名真變了（規則改了）才視為新檔
     settings.set(
@@ -151,7 +210,6 @@ describe('downloadRecord', () => {
       'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/x-{file_name}.{ext}'
     )
     expect(await downloadRecord.checkDeduplication(r)).toBe(false)
-    settings.set('textContent', 'txt')
   })
 
   it('冷啟動併發 addRecord 不覆寫舊記錄', async () => {
@@ -289,7 +347,7 @@ describe('downloadRecord across tabs', () => {
     otherTabWrites(stored)
     emitChange(stored)
     expect(await r.checkDeduplication(other)).toBe(true)
-    expect(await r.hasPost('patreon/u1/2', other.published, ['x'])).toBe(true)
+    expect(await r.hasPost('patreon/u1/2', other.published, 1)).toBe(true)
     // the change event itself must not write the record store
     await settle()
     expect(setCalls.filter((c) => KEY in c)).toHaveLength(0)
