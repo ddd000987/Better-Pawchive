@@ -83,6 +83,10 @@ interface NamingSchema {
   }
 }
 
+/** '~' is valid in file names: keep it in the rule's own text so existing
+ * names (and the local-file check) do not change */
+const RULE_LITERAL_KEEP = ['~'] as const
+
 class FileName {
   /** 內建預設規則（規則被清空時回退用，避免產出 `.png` 這種垃圾檔名） */
   public readonly defaultRule =
@@ -157,13 +161,22 @@ class FileName {
     }
 
     // 一次替換所有標記，避免插入值中的文字被當成標記再解析（token 殘留）
+    // The literal text between tags comes from the user's rule and gets the same
+    // sanitizing as tag values (only "/" stays: it separates the folders)
     const tags = Object.keys(normalizedSchema)
     if (tags.length > 0) {
-      const tagRegExp = new RegExp(tags.map(escapeRegExp).join('|'), 'g')
-      result = result.replace(
-        tagRegExp,
-        (tag) => normalizedSchema[tag].value ?? ''
-      )
+      const tagRegExp = new RegExp(`(${tags.map(escapeRegExp).join('|')})`)
+      // split() with a capture group puts the matched tags at the odd indexes
+      result = result
+        .split(tagRegExp)
+        .map((part, i) =>
+          i % 2 === 1
+            ? (normalizedSchema[part].value ?? '')
+            : replaceUnsafeStr(part, true, RULE_LITERAL_KEEP)
+        )
+        .join('')
+    } else {
+      result = replaceUnsafeStr(result, true, RULE_LITERAL_KEEP)
     }
 
     // 移除檔名開頭不可用的字元
@@ -181,6 +194,21 @@ class FileName {
     result = this.handleEdgeCases(result)
 
     return result
+  }
+
+  /**
+   * Characters in the literal text of a naming rule that file names cannot
+   * hold (tags such as {title} are ignored). generateFileName replaces them
+   * with full-width ones; the settings page uses this to warn about them.
+   */
+  public findUnsafeRuleChars(rule: string): string[] {
+    const literal = rule.replace(/\{[a-z_]+\}/g, '')
+    const found = new Set<string>()
+    // eslint-disable-next-line no-control-regex
+    for (const ch of literal.matchAll(/[\\:*?"<>|\u0000-\u001f\u007f]/g)) {
+      found.add(ch[0])
+    }
+    return [...found]
   }
 
   /** 預處理標記值：全形化非法字元（含 ext，避免外部資料夾帶入不安全字元） */

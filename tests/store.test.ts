@@ -62,19 +62,39 @@ describe('store', () => {
     expect(got).toBe(1)
   })
 
-  it('removeWorkById 移除並觸發 resultChange', () => {
+  it('findResult looks up by id through every write path', () => {
     store.addResult(META, FILES)
-    let changed = 0
-    const listener = () => changed++
-    EVT.on('resultChange', listener)
-    expect(store.removeWorkById(['patreon/u1/999'])).toBe(true)
-    EVT.off('resultChange', listener)
-    expect(store.result).toHaveLength(0)
-    expect(store.resultMeta).toHaveLength(0)
-    expect(changed).toBe(1)
-    // 移除後可重新加入（去重表同步清理）
+    expect(store.findResult('patreon/u1/999#1')?.fileName).toBe('2.png')
+    expect(store.findResult('patreon/u1/999#2')).toBeUndefined()
+
+    // Replacing the array through the setter rebuilds the index
+    const other = store.result.map((r) => ({ ...r, id: r.id + 'x' }))
+    store.result = other
+    expect(store.findResult('patreon/u1/999#1')).toBeUndefined()
+    expect(store.findResult('patreon/u1/999#1x')).toBe(other[1])
+
+    // loadSnapshot and reset keep it in sync
+    const copy = JSON.parse(JSON.stringify(store.result))
+    store.reset()
+    expect(store.findResult('patreon/u1/999#1x')).toBeUndefined()
+    store.loadSnapshot(copy, [])
+    expect(store.findResult('patreon/u1/999#0x')).toBe(copy[0])
+  })
+
+  it('findResult still finds a result pushed into the array directly', () => {
     store.addResult(META, FILES)
-    expect(store.result).toHaveLength(2)
+    store.result.push({ ...store.result[0], id: 'manual#0' })
+    expect(store.findResult('manual#0')?.id).toBe('manual#0')
+  })
+
+  it('dedupes many posts by postKey', () => {
+    for (let i = 0; i < 3; i++) {
+      for (let k = 0; k < 200; k++) {
+        store.addResult({ ...META, postKey: `patreon/u1/${k}` }, FILES)
+      }
+    }
+    expect(store.resultMeta).toHaveLength(200)
+    expect(store.result).toHaveLength(400)
   })
 
   it('loadSnapshot 重建去重表與下載計數', () => {
@@ -92,11 +112,6 @@ describe('store', () => {
     store.addResult(META, FILES)
     expect(store.resultMeta).toHaveLength(1)
     expect(store.result).toHaveLength(2)
-
-    // removeWorkById 也能刪掉載入的帖子
-    expect(store.removeWorkById(['patreon/u1/999'])).toBe(true)
-    expect(store.result).toHaveLength(0)
-    expect(store.resultMeta).toHaveLength(0)
   })
 
   it('reset keeps tasks queued behind the crawl that is starting', () => {

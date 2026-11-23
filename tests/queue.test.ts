@@ -70,6 +70,33 @@ describe('Queue', () => {
     await expect(p).resolves.toBe(1)
   })
 
+  it('does not leave an abort listener behind once a task has settled', async () => {
+    const queue = new Queue({ max: 3, sleep: 0 })
+    const controller = new AbortController()
+    const add = vi.spyOn(controller.signal, 'addEventListener')
+    const remove = vi.spyOn(controller.signal, 'removeEventListener')
+
+    const ok = queue.enqueue(() => 1, controller.signal)
+    const bad = queue
+      .enqueue(() => {
+        throw new Error('x')
+      }, controller.signal)
+      .catch(() => 'failed')
+    await vi.advanceTimersByTimeAsync(10)
+    await expect(ok).resolves.toBe(1)
+    await expect(bad).resolves.toBe('failed')
+
+    expect(add).toHaveBeenCalledTimes(2)
+    for (const call of add.mock.calls) {
+      expect(call[2]).toEqual({ once: true })
+    }
+    expect(remove).toHaveBeenCalledTimes(2)
+    // The removed handlers are the ones that were added
+    expect(remove.mock.calls.map((c) => c[1])).toEqual(
+      expect.arrayContaining(add.mock.calls.map((c) => c[1]))
+    )
+  })
+
   it('clear()：pending promise 全部 reject，ongoing 最後回到 0', async () => {
     const queue = new Queue({ max: 1, sleep: 500 })
     const func = vi.fn(() => 1)

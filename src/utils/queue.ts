@@ -73,6 +73,13 @@ class Queue {
     }
     this.tasks.push(task)
 
+    const onAbort = () => {
+      // 不論還在 queue 或已開始執行，都標記為 aborted 並 reject；
+      // 尚未啟動的 setTimeout 回呼會檢查狀態後直接跳過
+      task.status = 'aborted'
+      task.reject('aborted')
+    }
+
     promise
       .then(() => {
         task.status = 'resolved'
@@ -81,6 +88,8 @@ class Queue {
         if (task.status !== 'aborted') task.status = 'rejected'
       })
       .finally(() => {
+        // A long crawl shares one signal across thousands of tasks
+        signal?.removeEventListener('abort', onAbort)
         if (task.executed) this.ongoing--
         if (!this.config.preserve) {
           const index = this.tasks.indexOf(task)
@@ -89,12 +98,7 @@ class Queue {
         this.checkTask()
       })
 
-    signal?.addEventListener('abort', () => {
-      // 不論還在 queue 或已開始執行，都標記為 aborted 並 reject；
-      // 尚未啟動的 setTimeout 回呼會檢查狀態後直接跳過
-      task.status = 'aborted'
-      task.reject('aborted')
-    })
+    signal?.addEventListener('abort', onAbort, { once: true })
 
     this.checkTask()
     return promise

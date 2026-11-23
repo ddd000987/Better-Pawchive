@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiHttpError, normalizePost } from '../src/kemono/api'
+import {
+  api,
+  ApiHttpError,
+  normalizePost,
+  parseRetryAfter,
+} from '../src/kemono/api'
 import { sleepAbortable } from '../src/Tools'
 
 // 限流佇列有 500ms 啟動間隔，測試改用直通版，避免大量請求逾時
@@ -32,6 +37,52 @@ describe('api', () => {
     expect(err.status).toBe(500)
     expect(err.message).toContain('HTTP 500')
     expect(err.message).toContain('boom')
+  })
+
+  it('429 carries the Retry-After wait when the header is readable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 429,
+        headers: { get: (k: string) => (k === 'Retry-After' ? '7' : null) },
+        json: async () => ({}),
+      }))
+    )
+    const err = await api
+      .posts({ service: 'patreon', creatorId: 'retry-after' })
+      .catch((e) => e)
+    expect(err).toBeInstanceOf(ApiHttpError)
+    expect(err.retryAfterMs).toBe(7000)
+  })
+
+  it('parseRetryAfter reads seconds and dates, and rejects junk', () => {
+    expect(parseRetryAfter('120')).toBe(120000)
+    expect(parseRetryAfter(null)).toBeUndefined()
+    expect(parseRetryAfter('soon')).toBeUndefined()
+    const now = Date.parse('2026-01-01T00:00:00Z')
+    expect(parseRetryAfter('Thu, 01 Jan 2026 00:00:30 GMT', now)).toBe(30000)
+    expect(parseRetryAfter('Wed, 31 Dec 2025 23:00:00 GMT', now)).toBe(0)
+  })
+
+  it('post with cache=false is not stored; the default is', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ post: { id: '1' }, attachments: [] }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const info = {
+      service: 'patreon',
+      creatorId: 'nocache',
+      postId: '1',
+    } as const
+    await api.post(info, undefined, { cache: false })
+    await api.post(info, undefined, { cache: false })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await api.post(info)
+    await api.post(info)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('posts index 非有限非負整數：直接拋錯且不發 fetch', async () => {

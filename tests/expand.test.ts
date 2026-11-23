@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { expandPost } from '../src/kemono/expand'
+import { expandPost, summarizeListItem } from '../src/kemono/expand'
 import { defaultSettings, settings } from '../src/setting/Settings'
 import { isPendingPost } from '../src/kemono/apiTypes'
 import type { Post, PostApiResponse } from '../src/kemono/apiTypes'
@@ -212,5 +212,69 @@ describe('isPendingPost', () => {
     expect(isPendingPost({})).toBe(false)
     expect(isPendingPost(null)).toBe(false)
     expect(isPendingPost(undefined)).toBe(false)
+  })
+})
+
+describe('summarizeListItem agrees with expandPost', () => {
+  beforeEach(() => {
+    settings.set('textContent', 'txt')
+    settings.set('noCoverFile', false)
+    settings.set('downloadOriginalImage', true)
+  })
+
+  const att = (name: string) => ({ name, path: `/a/${name}` })
+  const cases: Record<
+    string,
+    { attachments: { name: string; path: string }[]; file?: object }
+  > = {
+    'cover repeats the first attachment': {
+      attachments: [att('a.png'), att('b.mp4')],
+      file: att('a.png'),
+    },
+    'duplicate attachments': {
+      attachments: [att('a.png'), att('a.png'), att('c.zip')],
+    },
+    'image cover not among the attachments': {
+      attachments: [att('b.mp4')],
+      file: att('cover.jpg'),
+    },
+    'non-image cover is not a cover kind': {
+      attachments: [att('a.png')],
+      file: att('cover.mp4'),
+    },
+    'cover without a path': {
+      attachments: [att('a.png')],
+      file: { name: 'x.png' },
+    },
+    'attachment without a path': {
+      attachments: [att('a.png'), { name: 'broken', path: '' }],
+    },
+  }
+
+  for (const noCover of [false, true]) {
+    for (const [label, c] of Object.entries(cases)) {
+      it(`${label} (noCoverFile=${noCover})`, () => {
+        settings.set('noCoverFile', noCover)
+        const summary = summarizeListItem(c)
+        const full = expandPost(
+          fixture({ attachments: c.attachments, file: c.file, content: '' }),
+          'c',
+          HOST
+        )
+        const media = full.files.filter((f) => f.kind !== 'text')
+        expect(summary.fileCount).toBe(media.length)
+        const quickKinds = new Set(summary.kinds)
+        // The list has no content, so text is only ever added conservatively
+        quickKinds.delete('text')
+        expect(quickKinds).toEqual(new Set(media.map((f) => f.kind)))
+      })
+    }
+  }
+
+  it('adds text to the kinds only while the text sidecar is on', () => {
+    const item = { attachments: [att('a.png')] }
+    expect(summarizeListItem(item).kinds).toContain('text')
+    settings.set('textContent', 'none')
+    expect(summarizeListItem(item).kinds).not.toContain('text')
   })
 })

@@ -96,6 +96,7 @@ describe('manualPick.save', () => {
     pick('patreon/1/10', 'patreon/1/20')
     crawlIds.mockImplementation(async () => {
       EVT.fire('crawlStart')
+      return ['patreon/1/10', 'patreon/1/20']
     })
     await manualPick.save()
     expect(crawlIds).toHaveBeenCalledWith(
@@ -106,6 +107,16 @@ describe('manualPick.save', () => {
       { picked: true }
     )
     expect(picked()).toEqual([])
+  })
+
+  it('unpicks only the posts that were added; failed ones stay picked', async () => {
+    pick('patreon/1/10', 'patreon/1/20', 'patreon/1/30')
+    crawlIds.mockImplementation(async () => {
+      EVT.fire('crawlStart')
+      return ['patreon/1/10', 'patreon/1/30']
+    })
+    await manualPick.save()
+    expect(picked()).toEqual(['patreon/1/20'])
   })
 
   it('keeps the picks when the crawl was stopped', async () => {
@@ -120,7 +131,7 @@ describe('manualPick.save', () => {
 
   it('keeps the picks when the crawl never started', async () => {
     pick('patreon/1/10')
-    crawlIds.mockResolvedValue(undefined)
+    crawlIds.mockResolvedValue([])
     await manualPick.save()
     expect(picked()).toEqual(['patreon/1/10'])
   })

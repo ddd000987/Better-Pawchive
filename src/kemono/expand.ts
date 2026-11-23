@@ -37,6 +37,69 @@ function kindOf(file: FileItem, isCover: boolean): KemonoFileKind {
   return isCover && kind === 'image' ? 'cover' : kind
 }
 
+/** One downloadable (non-text) file of a post, in expansion order */
+export interface MediaFile {
+  file: FileItem
+  isCover: boolean
+}
+
+/**
+ * The single source of truth for which files a post expands to: attachments
+ * (deduped by path, malformed entries without a path dropped) followed by the
+ * cover, which is dropped when noCoverFile is on or its path already is an
+ * attachment. Both the list quick screen and the full expansion use this, so
+ * the two stages cannot disagree on the file count or the kinds.
+ */
+function collectMediaFiles(
+  attachmentLists: ReadonlyArray<ReadonlyArray<FileItem> | undefined>,
+  cover: Partial<FileItem> | null | undefined,
+  noCoverFile: boolean
+): MediaFile[] {
+  const out: MediaFile[] = []
+  const seen = new Set<string>()
+  for (const list of attachmentLists) {
+    if (!Array.isArray(list)) {
+      continue
+    }
+    for (const file of list) {
+      if (!file || !file.path || seen.has(file.path)) {
+        continue
+      }
+      seen.add(file.path)
+      out.push({ file, isCover: false })
+    }
+  }
+  if (!noCoverFile && cover?.path && !seen.has(cover.path)) {
+    out.push({ file: cover as FileItem, isCover: true })
+  }
+  return out
+}
+
+/**
+ * Quick-screen summary of a list item (no detail request): the number of
+ * downloadable files and the set of kinds. Text is added to the kinds
+ * whenever the text sidecar is enabled, because the list carries no content
+ * and the full filter would see it for any post that has content.
+ */
+function summarizeListItem(item: {
+  attachments?: FileItem[]
+  file?: Partial<FileItem> | null
+}): { fileCount: number; kinds: Set<KemonoFileKind> } {
+  const media = collectMediaFiles(
+    [item.attachments],
+    item.file,
+    settings.get('noCoverFile')
+  )
+  const kinds = new Set<KemonoFileKind>()
+  for (const { file, isCover } of media) {
+    kinds.add(kindOf(file, isCover))
+  }
+  if (settings.get('textContent') !== 'none') {
+    kinds.add('text')
+  }
+  return { fileCount: media.length, kinds }
+}
+
 function baseName(file: FileItem): string {
   if (file.name) {
     return file.name
@@ -123,34 +186,16 @@ function expandPost(
   }
 
   // canonical 的附件在頂層、扁平回包在 post.attachments；兩邊都收，
-  // 以 path 去重（同一檔案只算一次）
-  const seen = new Set<string>()
-  const pushAttachment = (file: FileItem | null | undefined) => {
-    if (!file || !file.path || seen.has(file.path)) {
-      return
-    }
-    seen.add(file.path)
-    pushFile(file, false)
-  }
-  const postAttachments = Array.isArray(data.post.attachments)
-    ? data.post.attachments
-    : []
-  const apiAttachments = Array.isArray(data.attachments) ? data.attachments : []
-  for (const file of postAttachments) {
-    pushAttachment(file)
-  }
-  for (const file of apiAttachments) {
-    pushAttachment(file)
-  }
-
-  // 封面（post.file 不在 attachments 內；若路徑重複則不覆寫既有種類）
-  const cover = data.post.file as FileItem | undefined
-  if (!settings.get('noCoverFile') && cover?.path && !seen.has(cover.path)) {
-    seen.add(cover.path)
-    pushFile(cover, true)
+  // 以 path 去重（同一檔案只算一次）；封面見 collectMediaFiles
+  for (const { file, isCover } of collectMediaFiles(
+    [data.post.attachments, data.attachments],
+    data.post.file,
+    settings.get('noCoverFile')
+  )) {
+    pushFile(file, isCover)
   }
 
   return { pending, files }
 }
 
-export { expandPost }
+export { expandPost, collectMediaFiles, summarizeListItem }

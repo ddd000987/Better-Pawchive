@@ -114,6 +114,33 @@ describe('fileName.createFileName', () => {
     )
   })
 
+  it('sanitizes the literal text of the rule, keeping "/" as the separator', () => {
+    settings.set(
+      'namingRule',
+      '{creator}:{title}/a*b?c"d<e>f|g\\h/{index}.{ext}'
+    )
+    expect(fileName.createFileName(result())).toBe(
+      'some artist：my title/a＊b？c＂d＜e＞f｜g＼h/0.png'
+    )
+  })
+
+  it('keeps "~" in the literal text of the rule (valid in file names)', () => {
+    settings.set('namingRule', '{post_id}~{index}.{ext}')
+    expect(fileName.createFileName(result())).toBe('999~0.png')
+  })
+
+  it('strips control characters from the literal text of the rule', () => {
+    settings.set('namingRule', 'x\u0000y\u001f/{index}\t.{ext}')
+    expect(fileName.createFileName(result())).toBe('xy/0.png')
+  })
+
+  it('findUnsafeRuleChars ignores tags and lists each bad character once', () => {
+    expect(fileName.findUnsafeRuleChars(DEFAULT_RULE)).toEqual([])
+    expect(
+      fileName.findUnsafeRuleChars('{creator}:{title}/a:b*c\u0001')
+    ).toEqual([':', '*', '\u0001'])
+  })
+
   it('未知 token 原樣保留（不吞字）', () => {
     settings.set('namingRule', '{post_id}-{foo}.{ext}')
     expect(fileName.createFileName(result())).toBe('999-{foo}.png')

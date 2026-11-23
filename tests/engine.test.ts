@@ -750,4 +750,422 @@ describe('engine crawlIds picked (manual pick)', () => {
       states.busy = false
     }
   })
+
+  it('returns the ids that were added, not the ones that failed', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) => {
+      if (q.postId === '6') throw new ApiHttpError(404, 'u', 'HTTP 404')
+      return fullPost(q.postId)
+    })
+
+    const added = await engine.crawlIds(
+      [
+        { id: 'patreon/1/5', type: 'post' },
+        { id: 'patreon/1/6', type: 'post' },
+        { id: 'patreon/1/7', type: 'post' },
+      ],
+      { picked: true }
+    )
+
+    expect(added).toEqual(['patreon/1/5', 'patreon/1/7'])
+  })
+
+  it('returns nothing when the crawl did not run', async () => {
+    const { engine } = await load()
+    const { states } = await import('../src/store/States')
+    states.busy = true
+    try {
+      expect(
+        await engine.crawlIds([{ id: 'patreon/1/5', type: 'post' }], {
+          picked: true,
+        })
+      ).toEqual([])
+    } finally {
+      states.busy = false
+    }
+  })
+})
+
+describe('engine list quick screen matches the full filter', () => {
+  const detail = (
+    id: string,
+    attachments: { path: string; name: string }[]
+  ) => ({
+    post: {
+      id,
+      user: '1',
+      service: 'patreon',
+      title: 'hello',
+      content: '',
+      published: '2024-01-01T00:00:00',
+      file: attachments[0],
+      attachments,
+    },
+    attachments: [],
+    previews: [],
+    videos: [],
+  })
+  const item = (id: string, attachments: { path: string; name: string }[]) => ({
+    id,
+    user: '1',
+    service: 'patreon',
+    title: 't',
+    published: '2024-01-01T00:00:00',
+    attachments,
+    file: attachments[0],
+    has_full: true,
+  })
+
+  it('a cover that repeats an attachment is one file, so filterMaxFiles=1 keeps the post', async () => {
+    const { api, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { settings } = await import('../src/setting/Settings')
+    const { crawlProgress } = await import('../src/crawl/CrawlProgress')
+    const files = [{ path: '/a/1.jpg', name: '1.jpg' }]
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([item('5', files)])
+    ;(api.post as any).mockResolvedValue(detail('5', files))
+    settings.set('filterMaxFiles', 1)
+    try {
+      await engine.start()
+    } finally {
+      settings.set('filterMaxFiles', 0)
+    }
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(crawlProgress.excluded.fileCount).toBeUndefined()
+    expect(store.resultMeta).toHaveLength(1)
+    expect(store.resultMeta[0].fileCount).toBe(1)
+  })
+
+  it('both stages exclude the same post when it really has too many files', async () => {
+    const { api, engine } = await load()
+    const { crawlProgress } = await import('../src/crawl/CrawlProgress')
+    const { settings } = await import('../src/setting/Settings')
+    const files = [
+      { path: '/a/1.jpg', name: '1.jpg' },
+      { path: '/a/2.jpg', name: '2.jpg' },
+    ]
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([item('5', files)])
+    settings.set('filterMaxFiles', 1)
+    try {
+      await engine.start()
+    } finally {
+      settings.set('filterMaxFiles', 0)
+    }
+
+    // Excluded from the list alone, without a detail request
+    expect(api.post).not.toHaveBeenCalled()
+    expect(crawlProgress.excluded).toEqual({ fileCount: 1 })
+  })
+
+  it('detail requests bypass the api cache', async () => {
+    const { api, engine } = await load()
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([item('5', [])])
+    ;(api.post as any).mockResolvedValue(detail('5', []))
+
+    await engine.start()
+
+    expect(api.post).toHaveBeenCalledWith(
+      { service: 'patreon', creatorId: '1', postId: '5' },
+      expect.anything(),
+      { cache: false }
+    )
+  })
+})
+
+describe('engine creator profile failures', () => {
+  const listItem = (id: string) => ({
+    id,
+    user: '1',
+    service: 'patreon',
+    title: 't',
+    published: '2024-01-01T00:00:00',
+    attachments: [],
+    file: {},
+    has_full: true,
+  })
+  const detailOf = (id: string) => ({
+    post: {
+      id,
+      user: '1',
+      service: 'patreon',
+      title: 'hello',
+      content: '',
+      published: '2024-01-01T00:00:00',
+      file: {},
+      attachments: [{ path: `/a/${id}.jpg`, name: `${id}.jpg` }],
+    },
+    attachments: [],
+    previews: [],
+    videos: [],
+  })
+  const logMessages = async (level: string) => {
+    const { log } = await import('../src/Log')
+    return log
+      .entries()
+      .filter((e) => e.level === level)
+      .map((e) => e.msg)
+  }
+
+  it('a transient profile failure is retried, so the creator name is kept', async () => {
+    vi.useFakeTimers()
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    ;(api.profile as any)
+      .mockRejectedValueOnce(new ApiHttpError(500, 'u', 'HTTP 500'))
+      .mockResolvedValueOnce({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([listItem('5')])
+    ;(api.post as any).mockResolvedValue(detailOf('5'))
+
+    const p = engine.start()
+    await vi.advanceTimersByTimeAsync(5000)
+    await p
+
+    expect(api.profile).toHaveBeenCalledTimes(2)
+    expect(store.resultMeta[0].creator).toBe('Creator')
+  })
+
+  it('a profile that stays unavailable falls back to the id and warns', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockRejectedValue(
+      new ApiHttpError(404, 'u', 'HTTP 404')
+    )
+    ;(api.posts as any).mockResolvedValueOnce([listItem('5')])
+    ;(api.post as any).mockResolvedValue(detailOf('5'))
+
+    await engine.start()
+
+    expect(store.resultMeta[0].creator).toBe('1')
+    const msg =
+      'Could not fetch the creator name (HTTP 404); the ID "1" is used as the folder name instead. Files may be saved to a different folder than earlier downloads'
+    expect(toast.warning).toHaveBeenCalledWith(msg)
+    expect(await logMessages('warning')).toContain(msg)
+  })
+
+  it('reuses the name from the previous results when the profile fails', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any)
+      .mockResolvedValueOnce({ name: 'Alice' })
+      .mockRejectedValueOnce(new ApiHttpError(404, 'u', 'HTTP 404'))
+    ;(api.posts as any)
+      .mockResolvedValueOnce([listItem('5')])
+      .mockResolvedValueOnce([listItem('6')])
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) =>
+      detailOf(q.postId)
+    )
+
+    await engine.start()
+    expect(store.resultMeta[0].creator).toBe('Alice')
+    await engine.start()
+
+    expect(store.resultMeta).toHaveLength(1)
+    expect(store.resultMeta[0].postId).toBe('6')
+    expect(store.resultMeta[0].creator).toBe('Alice')
+    expect(await logMessages('warning')).toContain(
+      'Could not fetch the creator name (HTTP 404); reusing the earlier name: Alice'
+    )
+    expect(toast.warning).not.toHaveBeenCalled()
+  })
+})
+
+describe('engine failed posts and rate limiting', () => {
+  const listItem = (id: string) => ({
+    id,
+    user: '1',
+    service: 'patreon',
+    title: 't',
+    published: '2024-01-01T00:00:00',
+    attachments: [],
+    file: {},
+    has_full: true,
+  })
+  const detailOf = (id: string) => ({
+    post: {
+      id,
+      user: '1',
+      service: 'patreon',
+      title: 'hello',
+      content: '',
+      published: '2024-01-01T00:00:00',
+      file: {},
+      attachments: [{ path: `/a/${id}.jpg`, name: `${id}.jpg` }],
+    },
+    attachments: [],
+    previews: [],
+    videos: [],
+  })
+  const logMessages = async (level: string) => {
+    const { log } = await import('../src/Log')
+    return log
+      .entries()
+      .filter((e) => e.level === level)
+      .map((e) => e.msg)
+  }
+
+  it('posts dropped after retries make the run incomplete, not "Crawl complete"', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([listItem('1'), listItem('2')])
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) => {
+      if (q.postId === '2') throw new ApiHttpError(404, 'u', 'HTTP 404')
+      return detailOf(q.postId)
+    })
+    const complete = countEvent('crawlComplete')
+    const empty = countEvent('crawlEmpty')
+
+    await engine.start()
+
+    const expected = `Crawl finished with problems: 1 posts failed to load and were skipped. Kept 1 posts / ${store.result.length} files; the result is incomplete, so crawl again to pick up the failed ones`
+    expect(complete()).toBe(1)
+    expect(empty()).toBe(0)
+    expect(store.resultMeta).toHaveLength(1)
+    expect(await logMessages('warning')).toContain(expected)
+    expect(toast.warning).toHaveBeenCalledWith(expected)
+    expect(await logMessages('success')).not.toContainEqual(
+      expect.stringContaining('Crawl complete')
+    )
+  })
+
+  it('uses the Retry-After wait of a 429 instead of the default', async () => {
+    vi.useFakeTimers()
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([listItem('1')])
+    ;(api.post as any)
+      .mockRejectedValueOnce(new ApiHttpError(429, 'u', 'HTTP 429', 5000))
+      .mockResolvedValueOnce(detailOf('1'))
+
+    const p = engine.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(api.post).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    await p
+
+    expect(api.post).toHaveBeenCalledTimes(2)
+    expect(store.resultMeta).toHaveLength(1)
+    expect(await logMessages('warning')).toContain(
+      'Rate limited (429), retrying in 5s (1/2)'
+    )
+  })
+
+  it('stops after several posts in a row gave up on 429 instead of dropping them all', async () => {
+    vi.useFakeTimers()
+    const { api, ApiHttpError, engine } = await load()
+    const { states } = await import('../src/store/States')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce(
+      Array.from({ length: 10 }, (_, i) => listItem(String(i + 1)))
+    )
+    ;(api.post as any).mockRejectedValue(new ApiHttpError(429, 'u', 'HTTP 429'))
+    const complete = countEvent('crawlComplete')
+
+    const p = engine.start()
+    // 3 posts x (first try + 2 retries of 30s each)
+    await vi.advanceTimersByTimeAsync(200000)
+    await p
+
+    // 3 attempts per post, 3 posts; the other 7 posts were never requested
+    expect(api.post).toHaveBeenCalledTimes(9)
+    expect(complete()).toBe(1)
+    expect(states.busy).toBe(false)
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Crawl stopped: the site kept rate limiting requests (429). Kept 0 posts / 0 files; the remaining posts were not crawled. Try again later'
+    )
+  })
+
+  it('a success between 429 give-ups resets the count', async () => {
+    vi.useFakeTimers()
+    const { api, ApiHttpError, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce(
+      ['1', '2', '3', '4', '5'].map(listItem)
+    )
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) => {
+      // posts 1, 2, 4 and 5 are rate limited for good; 3 works
+      if (q.postId !== '3') throw new ApiHttpError(429, 'u', 'HTTP 429', 1000)
+      return detailOf(q.postId)
+    })
+
+    const p = engine.start()
+    await vi.advanceTimersByTimeAsync(60000)
+    await p
+
+    expect(api.post).toHaveBeenCalledTimes(3 * 4 + 1)
+    expect(store.resultMeta.map((m) => m.postId)).toEqual(['3'])
+  })
+
+  it('reports the failing API URL with the status', async () => {
+    const { api, ApiHttpError, engine } = await load()
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValueOnce([listItem('1')])
+    ;(api.post as any).mockRejectedValue(
+      new ApiHttpError(404, 'https://x.test/api/v1/post/1', 'HTTP 404')
+    )
+    const seen: unknown[] = []
+    evt.on('requestStatusError', (ev: CustomEventInit) => {
+      seen.push(ev.detail.data)
+    })
+
+    await engine.start()
+
+    expect(seen).toEqual([{ status: 404, url: 'https://x.test/api/v1/post/1' }])
+  })
+
+  it('a list body that is not an array is a list failure', async () => {
+    const { api, engine } = await load()
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.posts as any).mockResolvedValue({})
+    const complete = countEvent('crawlComplete')
+
+    await engine.start()
+
+    expect(api.posts).toHaveBeenCalledTimes(1)
+    expect(complete()).toBe(1)
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Crawl failed: the post list could not be loaded (page 1). See the log for the error'
+    )
+    expect(await logMessages('success')).not.toContainEqual(
+      expect.stringContaining('Crawl complete')
+    )
+  })
+
+  it('an unexpected error ends the run as incomplete, not as complete', async () => {
+    const { api, engine } = await load()
+    const { store } = await import('../src/store/Store')
+    const { toast } = await import('../src/Toast')
+    ;(api.profile as any).mockResolvedValue({ name: 'Creator' })
+    ;(api.post as any).mockImplementation(async (q: { postId: string }) =>
+      detailOf(q.postId)
+    )
+    ;(api.posts as any)
+      .mockResolvedValueOnce(
+        Array.from({ length: 50 }, (_, i) => listItem(String(i + 1)))
+      )
+      // A null entry makes the page handling throw outside any request
+      .mockResolvedValueOnce([null])
+
+    await engine.start()
+
+    expect(store.resultMeta).toHaveLength(50)
+    expect(toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Crawl ended early because of an error: ')
+    )
+    expect(await logMessages('success')).not.toContainEqual(
+      expect.stringContaining('Crawl complete')
+    )
+  })
 })

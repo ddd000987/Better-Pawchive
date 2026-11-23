@@ -1187,6 +1187,12 @@ export const langText = {
     `(sample appears after crawling)`,
     `（クロール後にサンプルを表示します）`,
   ],
+  _namingUnsafeChars: [
+    `命名规则含有文件名不能使用的字符：{}。保存时会自动换成全角字符`,
+    `命名規則含有檔名不能使用的字元：{}。儲存時會自動換成全形字元`,
+    `The naming rule contains characters that file names cannot use: {}. They are replaced with full-width characters when saving`,
+    `命名規則にファイル名に使えない文字が含まれています：{}。保存時に全角文字へ置き換えられます`,
+  ],
   _namingHelpTitle: [`使用说明`, `使用說明`, `How it works`, `使い方`],
   _namingHelp1: [
     `规则就是保存文件的相对路径，从浏览器默认的下载文件夹开始算；用 / 分隔文件夹，文件夹不存在会自动创建。`,
@@ -1614,6 +1620,24 @@ export const langText = {
     `Crawl ended early: the post list failed on page {}. Kept {} posts / {} files; later pages were not crawled`,
     `クロールを途中で終了しました：投稿一覧の {} ページ目の取得に失敗しました。{} 投稿 / {} ファイルを保持しており、以降のページはクロールされていません`,
   ],
+  _crawlIncompleteFailed: [
+    `抓取未完全成功：{} 帖详情获取失败，已跳过。已保留 {} 帖 / {} 档，结果不完整，可重新抓取以补上失败的帖子`,
+    `抓取未完全成功：{} 貼文詳情取得失敗，已略過。已保留 {} 貼文 / {} 檔，結果不完整，可重新抓取以補上失敗的貼文`,
+    `Crawl finished with problems: {} posts failed to load and were skipped. Kept {} posts / {} files; the result is incomplete, so crawl again to pick up the failed ones`,
+    `クロールは完全には成功しませんでした：{} 投稿の詳細取得に失敗してスキップしました。{} 投稿 / {} ファイルを保持していますが結果は不完全です。失敗した投稿は再クロールで取得できます`,
+  ],
+  _crawlRateLimitHalt: [
+    `抓取已停止：网站持续返回 429 限流。已保留 {} 帖 / {} 档，其余帖子未抓取，请稍后再试`,
+    `抓取已停止：網站持續回傳 429 限流。已保留 {} 貼文 / {} 檔，其餘貼文未抓取，請稍後再試`,
+    `Crawl stopped: the site kept rate limiting requests (429). Kept {} posts / {} files; the remaining posts were not crawled. Try again later`,
+    `クロールを停止しました：サイトが 429 レート制限を返し続けました。{} 投稿 / {} ファイルを保持しており、残りの投稿はクロールされていません。しばらくしてからやり直してください`,
+  ],
+  _crawlIncompleteError: [
+    `抓取因错误提前结束：{}。已保留 {} 帖 / {} 档，结果不完整`,
+    `抓取因錯誤提前結束：{}。已保留 {} 貼文 / {} 檔，結果不完整`,
+    `Crawl ended early because of an error: {}. Kept {} posts / {} files; the result is incomplete`,
+    `エラーのためクロールを途中で終了しました：{}。{} 投稿 / {} ファイルを保持していますが結果は不完全です`,
+  ],
   _crawlListFailedEmpty: [
     `抓取失败：无法加载帖子列表（第 {} 页）。请查看日志中的错误信息`,
     `抓取失敗：無法載入帖子列表（第 {} 頁）。請查看日誌中的錯誤訊息`,
@@ -1637,6 +1661,18 @@ export const langText = {
     `取得創作者資訊失敗，改用 ID：{}`,
     `Failed to fetch creator info, using ID instead: {}`,
     `クリエイター情報の取得に失敗したため、ID を使用します：{}`,
+  ],
+  _profileFailedId: [
+    `无法取得创作者名称（{}），将改用 ID「{}」作为文件夹名。文件可能存到与之前下载不同的文件夹`,
+    `無法取得創作者名稱（{}），將改用 ID「{}」作為資料夾名稱。檔案可能儲存到與先前下載不同的資料夾`,
+    `Could not fetch the creator name ({}); the ID "{}" is used as the folder name instead. Files may be saved to a different folder than earlier downloads`,
+    `クリエイター名を取得できませんでした（{}）。フォルダー名に ID「{}」を使用します。以前のダウンロードとは別のフォルダーに保存される場合があります`,
+  ],
+  _profileFailedReuse: [
+    `无法取得创作者名称（{}），沿用之前的名称：{}`,
+    `無法取得創作者名稱（{}），沿用先前的名稱：{}`,
+    `Could not fetch the creator name ({}); reusing the earlier name: {}`,
+    `クリエイター名を取得できませんでした（{}）。以前の名前を引き続き使用します：{}`,
   ],
   _crawlStoppedKeep: [
     `已停止抓取（保留部分结果）`,

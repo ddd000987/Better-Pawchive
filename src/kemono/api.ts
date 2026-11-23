@@ -62,13 +62,36 @@ const inflight = new Map<
 class ApiHttpError extends Error {
   status: number
   url: string
+  /** Server-requested wait before retrying (Retry-After), when the response exposed it */
+  retryAfterMs?: number
 
-  constructor(status: number, url: string, message: string) {
+  constructor(
+    status: number,
+    url: string,
+    message: string,
+    retryAfterMs?: number
+  ) {
     super(message)
     this.name = 'ApiHttpError'
     this.status = status
     this.url = url
+    this.retryAfterMs = retryAfterMs
   }
+}
+
+/**
+ * Retry-After header value to milliseconds (delta-seconds or an HTTP date).
+ * undefined when absent or unparsable.
+ */
+function parseRetryAfter(
+  value: string | null | undefined,
+  now = Date.now()
+): number | undefined {
+  if (!value) return undefined
+  const text = value.trim()
+  if (/^\d+$/.test(text)) return Number(text) * 1000
+  const at = Date.parse(text)
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now)
 }
 
 async function fetchJson<T>(
@@ -119,15 +142,19 @@ async function requestJson<T>(
       } catch {
         // body 不是 JSON 或已耗盡：忽略，沿用簡短訊息
       }
+      // Only readable when the response exposes the header (cross-origin)
+      const retryAfter = parseRetryAfter(res.headers?.get?.('Retry-After'))
       throw new ApiHttpError(
         res.status,
         url,
-        `HTTP ${res.status}${detail} (${url})`
+        `HTTP ${res.status}${detail} (${url})`,
+        retryAfter
       )
     }
     return (await res.json()) as T | APIErrorResponse
   }, signal)
-  if (!isErrorResponse(data)) {
+  // ttl <= 0: the caller asked not to cache (large bodies that are read once)
+  if (ttl > 0 && !isErrorResponse(data)) {
     memCache.set(url, { at: Date.now(), ttl, data: structuredClone(data) })
     // 超過上限：刪最舊（Map 第一個 key）
     while (memCache.size > CACHE_MAX) {
@@ -203,12 +230,23 @@ const api = {
     return fetchJson<PostsApiResponse>(url.href, TTL_POSTS, signal)
   },
 
+  /**
+   * Post detail. opts.cache=false keeps the body out of the memory cache: the
+   * crawl engine reads each detail once (full HTML content, hundreds of
+   * posts), while preview and quick download re-read the same post and
+   * benefit from the cache. An entry that already exists is still used.
+   */
   async post(
     info: PostInfo,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    opts: { cache?: boolean } = {}
   ): Promise<PostApiResponse | APIErrorResponse> {
     const url = `https://${location.host}/api/v1/${info.service}/user/${info.creatorId}/post/${info.postId}`
-    const data = await fetchJson<unknown>(url, TTL_POST, signal)
+    const data = await fetchJson<unknown>(
+      url,
+      opts.cache === false ? 0 : TTL_POST,
+      signal
+    )
     return normalizePost(data)
   },
 
@@ -235,4 +273,4 @@ EVT.on(EVT.list.settingChange, (ev: CustomEventInit) => {
   }
 })
 
-export { api, queueApi, normalizePost, ApiHttpError }
+export { api, queueApi, normalizePost, parseRetryAfter, ApiHttpError }

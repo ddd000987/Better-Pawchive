@@ -97,11 +97,17 @@ const fullWidthDict = new Map<string, string>([
 /**
  * 移除控制字元，並把半角非法字元替換成全角版本。
  * @param keepPathSeparator 是否保留路徑分隔符 /（命名模板含資料夾時用 true）
+ * @param keep other half-width characters to leave as they are
  */
-function replaceUnsafeStr(str: string, keepPathSeparator = false): string {
+function replaceUnsafeStr(
+  str: string,
+  keepPathSeparator = false,
+  keep: readonly string[] = []
+): string {
   str = str.replace(unsafeStr, '')
   for (const [halfWidth, fullWidth] of fullWidthDict) {
     if (keepPathSeparator && halfWidth === '/') continue
+    if (keep.includes(halfWidth)) continue
     str = str.replaceAll(halfWidth, fullWidth)
   }
   return str

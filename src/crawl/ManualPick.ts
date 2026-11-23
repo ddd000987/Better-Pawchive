@@ -149,8 +149,9 @@ class ManualPick {
   }
 
   /** Crawl the picked posts and save them as one crawl cache entry. The
-   * picked posts are unpicked once the crawl ends; a stopped crawl keeps them
-   * picked, since its result is not saved. */
+   * posts that were added are unpicked once the crawl ends; the ones that
+   * failed stay picked. A stopped crawl keeps all of them picked, since its
+   * result is not saved. */
   public async save(): Promise<void> {
     if (this.selection.size === 0 || this.saving !== null) {
       return
@@ -168,14 +169,17 @@ class ManualPick {
       started = true
     }
     EVT.on(EVT.list.crawlStart, onStart, { once: true })
+    let added: string[] = []
     try {
-      await engine.crawlIds(idList, { picked: true })
+      added = await engine.crawlIds(idList, { picked: true })
     } finally {
       EVT.off(EVT.list.crawlStart, onStart)
       this.saving = null
     }
     if (started && !states.stopCrawl) {
-      this.selection.remove(keys)
+      // Only the posts that made it into the result; a failed one stays
+      // picked so that it can be tried again
+      this.selection.remove(added)
       this.mark()
     }
     this.changed()

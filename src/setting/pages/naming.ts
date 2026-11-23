@@ -4,6 +4,7 @@
 import { fileName } from '../../filename/FileName'
 import { lang } from '../../Language'
 import { LangTextKey } from '../../langText'
+import { settings } from '../Settings'
 import { store } from '../../store/Store'
 import { toast } from '../../Toast'
 import { copyFallback, helpItem, inputRow, section } from './controls'
@@ -51,6 +52,7 @@ const NAMING_EXAMPLES: Array<{ rule: string; descKey: LangTextKey }> = [
 
 export class NamingView {
   private namingPreview!: HTMLDivElement
+  private namingWarn?: HTMLDivElement
 
   public build(host: HTMLDivElement): void {
     const onChange = () => this.refresh()
@@ -66,6 +68,10 @@ export class NamingView {
     this.namingPreview = document.createElement('div')
     this.namingPreview.className = 'pwpSC-row pwpSC-status'
     body.appendChild(this.namingPreview)
+    this.namingWarn = document.createElement('div')
+    this.namingWarn.className = 'pwpSC-row pwpSC-status'
+    this.namingWarn.hidden = true
+    body.appendChild(this.namingWarn)
     this.refresh()
 
     // 使用說明
@@ -122,6 +128,7 @@ export class NamingView {
   /** 命名規則預覽（有抓取結果時顯示第一條的檔名；頁面未建好時不動作） */
   public refresh(): void {
     if (!this.namingPreview) return
+    this.refreshWarning()
     const first = store.result[0]
     if (!first) {
       this.namingPreview.textContent = lang.transl('_namingNoPreview')
@@ -133,6 +140,29 @@ export class NamingView {
     } catch {
       this.namingPreview.textContent = String(first.id)
     }
+  }
+
+  /** Warn when a rule holds characters that file names cannot use (they are
+   * replaced with full-width ones when saving, so the name differs from the rule) */
+  private refreshWarning(): void {
+    if (!this.namingWarn) return
+    const chars = new Set<string>()
+    for (const key of ['namingRule', 'namingRulePawchive'] as const) {
+      const rule = settings.get(key)
+      for (const ch of fileName.findUnsafeRuleChars(rule)) {
+        const code = ch.charCodeAt(0)
+        chars.add(
+          code < 0x20 || code === 0x7f
+            ? `U+${code.toString(16).toUpperCase().padStart(4, '0')}`
+            : ch
+        )
+      }
+    }
+    this.namingWarn.hidden = chars.size === 0
+    this.namingWarn.textContent =
+      chars.size === 0
+        ? ''
+        : lang.transl('_namingUnsafeChars', [...chars].join(' '))
   }
 
   /** 複製命名標籤（Clipboard API 優先，失敗退回 textarea 方案） */

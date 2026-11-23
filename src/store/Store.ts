@@ -31,11 +31,22 @@ class Store {
   /** 儲存抓取結果的元數據。每個帖子只會有一條數據 */
   public resultMeta: Result[] = []
 
-  /** 儲存抓取結果（每帖展開為多個檔案） */
-  public result: Result[] = []
+  /** 儲存抓取結果（每帖展開為多個檔案）。
+   * Replace the whole array through the setter (it rebuilds the id index);
+   * addResult appends to it. */
+  public get result(): Result[] {
+    return this._result
+  }
+  public set result(list: Result[]) {
+    this._result = list
+    this.resultById = new Map(list.map((r) => [r.id, r]))
+  }
+  private _result: Result[] = []
+  /** Result.id to Result, kept in sync with every write to `result` */
+  private resultById = new Map<string, Result>()
 
   /** 儲存已抓取的帖子 key，用來避免重複添加 */
-  private postKeyList: string[] = []
+  private postKeys = new Set<string>()
 
   /** 記錄從每個帖子裡下載多少個文件 */
   public downloadCount: {
@@ -93,10 +104,10 @@ class Store {
       return
     }
     // 檢查該帖子是否已存在，已存在則不添加
-    if (this.postKeyList.includes(postKey)) {
+    if (this.postKeys.has(postKey)) {
       return
     }
-    this.postKeyList.push(postKey)
+    this.postKeys.add(postKey)
 
     // 生成該帖子的元數據（取第一個附件的快照，僅展示用）
     const meta = Object.assign({}, this.resultDefault, data, files[0] ?? {})
@@ -110,7 +121,8 @@ class Store {
       const result = Object.assign({}, this.resultDefault, data, files[i])
       result.fileIndex = i
       result.id = `${postKey}#${i}`
-      this.result.push(result)
+      this._result.push(result)
+      this.resultById.set(result.id, result)
       kept.push(result)
     }
     this.downloadCount[postKey] = kept.length
@@ -120,7 +132,7 @@ class Store {
   public replaceResults(results: Result[], metas: Result[]) {
     this.result = results
     this.resultMeta = metas
-    this.postKeyList = metas.map((meta) => meta.postKey || meta.id)
+    this.postKeys = new Set(metas.map((meta) => meta.postKey || meta.id))
     this.resetDownloadCount()
     this.remainingDownload = results.length
   }
@@ -132,45 +144,22 @@ class Store {
     this.waitingFullCrawl = false
   }
 
-  public findResult(id: string) {
-    return this.result.find((item) => item.id === id)
-  }
-
-  /** 從 idList 和抓取結果裡移除指定的帖子。返回值表示是否有帖子被刪除 */
-  public removeWorkById(ids: string[]) {
-    const beforeMetaLength = this.resultMeta.length
-    const beforeResultLength = this.result.length
-
-    for (const id of ids) {
-      const idIndex = this.idList.findIndex((item) => item.id === id)
-      if (idIndex !== -1) {
-        this.idList.splice(idIndex, 1)
-      }
-
-      this.resultMeta = this.resultMeta.filter((r) => r.postKey !== id)
-      this.result = this.result.filter((r) => r.postKey !== id)
-
-      const keyIndex = this.postKeyList.indexOf(id)
-      if (keyIndex !== -1) {
-        this.postKeyList.splice(keyIndex, 1)
-      }
-      delete this.downloadCount[id]
+  public findResult(id: string): Result | undefined {
+    const hit = this.resultById.get(id)
+    if (hit) {
+      return hit
     }
-
-    if (
-      this.resultMeta.length < beforeMetaLength ||
-      this.result.length < beforeResultLength
-    ) {
-      EVT.fire('resultChange')
-      return true
+    // Not indexed: the array was changed in place from outside. Scan and remember.
+    const found = this._result.find((item) => item.id === id)
+    if (found) {
+      this.resultById.set(id, found)
     }
-
-    return false
+    return found
   }
 
   public reset() {
     this.resultMeta = []
-    this.postKeyList = []
+    this.postKeys = new Set()
     this.result = []
     this.idList = []
     // The waiting queues are left alone: a crawl can start while other tasks
