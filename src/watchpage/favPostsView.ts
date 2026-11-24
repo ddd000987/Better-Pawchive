@@ -8,6 +8,7 @@ import { creatorPageUrl, postPageUrl, thumbUrl } from '../watch/watchKey'
 import { watchStore } from '../watch/watchStore'
 import { MIME_FAV_POST, el, formatDate, siteLabel } from './dom'
 import { createFavEditor, trapFocus, type FavEditorHandle } from './favEditor'
+import { attachPostPreview, hideHoverPreview } from './hoverPreview'
 import { renderStars } from './stars'
 import { renderTagChips } from './tagInput'
 
@@ -39,6 +40,7 @@ export function renderFavPostsView(
   const { posts, totalCount, hasQuery, selectMode, selected, callbacks } =
     params
 
+  hideHoverPreview()
   root.replaceChildren()
 
   if (posts.length === 0) {
@@ -90,6 +92,15 @@ export function renderFavPostsView(
     card.addEventListener('dragend', () => {
       card.classList.remove('is-dragging')
     })
+    if (!selectMode) {
+      attachPostPreview(card, {
+        host,
+        service: post.service,
+        creatorId: post.creatorId,
+        postId: post.postId,
+        coverPath: post.coverPath,
+      })
+    }
 
     const activate = (shiftKey: boolean): void => {
       if (selectMode) {

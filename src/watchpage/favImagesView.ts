@@ -6,12 +6,19 @@ import type { FavImage } from '../watch/collectTypes'
 import { thumbUrl } from '../watch/watchKey'
 import { watchStore } from '../watch/watchStore'
 import { MIME_FAV_IMAGE, el } from './dom'
+import { attachImagePreview, hideHoverPreview } from './hoverPreview'
 import { renderStars } from './stars'
 import { renderTagChips } from './tagInput'
 
 export interface FavImagesCallbacks {
   onOpenLightbox: (key: string) => void
   onToggleSelect: (key: string, shiftKey: boolean) => void
+  /** Right-click on a tile; `shown` is the tile's loaded thumbnail */
+  onContextMenu: (
+    key: string,
+    at: { x: number; y: number },
+    shown: HTMLImageElement | null
+  ) => void
 }
 
 export interface FavImagesRenderParams {
@@ -30,6 +37,7 @@ export function renderFavImagesView(
   const { images, totalCount, hasQuery, selectMode, selected, callbacks } =
     params
 
+  hideHoverPreview()
   root.replaceChildren()
 
   if (images.length === 0) {
@@ -99,6 +107,20 @@ export function renderFavImagesView(
         activate(ev.shiftKey)
       }
     })
+    tile.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      // The menu key and Shift+F10 fire this too, without a pointer position
+      const r = tile.getBoundingClientRect()
+      const fromKeyboard = ev.clientX === 0 && ev.clientY === 0
+      callbacks.onContextMenu(
+        image.key,
+        fromKeyboard
+          ? { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+          : { x: ev.clientX, y: ev.clientY },
+        tile.querySelector('img')
+      )
+    })
+    if (!selectMode) attachImagePreview(tile, host, image.path)
 
     const thumb = el('img', 'w-fv-img-thumb')
     thumb.loading = 'lazy'

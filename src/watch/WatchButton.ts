@@ -252,15 +252,32 @@ class WatchButton {
     }
   }
 
-  private openMenu(target: PageCreator): void {
-    if (!this.btn) return
+  /** Key of the creator whose page this is, or null off creator pages */
+  public get pageCreatorKey(): string | null {
+    return this.current?.key ?? null
+  }
+
+  /** Toggle the folder menu for this page's creator next to another button
+   * (the settings home page has its own watch button) */
+  public toggleMenuAt(anchor: HTMLElement): void {
+    if (!this.current) return
+    if (this.closeMenuFn) {
+      this.closeMenu()
+      return
+    }
+    this.openMenu(this.current, anchor)
+  }
+
+  private openMenu(target: PageCreator, anchor?: HTMLElement): void {
+    const menuAnchor = anchor ?? this.btn
+    if (!menuAnchor) return
     this.closeMenu()
 
     const watched = watchStore.getCreator(target.key)
     const folders = sortedFolders(watchStore.data)
 
     this.closeMenuFn = openFolderMenu({
-      anchor: this.btn,
+      anchor: menuAnchor,
       folders,
       currentFolderId: watched?.folderId ?? null,
       unsortedLabel: lang.transl('_w_unsorted'),

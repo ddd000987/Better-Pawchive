@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Watch page previews: resting on a post (in a creator's posts, "New posts" or "Favorite posts") shows its images at their own proportions, and the mouse wheel switches between them; resting on a favorite image shows it larger. Thumbnails are shown by default; the original can be loaded instead.
+- Watch page settings: the new ⚙ at the top left of the watch page opens its settings: hover previews (on/off for posts and images, original image, delay), tracking, the creator list layout, and export / import (moved here from the bottom of the sidebar).
+- Favorite images: right-click an image to download it, move it to another folder (or a new one), open it in its own window, open its post, copy its URL or remove it. With several images selected, download, move and remove act on all of them.
+
+### Changed
+
+- Settings panel: the Home page is now a guide for new users. It says what the current page can do, walks through the two steps (crawl, then download) and shows which one you are on, lets you watch the creator of the page, and keeps a few common switches. The panel opens on Home, and a crawl started there stays on Home when it finishes.
+- Settings panel: the tracking settings moved to the watch page's ⚙; the Watchlist page keeps the summary and the "Open watch page" button.
+
 ## [1.2.0] - 2026-11-25
 
 ### Added

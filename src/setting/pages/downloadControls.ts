@@ -13,11 +13,16 @@ export class DownloadControls {
     start: HTMLButtonElement
     pause: HTMLButtonElement
     restart: HTMLButtonElement
+    /** Start stays disabled until there is something to download */
+    requireResult: boolean
   }> = []
 
   /** 下載控制列：開始／停止、暫停／繼續、全部重下（暫停時才出現）。
    * 點擊時才看 states 決定做什麼，不依賴快取的標籤 */
-  public build(host: HTMLDivElement): void {
+  public build(
+    host: HTMLDivElement,
+    opts: { requireResult?: boolean } = {}
+  ): void {
     const row = document.createElement('div')
     row.className = 'pwpSC-row pwpSC-btnRow'
     const mk = (onClick: () => void): HTMLButtonElement => {
@@ -36,7 +41,12 @@ export class DownloadControls {
       else if (states.downloading) downloadControl.pauseDownload()
     })
     const restart = mk(() => this.confirmRestart())
-    this.groups.push({ start, pause, restart })
+    this.groups.push({
+      start,
+      pause,
+      restart,
+      requireResult: opts.requireResult === true,
+    })
     host.appendChild(row)
     this.refresh()
   }
@@ -52,6 +62,7 @@ export class DownloadControls {
     const paused = states.downloadPaused
     for (const g of this.groups) {
       setLabel(g.start, busy ? '_stopDownload' : '_startDownload')
+      g.start.disabled = g.requireResult && !busy && store.result.length === 0
       setLabel(g.pause, paused ? '_resumeDownload' : '_pauseDownload')
       // 暫停鈕只在有下載任務（下載中或暫停中）時出現
       g.pause.style.display = busy ? '' : 'none'

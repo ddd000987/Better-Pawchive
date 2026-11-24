@@ -34,6 +34,7 @@ import {
   type PostEditorModalHandle,
 } from './favPostsView'
 import { renderFeedToolbar, renderFeedView, type FeedCallbacks } from './feed'
+import { closeImageMenu, openImageMenu } from './imageContextMenu'
 import { openFavImageLightbox, type LightboxHandle } from './lightbox'
 import {
   filterCreators,
@@ -44,6 +45,7 @@ import {
   type SortMode,
   type WatchRoute,
 } from './listModel'
+import { openSettingsDialog, type SettingsDialogHandle } from './settingsDialog'
 import { renderSidebar } from './sidebar'
 import { renderTagsToolbar, renderTagsView } from './tagsView'
 import {
@@ -131,6 +133,7 @@ export class WatchApp {
   private detailController: DetailController | null = null
   private postEditorModal: PostEditorModalHandle | null = null
   private lightbox: LightboxHandle | null = null
+  private settingsDialog: SettingsDialogHandle | null = null
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -236,6 +239,7 @@ export class WatchApp {
   }
 
   private closeOverlays(): void {
+    closeImageMenu()
     if (this.postEditorModal) {
       this.postEditorModal.destroy()
       this.postEditorModal = null
@@ -612,20 +616,68 @@ export class WatchApp {
             }
           },
         },
-        onExport: () => {
-          void exportWatchlist().then(() => {
-            this.showNotice(lang.transl('_w_exportDone'))
-          })
-        },
-        onImport: () => {
-          importWatchlist((msg, isError) => this.showNotice(msg, isError))
-        },
+        onOpenSettings: () => this.openSettings(),
         onToggleMobileMenu: () => {
           this.mobileMenuOpen = !this.mobileMenuOpen
           this.renderSidebarOnly()
         },
       },
     })
+  }
+
+  /** Right-click menu of a favorite image; on a selected image in select
+   * mode it acts on the whole selection */
+  private openImageMenu(
+    key: string,
+    at: { x: number; y: number },
+    shown: HTMLImageElement | null
+  ): void {
+    const useSelection =
+      this.selectMode && this.selected.has(key) && this.selected.size > 1
+    const keys = useSelection ? Array.from(this.selected) : [key]
+    const images = keys
+      .map((k) => favImages.get(k))
+      .filter((img): img is FavImage => img !== undefined)
+    openImageMenu({
+      images,
+      at,
+      shown,
+      notify: (msg, isError) => this.showNotice(msg, isError),
+      onChanged: () => {
+        if (!useSelection) return
+        this.selected.clear()
+        this.lastSelectedKey = null
+        this.renderToolbarOnly()
+      },
+    })
+  }
+
+  private openSettings(): void {
+    this.settingsDialog?.destroy()
+    this.settingsDialog = openSettingsDialog({
+      view: this.view,
+      onViewChange: (mode) => this.setView(mode),
+      onExport: () => {
+        void exportWatchlist().then(() => {
+          this.showNotice(lang.transl('_w_exportDone'))
+        })
+      },
+      onImport: () => {
+        importWatchlist((msg, isError) => this.showNotice(msg, isError))
+      },
+      onClose: () => {
+        this.settingsDialog = null
+      },
+    })
+  }
+
+  private setView(mode: ViewMode): void {
+    this.view = mode
+    saveViewMode(mode)
+    // The settings dialog can change it on a creator's page, which has no list
+    if (this.route.view === 'creator') return
+    this.renderToolbarOnly()
+    this.renderListContent()
   }
 
   private renderToolbarOnly(): void {
@@ -763,12 +815,7 @@ export class WatchApp {
           this.sort = mode
           this.renderListContent()
         },
-        onViewChange: (mode) => {
-          this.view = mode
-          saveViewMode(mode)
-          this.renderToolbarOnly()
-          this.renderListContent()
-        },
+        onViewChange: (mode) => this.setView(mode),
         onToggleSelect: () => {
           this.selectMode = !this.selectMode
           if (!this.selectMode) {
@@ -922,6 +969,9 @@ export class WatchApp {
               key,
               shiftKey
             )
+          },
+          onContextMenu: (key, at, shown) => {
+            this.openImageMenu(key, at, shown)
           },
         },
       })

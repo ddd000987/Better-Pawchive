@@ -207,6 +207,10 @@
   transition: transform 0.15s;
 }
 
+#pwpSettingsCenter .pwpSC-section[hidden] {
+  display: none;
+}
+
 #pwpSettingsCenter .pwpSC-section.collapsed .pwpSC-chev {
   transform: rotate(180deg);
 }
@@ -310,6 +314,109 @@
   color: #8fa3b8;
   font-size: 12px;
   cursor: default;
+}
+
+// Home page: intro, what this page can do, and the two numbered steps
+#pwpSettingsCenter .pwpSC-homeIntro {
+  margin: 10px 0 12px;
+}
+
+#pwpSettingsCenter .pwpSC-homeIntroTitle {
+  color: #fff;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+#pwpSettingsCenter .pwpSC-homeIntroText,
+#pwpSettingsCenter .pwpSC-homeHint {
+  margin-top: 4px;
+  color: #8fa3b8;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+#pwpSettingsCenter .pwpSC-homeHint {
+  margin: 8px 0;
+}
+
+#pwpSettingsCenter .pwpSC-homeContext {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(10, 132, 255, 0.4);
+  border-radius: 8px;
+  background: rgba(10, 132, 255, 0.12);
+  color: #cfe3f8;
+  font-size: 13px;
+  line-height: 1.6;
+
+  &.is-unsupported {
+    border-color: rgba(255, 159, 10, 0.45);
+    background: rgba(255, 159, 10, 0.1);
+    color: #f3d6a6;
+  }
+}
+
+#pwpSettingsCenter .pwpSC-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#pwpSettingsCenter .pwpSC-step {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2c3947;
+  border-radius: 8px;
+  background: #1d2733;
+  opacity: 0.7;
+
+  &.is-current {
+    border-color: #0a84ff;
+    opacity: 1;
+  }
+
+  &.is-done {
+    opacity: 1;
+  }
+}
+
+#pwpSettingsCenter .pwpSC-stepNum {
+  flex: 0 0 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #2b3b4f;
+  color: #8fa3b8;
+  font-weight: bold;
+  line-height: 26px;
+  text-align: center;
+}
+
+#pwpSettingsCenter .pwpSC-step.is-current .pwpSC-stepNum {
+  background: #0a84ff;
+  color: #fff;
+}
+
+#pwpSettingsCenter .pwpSC-step.is-done .pwpSC-stepNum {
+  background: #30d158;
+  color: #0f1720;
+}
+
+#pwpSettingsCenter .pwpSC-stepBody {
+  flex: 1;
+  min-width: 0;
+}
+
+#pwpSettingsCenter .pwpSC-stepTitle {
+  color: #fff;
+  font-weight: bold;
+}
+
+#pwpSettingsCenter .pwpSC-stepDesc {
+  margin-top: 2px;
+  color: #8fa3b8;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 // 抓取進度區塊：行距比一般設定列緊湊
@@ -1159,10 +1266,11 @@ a[href][data-pwp-picked]::after {
   opacity: 1;
 }
 
-// Watchlist folder popover (matches settings center dark palette, just below it)
+// Watchlist folder popover (matches the settings center dark palette)
 .pwpWatchMenu {
   position: fixed;
-  z-index: 2147483645;
+  // Above the settings center: its home page opens this menu too
+  z-index: 2147483647;
   min-width: 200px;
   max-width: 280px;
   padding: 6px;

@@ -68,8 +68,7 @@ export interface SidebarCallbacks {
   creators: FolderSectionCallbacks
   favPosts: FolderSectionCallbacks
   favImages: FolderSectionCallbacks
-  onExport: () => void
-  onImport: () => void
+  onOpenSettings: () => void
   onToggleMobileMenu: () => void
 }
 
@@ -332,13 +331,22 @@ export function renderSidebar(
   brand.appendChild(el('div', 'w-brand-sub', lang.transl('_w_subtitle')))
   header.appendChild(brand)
 
+  const headerActions = el('div', 'w-sidebar-actions')
+  const settingsBtn = el('button', 'w-icon-btn w-settings-btn', '⚙')
+  settingsBtn.type = 'button'
+  settingsBtn.setAttribute('aria-label', lang.transl('_wset_title'))
+  settingsBtn.title = lang.transl('_wset_title')
+  settingsBtn.addEventListener('click', () => callbacks.onOpenSettings())
+  headerActions.appendChild(settingsBtn)
+
   const toggleBtn = el('button', 'w-mobile-toggle')
   toggleBtn.type = 'button'
   toggleBtn.setAttribute('aria-expanded', String(mobileOpen))
   toggleBtn.setAttribute('aria-label', lang.transl('_w_menuToggle'))
   toggleBtn.textContent = mobileOpen ? '✕' : '☰'
   toggleBtn.addEventListener('click', () => callbacks.onToggleMobileMenu())
-  header.appendChild(toggleBtn)
+  headerActions.appendChild(toggleBtn)
+  header.appendChild(headerActions)
   root.appendChild(header)
 
   // Collapsible body
@@ -512,28 +520,6 @@ export function renderSidebar(
   })
 
   body.appendChild(nav)
-
-  // Bottom export / import buttons
-  const footer = el('div', 'w-sidebar-footer')
-  const exportBtn = el(
-    'button',
-    'w-btn w-btn-secondary',
-    lang.transl('_w_export')
-  )
-  exportBtn.type = 'button'
-  exportBtn.addEventListener('click', () => callbacks.onExport())
-  footer.appendChild(exportBtn)
-
-  const importBtn = el(
-    'button',
-    'w-btn w-btn-secondary',
-    lang.transl('_w_import')
-  )
-  importBtn.type = 'button'
-  importBtn.addEventListener('click', () => callbacks.onImport())
-  footer.appendChild(importBtn)
-
-  body.appendChild(footer)
   root.appendChild(body)
 }
 

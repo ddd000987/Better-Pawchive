@@ -33,7 +33,7 @@ import { DownloadControls } from './pages/downloadControls'
 import { FolderStatusView } from './pages/folderStatus'
 import { buildHelp } from './pages/help'
 import { hotkeyText } from './hotkeyText'
-import { buildHome } from './pages/home'
+import { HomeView } from './pages/home'
 import { LogView } from './pages/log'
 import { MountInfoView } from './pages/mountInfo'
 import { NamingView } from './pages/naming'
@@ -74,7 +74,7 @@ class SettingsCenter {
   private noResult!: HTMLDivElement
   private navEls = new Map<CenterPage, HTMLButtonElement>()
   private pageEls = new Map<CenterPage, HTMLDivElement>()
-  private activePage: CenterPage = 'crawl'
+  private activePage: CenterPage = 'home'
   /** 分頁模組需要從外殼取用的能力 */
   private readonly ctx: CenterContext = {
     refreshNamingPreview: () => this.naming.refresh(),
@@ -92,6 +92,7 @@ class SettingsCenter {
   /** 右下角 ⚙ 浮動按鈕 */
   private trigger!: HTMLButtonElement
   private readonly mountInfo = new MountInfoView()
+  private readonly home = new HomeView()
   private readonly logView = new LogView()
   private readonly naming = new NamingView()
   private readonly cache = new CacheView(this.ctx)
@@ -278,9 +279,8 @@ class SettingsCenter {
     document.body.appendChild(this.descTip)
     keepInBody(this.descTip)
 
-    buildHome(this.pageEls.get('home')!, {
+    this.home.build(this.pageEls.get('home')!, {
       status: this.status,
-      mountInfo: this.mountInfo,
       crawlControls: this.crawlControls,
       crawlProgress: this.crawlProgress,
       dlControls: this.dlControls,
@@ -332,6 +332,9 @@ class SettingsCenter {
   /** Esc 關閉（輸入框內只清搜尋，不關面板） */
   private onKeyDown(ev: KeyboardEvent): void {
     if (ev.key !== 'Escape' || !this.isOpen) return
+    // Already handled, e.g. by the watch folder menu opened from the home page
+    // (it listens in the capture phase and closes itself first)
+    if (ev.defaultPrevented) return
     const t = ev.target as HTMLElement | null
     // An open <select> uses Esc to close its own list
     if (t && (isTypingTarget(t) || t.tagName === 'SELECT')) {
@@ -483,6 +486,7 @@ class SettingsCenter {
   private refreshStatus(): void {
     if (!this.built) return
     this.status.refresh()
+    this.home.refresh()
     if (store.result.length > 0) this.naming.refresh()
   }
 
@@ -531,14 +535,17 @@ class SettingsCenter {
       this.naming.refresh()
       return
     }
-    const box = this.center.querySelector<HTMLInputElement>(
+    // The home page repeats a few switches, so a key can have several boxes
+    const boxes = this.center.querySelectorAll<HTMLInputElement>(
       `input[data-skey="${key}"]`
     )
-    if (box) {
-      if (box.type === 'checkbox') {
-        box.checked = settings.get(key as SettingKey) as boolean
-      } else {
-        box.value = String(settings.get(key as SettingKey))
+    if (boxes.length > 0) {
+      for (const box of boxes) {
+        if (box.type === 'checkbox') {
+          box.checked = settings.get(key as SettingKey) as boolean
+        } else {
+          box.value = String(settings.get(key as SettingKey))
+        }
       }
       this.naming.refresh()
       return
@@ -624,8 +631,10 @@ class SettingsCenter {
     }
     // 抓取進度統計變化：節流後重繪（計數更新很頻繁）
     EVT.on(EVT.list.crawlProgress, () => this.crawlProgress.scheduleRender())
-    // 抓取完成（有結果）自動切到下載頁並展開
-    EVT.on(EVT.list.readyDownload, () => this.open('download'))
+    // 抓取完成（有結果）自動切到下載頁並展開；從首頁開始的就留在首頁的步驟 2
+    EVT.on(EVT.list.readyDownload, () =>
+      this.open(this.activePage === 'home' ? 'home' : 'download')
+    )
     // 快取異動時重繪快取列表
     EVT.on(EVT.list.cacheChange, () => this.cache.render())
     EVT.on(EVT.list.queueChange, () => this.cache.render())

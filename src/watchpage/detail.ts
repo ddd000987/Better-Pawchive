@@ -46,6 +46,7 @@ import {
   populateCover,
   siteLabel,
 } from './dom'
+import { attachPostPreview, hideHoverPreview } from './hoverPreview'
 import { displayName } from './listModel'
 import { firstIdsOf, pageCache } from './pageCache'
 import { createStarInput, type StarInputHandle } from './stars'
@@ -352,6 +353,7 @@ export function mountDetailView(
   const renderPostsSection = (): void => {
     if (!postsSectionEl || !currentCreator) return
     const host = watchStore.hostFor(currentCreator.site)
+    hideHoverPreview()
     postsSectionEl.replaceChildren()
 
     const head = el('div', 'w-posts-head')
@@ -420,6 +422,13 @@ export function mountDetailView(
       }
       link.appendChild(info)
       tile.appendChild(link)
+      attachPostPreview(tile, {
+        host,
+        service: creator.service,
+        creatorId: creator.creatorId,
+        postId: post.id,
+        coverPath: post.coverPath,
+      })
 
       const favKey = makeFavPostKey(
         creator.site,

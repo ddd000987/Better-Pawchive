@@ -7,6 +7,7 @@ import { postPageUrl, thumbUrl } from '../watch/watchKey'
 import { watchStore } from '../watch/watchStore'
 import type { UnreadPost, WatchData, WatchedCreator } from '../watch/watchTypes'
 import { el, formatDate } from './dom'
+import { attachPostPreview, hideHoverPreview } from './hoverPreview'
 import { displayName } from './listModel'
 
 export interface FeedCallbacks {
@@ -72,6 +73,7 @@ export function renderFeedView(
   callbacks: FeedCallbacks
 ): void {
   const entries = collectFeedEntries(data)
+  hideHoverPreview()
   root.replaceChildren()
 
   if (entries.length === 0) {
@@ -120,6 +122,13 @@ export function renderFeedView(
     link.appendChild(info)
 
     tile.appendChild(link)
+    attachPostPreview(tile, {
+      host,
+      service: creator.service,
+      creatorId: creator.creatorId,
+      postId: post.id,
+      coverPath: post.coverPath,
+    })
 
     const footer = el('div', 'w-feed-footer')
     const meta = el('div', 'w-feed-meta')

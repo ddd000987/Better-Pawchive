@@ -1,11 +1,12 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
-/* Settings center: Watchlist page (live summary, open watch page button, and tracking settings). */
+/* Settings center: Watchlist page (live summary and the open watch page button).
+ * The watchlist's own settings are in the watch page's ⚙ dialog. */
 
 import { EVT } from '../../EVT'
 import { lang } from '../../Language'
 import { totalUnread } from '../../watch/watchData'
 import { watchStore } from '../../watch/watchStore'
-import { btnRow, checkRow, inputRow, section, tipCard } from './controls'
+import { btnRow, section, tipCard } from './controls'
 
 export function buildWatch(host: HTMLDivElement): void {
   const body = section(host, '_sc_watch')
@@ -58,15 +59,5 @@ export function buildWatch(host: HTMLDivElement): void {
   watchStore.onChange(renderTrackSummary)
   EVT.on(EVT.list.langChange, renderTrackSummary)
   trackBody.appendChild(trackSummary)
-
-  checkRow(trackBody, 'watchScanEnabled', '_wt_scanEnabled')
-  inputRow(
-    trackBody,
-    'watchScanIntervalHours',
-    '_wt_scanIntervalHours',
-    'number',
-    undefined,
-    { min: '1', max: '168', step: '1' }
-  )
-  checkRow(trackBody, 'watchNotice', '_wt_noticeEnabled')
+  tipCard(trackBody, '_ws_settingsMoved')
 }

@@ -133,6 +133,14 @@ interface MetaSettings {
   watchScanIntervalHours: number
   /** Show the in-page notice when tracked creators have new posts */
   watchNotice: boolean
+  /** Watch page: hovering a post tile previews its images */
+  watchPreviewPosts: boolean
+  /** Watch page: hovering a favorite image shows it larger */
+  watchPreviewImages: boolean
+  /** Watch page previews load the original image (false = thumbnail only) */
+  watchPreviewOriginal: boolean
+  /** Watch page hover delay before a preview opens (ms) */
+  watchPreviewWait: number
 }
 
 /** 快捷鍵組合（key 為 KeyboardEvent.code） */
@@ -431,6 +439,10 @@ const defaultSettings: PawchiveSettings = {
   watchScanEnabled: true,
   watchScanIntervalHours: 6,
   watchNotice: true,
+  watchPreviewPosts: true,
+  watchPreviewImages: true,
+  watchPreviewOriginal: false,
+  watchPreviewWait: 400,
 }
 
 /** 數值鍵的夾取規則（整數鍵先四捨五入） */
@@ -449,6 +461,7 @@ const numberRules: Partial<
   filterMaxFiles: { min: 0, max: 100000, integer: true },
   filterMaxSizeMiB: { min: 0, max: 1048576 },
   watchScanIntervalHours: { min: 1, max: 168, integer: true },
+  watchPreviewWait: { min: 0, max: 2000, integer: true },
 }
 
 /** 枚舉鍵的白名單（不在名單內回預設） */
