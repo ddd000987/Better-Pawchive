@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-25
+
 ### Added
 
 - Watch page previews: resting on a post (in a creator's posts, "New posts" or "Favorite posts") shows its images at their own proportions, and the mouse wheel switches between them; resting on a favorite image shows it larger. Thumbnails are shown by default; the original can be loaded instead.
