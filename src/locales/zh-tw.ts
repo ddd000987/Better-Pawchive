@@ -228,6 +228,7 @@ export const texts: LocaleTexts = {
   _cacheFull: `快取已滿（{} 筆），請先刪除舊的`,
   _recordStoreFailed: `下載記錄寫入失敗（可能是空間不足），新記錄不會被儲存，去重可能失效`,
   _cacheStoreFailed: `快取寫入失敗（可能是空間不足），本筆僅保留在此次開啟中`,
+  _cacheEntryMissing: `這筆快取的資料已不在儲存空間中，請刪除後重新抓取`,
   _cacheEvicted: `快取空間不足，已丟棄最舊的一筆：{}`,
   _cacheEmpty: `尚無快取，抓取完成後會自動存放在這裡`,
   _cacheMeta: `{} · {}篇 · {}檔 · {}`,

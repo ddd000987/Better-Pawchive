@@ -19,10 +19,16 @@ import { states } from '../store/States'
 import type { Result } from '../store/StoreType'
 import { toast } from '../Toast'
 
-/** storage key（與下載記錄的 pawchiveProDownloadRecord 區分） */
-const STORE_KEY = 'pawchiveProCrawlCache'
+/** All entries in one array, before the index/body split (read to migrate) */
+const LEGACY_KEY = 'pawchiveProCrawlCache'
+/** The ordered entry summaries (no result arrays) */
+const INDEX_KEY = 'pawchiveProCrawlCache:index'
+/** One key per entry for its result arrays, so saving or renaming one entry
+ * never rewrites the others and listing them never reads the arrays */
+const BODY_PREFIX = 'pawchiveProCrawlCache:entry:'
+const bodyKey = (id: string) => BODY_PREFIX + id
 
-/** 快取上限筆數（storage.local 約 10MB；大創作者單筆就可能很大） */
+/** 快取上限筆數（大創作者單筆就可能很大） */
 const MAX_ENTRIES = 20
 
 export interface CacheEntry {
@@ -42,7 +48,18 @@ export interface CacheEntry {
   metas: Result[]
 }
 
-/** Keep only well-formed entries from whatever storage returned */
+/** 不含大陣列的快取摘要（給 UI 頻繁刷新用，避免深拷貝整批結果） */
+export type CacheSummary = Omit<CacheEntry, 'results' | 'metas'>
+
+/** The result arrays of an entry, stored under its own key */
+export type CacheBody = Pick<CacheEntry, 'results' | 'metas'>
+
+function toSummary(entry: CacheEntry): CacheSummary {
+  const { results: _r, metas: _m, ...summary } = entry
+  return summary
+}
+
+/** Keep only well-formed full entries (the old single-key format) */
 function normalizeEntries(saved: unknown): CacheEntry[] {
   if (!Array.isArray(saved)) {
     return []
@@ -53,17 +70,38 @@ function normalizeEntries(saved: unknown): CacheEntry[] {
   )
 }
 
+/** Keep only well-formed summaries from whatever storage returned */
+function normalizeSummaries(saved: unknown): CacheSummary[] {
+  if (!Array.isArray(saved)) {
+    return []
+  }
+  return saved
+    .filter(
+      (e): e is CacheSummary =>
+        !!e && typeof e === 'object' && typeof e.id === 'string'
+    )
+    .map((e) => toSummary(e as CacheEntry))
+}
+
+function normalizeBody(saved: unknown): CacheBody | null {
+  const b = saved as Partial<CacheBody> | null | undefined
+  if (!b || !Array.isArray(b.results)) {
+    return null
+  }
+  return { results: b.results, metas: Array.isArray(b.metas) ? b.metas : [] }
+}
+
 /** Merge this tab's changes into the entries another tab may have saved.
  * Start from the stored list, drop deleted ids, let each dirty local entry
  * replace its stored copy (or be inserted), order newest first by createdAt
  * (a stable sort: ties keep dirty local entries ahead of stored ones) and
  * drop the oldest beyond MAX_ENTRIES. */
-export function mergeEntries(
-  stored: CacheEntry[],
-  local: CacheEntry[],
+export function mergeEntries<T extends CacheSummary>(
+  stored: T[],
+  local: T[],
   dirtyIds: ReadonlySet<string>,
   deletedIds: ReadonlySet<string>
-): CacheEntry[] {
+): T[] {
   const dirtyLocal = local.filter(
     (e) => dirtyIds.has(e.id) && !deletedIds.has(e.id)
   )
@@ -76,9 +114,6 @@ export function mergeEntries(
     .slice(0, MAX_ENTRIES)
 }
 
-/** 不含大陣列的快取摘要（給 UI 頻繁刷新用，避免深拷貝整批結果） */
-export type CacheSummary = Omit<CacheEntry, 'results' | 'metas'>
-
 /** 目前掛載狀態：entry 為已存入快取的那筆；unsaved＝store 裡是沒進快取的結果 */
 export interface MountedInfo {
   entry: CacheSummary | null
@@ -86,7 +121,13 @@ export interface MountedInfo {
 }
 
 class CrawlCache {
-  private entries: CacheEntry[] = []
+  /** Entry summaries, newest first; the result arrays stay in storage */
+  private entries: CacheSummary[] = []
+  /** Result arrays held in memory: entries not written yet, and entries of
+   * the old format until the migration is written */
+  private bodies = new Map<string, CacheBody>()
+  /** The old single key was found and is not migrated yet */
+  private legacyPending = false
   private loadPromise: Promise<void> | null = null
   private saveTimer = 0
   /** The first load finished; storage change events are ignored before it */
@@ -114,12 +155,12 @@ class CrawlCache {
   private bindEvents() {
     // Entries saved or deleted by other tabs show up without a reload
     chrome.storage?.onChanged?.addListener((changes, area) => {
-      if (area !== 'local' || !(STORE_KEY in changes) || !this.loaded) {
+      if (area !== 'local' || !(INDEX_KEY in changes) || !this.loaded) {
         return
       }
       this.applyEntries(
         mergeEntries(
-          normalizeEntries(changes[STORE_KEY].newValue),
+          normalizeSummaries(changes[INDEX_KEY].newValue),
           this.entries,
           this.dirtyIds,
           this.deletedIds
@@ -159,9 +200,7 @@ class CrawlCache {
 
     if (store.result.length === 0) {
       // 這輪什麼都沒抓到：還原原本掛載的快取，不要讓下載區平白變空
-      const prev = prevId
-        ? this.entries.find((e) => e.id === prevId)
-        : undefined
+      const prev = prevId ? await this.loadEntry(prevId) : null
       if (prev) {
         this.applyToStore(prev.results, prev.metas, prev.title, true)
         this.mountedId = prev.id
@@ -181,9 +220,7 @@ class CrawlCache {
 
     if (entry && !autoMount) {
       // 新結果只留在快取：還原原本掛載的快取，沒有就清空下載區
-      const prev = prevId
-        ? this.entries.find((e) => e.id === prevId)
-        : undefined
+      const prev = prevId ? await this.loadEntry(prevId) : null
       if (prev) {
         this.applyToStore(prev.results, prev.metas, prev.title, true)
         this.mountedId = prev.id
@@ -230,9 +267,8 @@ class CrawlCache {
   /** 目前掛載狀態；什麼都沒掛載回傳 null（entry 為不含大陣列的摘要） */
   public getMounted(): MountedInfo | null {
     if (this.mountedId) {
-      const e = this.entries.find((x) => x.id === this.mountedId)
-      if (e) {
-        const { results: _r, metas: _m, ...summary } = e
+      const summary = this.summary(this.mountedId)
+      if (summary) {
         return { entry: summary, unsaved: false }
       }
     }
@@ -251,10 +287,11 @@ class CrawlCache {
     if (!this.loadPromise) {
       this.loadPromise = (async () => {
         try {
-          const data = await chrome.storage.local.get(STORE_KEY)
-          const saved = data[STORE_KEY]
-          if (Array.isArray(saved)) {
-            this.entries = normalizeEntries(saved)
+          const data = await chrome.storage.local.get([INDEX_KEY, LEGACY_KEY])
+          const index = normalizeSummaries(data[INDEX_KEY])
+          this.entries = index
+          if (data[LEGACY_KEY] !== undefined) {
+            this.adoptLegacy(index, normalizeEntries(data[LEGACY_KEY]))
           }
         } catch (e) {
           console.error('[PawchivePro] load crawl cache failed', e)
@@ -266,9 +303,58 @@ class CrawlCache {
     return this.loadPromise
   }
 
-  /** 目前快取（新在前；回傳深拷貝，防外部竄改快取內容） */
-  public list(): CacheEntry[] {
-    return JSON.parse(JSON.stringify(this.entries))
+  /** Entries of the old single key that the index lacks join the list as
+   * unsaved, so the next save writes them in the new layout; that save then
+   * checks them and removes the old key. Another tab doing the same at once
+   * writes the same entries, which merges cleanly. */
+  private adoptLegacy(index: CacheSummary[], legacy: CacheEntry[]): void {
+    const known = new Set(index.map((e) => e.id))
+    const added = legacy.filter((e) => !known.has(e.id))
+    for (const e of added) {
+      this.bodies.set(e.id, { results: e.results, metas: e.metas })
+      this.markDirty(e.id)
+    }
+    this.entries = mergeEntries(
+      index,
+      added.map(toSummary),
+      new Set(added.map((e) => e.id)),
+      new Set()
+    )
+    this.legacyPending = true
+    this.persist()
+  }
+
+  /** 目前快取的摘要（新在前；回傳拷貝，防外部竄改快取內容） */
+  public list(): CacheSummary[] {
+    return this.entries.map((e) => ({ ...e }))
+  }
+
+  /** The result arrays of an entry: from memory when not written yet, else
+   * read from its own key. Null when missing or unreadable. */
+  private async loadBody(id: string): Promise<CacheBody | null> {
+    const held = this.bodies.get(id)
+    if (held) {
+      return held
+    }
+    try {
+      const key = bodyKey(id)
+      const data = await chrome.storage.local.get(key)
+      return normalizeBody(data[key])
+    } catch (e) {
+      console.error('[PawchivePro] load crawl cache entry failed', e)
+      return null
+    }
+  }
+
+  /** One full entry (summary and result arrays, a deep copy), or null */
+  public async loadEntry(id: string): Promise<CacheEntry | null> {
+    await this.ensureLoaded()
+    const summary = this.summary(id)
+    const body = summary ? await this.loadBody(id) : null
+    if (!summary || !body) {
+      return null
+    }
+    return JSON.parse(JSON.stringify({ ...summary, ...body }))
   }
 
   /** 抓取完成自動快照（空結果／縮圖單帖快抓不存；滿了擋下請用戶先刪舊的）。
@@ -293,7 +379,7 @@ class CrawlCache {
       return null
     }
     const first = store.result[0]
-    const entry: CacheEntry = {
+    const summary: CacheSummary = {
       id: `${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffff).toString(36)}`,
       title: first.creator || first.creatorId,
       service: first.service,
@@ -304,18 +390,19 @@ class CrawlCache {
       fileCount: store.result.length,
       createdAt: Date.now(),
       ...(incomplete ? { incomplete: true } : {}),
+    }
+    this.bodies.set(summary.id, {
       results: JSON.parse(JSON.stringify(store.result)),
       metas: JSON.parse(JSON.stringify(store.resultMeta)),
-    }
-    this.entries.unshift(entry)
-    this.markDirty(entry.id)
+    })
+    this.entries.unshift(summary)
+    this.markDirty(summary.id)
     this.persist()
-    EVT.fire('cacheChange', { id: entry.id })
+    EVT.fire('cacheChange', { id: summary.id })
     if (!opts.silent) {
-      toast.show(lang.transl('_cacheSaved', entry.title))
+      toast.show(lang.transl('_cacheSaved', summary.title))
     }
-    const { results: _r, metas: _m, ...summary } = entry
-    return summary
+    return { ...summary }
   }
 
   public async rename(id: string, title: string): Promise<boolean> {
@@ -352,6 +439,7 @@ class CrawlCache {
       return false
     }
     this.entries.splice(i, 1)
+    this.bodies.delete(id)
     this.markDeleted(id)
     this.persist()
     EVT.fire('cacheChange', { id })
@@ -365,12 +453,10 @@ class CrawlCache {
     return true
   }
 
-  /** 單筆摘要（不深拷貝大陣列）；不存在回 null */
+  /** 單筆摘要（拷貝）；不存在回 null */
   public summary(id: string): CacheSummary | null {
     const e = this.entries.find((x) => x.id === id)
-    if (!e) return null
-    const { results: _r, metas: _m, ...summary } = e
-    return summary
+    return e ? { ...e } : null
   }
 
   /** 掛載：載入 store 當作目前下載目標，不自動開始下載。
@@ -383,10 +469,21 @@ class CrawlCache {
   ): Promise<boolean> {
     const auto = !!opts.auto
     await this.ensureLoaded()
-    const entry = this.entries.find((e) => e.id === id)
-    if (!entry || entry.results.length === 0) {
+    const summary = this.summary(id)
+    if (!summary) {
       return false
     }
+    // Read before the checks below, so nothing awaits between them and the
+    // mount itself
+    const body = await this.loadBody(id)
+    if (!body) {
+      if (!auto) toast.error(lang.transl('_cacheEntryMissing'))
+      return false
+    }
+    if (body.results.length === 0) {
+      return false
+    }
+    const entry = { ...summary, ...body }
     await states.waitSettingInitialized()
     if (states.busy || states.hasDownloadTask) {
       toast.error(lang.transl('_mountBusy'))
@@ -450,8 +547,8 @@ class CrawlCache {
 
   /** Replace the in-memory list. Fires cacheChange when the visible list
    * changed, and demotes the mounted entry to "unsaved" if it is gone. */
-  private applyEntries(next: CacheEntry[]): void {
-    const sign = (list: CacheEntry[]) =>
+  private applyEntries(next: CacheSummary[]): void {
+    const sign = (list: CacheSummary[]) =>
       JSON.stringify(list.map((e) => [e.id, e.title]))
     const changed = sign(this.entries) !== sign(next)
     this.entries = next
@@ -473,25 +570,50 @@ class CrawlCache {
     }, 200)
   }
 
-  /** Read-merge-write: other tabs may have saved entries since this tab
-   * loaded, so merge this tab's changes into the stored list. */
+  /** Read-merge-write of the index: other tabs may have saved entries since
+   * this tab loaded, so merge this tab's changes into the stored list. The
+   * index and the bodies of new entries go in one write, so the stored index
+   * never names a body that is not there. */
   private async saveEntries(): Promise<void> {
-    if (this.dirtyIds.size === 0 && this.deletedIds.size === 0) {
+    if (
+      this.dirtyIds.size === 0 &&
+      this.deletedIds.size === 0 &&
+      !this.legacyPending
+    ) {
       return
     }
     const dirty = new Set(this.dirtyIds)
     const deleted = new Set(this.deletedIds)
+    const migrating = this.legacyPending
     this.touchedIds = new Set()
-    let merged: CacheEntry[] = this.entries
+    let merged: CacheSummary[] = this.entries
     try {
-      const data = await chrome.storage.local.get(STORE_KEY)
-      merged = mergeEntries(
-        normalizeEntries(data[STORE_KEY]),
-        this.entries,
-        dirty,
-        deleted
-      )
-      await chrome.storage.local.set({ [STORE_KEY]: merged })
+      const data = await chrome.storage.local.get(INDEX_KEY)
+      const stored = normalizeSummaries(data[INDEX_KEY])
+      // Taken before the write: an entry another tab saves meanwhile reaches
+      // this.entries through a change event and must keep its results
+      const known = [...stored, ...this.entries].map((e) => e.id)
+      merged = mergeEntries(stored, this.entries, dirty, deleted)
+      const out: Record<string, unknown> = { [INDEX_KEY]: merged }
+      const written: string[] = []
+      for (const e of merged) {
+        const body = dirty.has(e.id) ? this.bodies.get(e.id) : undefined
+        if (body) {
+          out[bodyKey(e.id)] = body
+          written.push(e.id)
+        }
+      }
+      await chrome.storage.local.set(out)
+      // Bodies of entries the index no longer has: deleted here, deleted by
+      // another tab, or dropped by the cap
+      const kept = new Set(merged.map((e) => e.id))
+      const gone = new Set([...deleted, ...known].filter((id) => !kept.has(id)))
+      if (gone.size > 0) {
+        await chrome.storage.local.remove([...gone].map(bodyKey))
+      }
+      if (migrating) {
+        await this.finishMigration(written)
+      }
       // Anything touched while the write was in flight stays pending
       for (const id of dirty) {
         if (!this.touchedIds.has(id)) this.dirtyIds.delete(id)
@@ -499,9 +621,19 @@ class CrawlCache {
       for (const id of deleted) {
         if (!this.touchedIds.has(id)) this.deletedIds.delete(id)
       }
-      // Keep entries added meanwhile: merge again over the written list
+      // Written bodies are read back from storage when needed
+      for (const id of written) {
+        this.bodies.delete(id)
+      }
+      // Merge again over what storage holds now, not over the written list:
+      // another tab may have saved since, and its change event has already
+      // been applied. Keeps entries added here meanwhile too.
+      const latest = await chrome.storage.local
+        .get(INDEX_KEY)
+        .then((d) => normalizeSummaries(d[INDEX_KEY]))
+        .catch(() => merged)
       this.applyEntries(
-        mergeEntries(merged, this.entries, this.dirtyIds, this.deletedIds)
+        mergeEntries(latest, this.entries, this.dirtyIds, this.deletedIds)
       )
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -510,6 +642,11 @@ class CrawlCache {
         const removed = merged[merged.length - 1]
         // Recorded as deleted so the next merge does not bring it back
         this.markDeleted(removed.id)
+        this.bodies.delete(removed.id)
+        // Free its space now, or the retry would not fit either
+        await chrome.storage.local
+          .remove(bodyKey(removed.id))
+          .catch(() => undefined)
         this.applyEntries(
           mergeEntries(merged, this.entries, this.dirtyIds, this.deletedIds)
         )
@@ -519,9 +656,30 @@ class CrawlCache {
       }
       // 常見於單筆過大（內文 textData 多）超過配額：
       // 本筆仍留記憶體可下載，只是重開瀏覽器後消失
+      console.error('[PawchivePro] save crawl cache failed', e)
       toast.warning(lang.transl('_cacheStoreFailed'))
       log.warning(lang.transl('_cacheStoreFailed'))
     }
+  }
+
+  /** The old entries are written in the new layout: read them back, then
+   * remove the old key. A failure keeps the old key for the next load. */
+  private async finishMigration(written: string[]): Promise<void> {
+    const check = await chrome.storage.local.get([
+      INDEX_KEY,
+      ...written.map(bodyKey),
+    ])
+    const indexed = new Set(
+      normalizeSummaries(check[INDEX_KEY]).map((e) => e.id)
+    )
+    const missing = written.find(
+      (id) => !indexed.has(id) || !normalizeBody(check[bodyKey(id)])
+    )
+    if (missing !== undefined) {
+      throw new Error(`crawl cache entry ${missing} did not reach storage`)
+    }
+    await chrome.storage.local.remove(LEGACY_KEY)
+    this.legacyPending = false
   }
 }
 

@@ -60,14 +60,30 @@ let MAX_ENTRIES: number
 let mergeEntries: typeof import('../src/download/CrawlCache').mergeEntries
 let downloadControl: typeof import('../src/download/DownloadControl').downloadControl
 
-beforeAll(async () => {
-  mem = {}
-  ;(globalThis as any).chrome.storage.local = {
-    get: async (k: string) => (k in mem ? { [k]: mem[k] } : {}),
+const keyList = (keys: string | string[]) =>
+  typeof keys === 'string' ? [keys] : keys
+/** chrome.storage.local over `mem`, copying values through `copy` */
+function storageOver(copy: <T>(v: T) => T = (v) => v) {
+  return {
+    get: async (keys: string | string[]) => {
+      const out: Record<string, any> = {}
+      for (const k of keyList(keys)) {
+        if (k in mem) out[k] = copy(mem[k])
+      }
+      return out
+    },
     set: async (obj: Record<string, any>) => {
-      Object.assign(mem, obj)
+      Object.assign(mem, copy(obj))
+    },
+    remove: async (keys: string | string[]) => {
+      for (const k of keyList(keys)) delete mem[k]
     },
   }
+}
+
+beforeAll(async () => {
+  mem = {}
+  ;(globalThis as any).chrome.storage.local = storageOver()
   ;(globalThis as any).chrome.runtime.onMessage = { addListener: () => {} }
   const doc = (globalThis as any).document
   doc.createElement = () => fakeEl()
@@ -154,15 +170,16 @@ describe('crawlCache', () => {
     expect(crawlCache.list()).toHaveLength(MAX_ENTRIES)
   })
 
-  it('list 回傳深拷貝：外部修改不污染快取', async () => {
+  it('list／loadEntry 回傳拷貝：外部修改不污染快取', async () => {
     seedStore()
     await crawlCache.autoSave()
     const list = crawlCache.list()
+    expect(list[0]).not.toHaveProperty('results')
     list[0].title = 'hacked'
-    list[0].results[0].title = 'hacked'
-    const fresh = crawlCache.list()
-    expect(fresh[0].title).toBe('artist')
-    expect(fresh[0].results[0].title).toBe('t')
+    const full = await crawlCache.loadEntry(list[0].id)
+    full!.results[0].title = 'hacked'
+    expect(crawlCache.list()[0].title).toBe('artist')
+    expect((await crawlCache.loadEntry(list[0].id))!.results[0].title).toBe('t')
   })
 
   it('改名：空字串與未知 id 拒絕', async () => {
@@ -207,7 +224,7 @@ describe('crawlCache', () => {
     expect(events).toEqual([{ manual: true }])
     // 深拷貝：改 store 不污染快取
     store.result[0].title = 'changed'
-    expect(crawlCache.list()[0].results[0].title).toBe('t')
+    expect((await crawlCache.loadEntry(e.id))!.results[0].title).toBe('t')
     expect(downloadControl.startDownload).not.toHaveBeenCalled()
   })
 
@@ -315,14 +332,43 @@ describe('crawlCache', () => {
     expect(crawlCache.getMounted()?.entry?.title).toBe('renamed')
   })
 
-  it('持久化：寫入 storage.local', async () => {
+  it('持久化：索引一個 key、每筆的結果各一個 key', async () => {
     seedStore()
-    await crawlCache.autoSave()
+    const saved = await crawlCache.autoSave()
     await new Promise((r) => setTimeout(r, 400))
-    const saved = mem['pawchiveProCrawlCache']
-    expect(Array.isArray(saved)).toBe(true)
-    expect(saved).toHaveLength(1)
-    expect(saved[0].results).toHaveLength(2)
+    const index = mem['pawchiveProCrawlCache:index']
+    expect(Array.isArray(index)).toBe(true)
+    expect(index).toHaveLength(1)
+    expect(index[0]).not.toHaveProperty('results')
+    const body = mem[`pawchiveProCrawlCache:entry:${saved!.id}`]
+    expect(body.results).toHaveLength(2)
+    expect(body.metas).toHaveLength(1)
+  })
+
+  it('刪除後也移除該筆結果的 key', async () => {
+    seedStore()
+    const saved = await crawlCache.autoSave()
+    await new Promise((r) => setTimeout(r, 400))
+    expect(await crawlCache.remove(saved!.id)).toBe(true)
+    await new Promise((r) => setTimeout(r, 400))
+    expect(mem['pawchiveProCrawlCache:index']).toEqual([])
+    expect(`pawchiveProCrawlCache:entry:${saved!.id}` in mem).toBe(false)
+  })
+
+  it('未完成的抓取：快取帶 incomplete 旗標並寫入索引', async () => {
+    seedStore()
+    states.crawlIncomplete = true
+    try {
+      const saved = await crawlCache.autoSave()
+      expect(saved?.incomplete).toBe(true)
+      await new Promise((r) => setTimeout(r, 400))
+      expect(mem['pawchiveProCrawlCache:index'][0].incomplete).toBe(true)
+    } finally {
+      states.crawlIncomplete = false
+    }
+    seedStore()
+    const complete = await crawlCache.autoSave()
+    expect(complete).not.toHaveProperty('incomplete')
   })
 })
 
@@ -539,7 +585,7 @@ describe('crawlComplete 掛載決策', () => {
 })
 
 describe('crawlCache across tabs', () => {
-  const KEY = 'pawchiveProCrawlCache'
+  const KEY = 'pawchiveProCrawlCache:index'
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
   const settle = () => wait(350)
 
@@ -559,11 +605,23 @@ describe('crawlCache across tabs', () => {
     }
   }
   const ids = () => (mem[KEY] as CacheEntry[]).map((e) => e.id)
+  /** Storage as another tab leaves it: the index plus a body per entry */
+  function seed(list: CacheEntry[]) {
+    mem[KEY] = list.map(({ results: _r, metas: _m, ...summary }) => summary)
+    for (const e of list) {
+      mem[`pawchiveProCrawlCache:entry:${e.id}`] = {
+        results: e.results,
+        metas: e.metas,
+      }
+    }
+  }
   const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
 
   let changeListeners: Array<(changes: any, area: string) => void>
   let keySets: number
   let quotaWhenOver: number
+  /** Runs right after this tab's index write lands, before set() resolves */
+  let afterIndexSet: (() => void) | null
 
   function emitChange(newValue: unknown) {
     for (const fn of changeListeners) {
@@ -596,12 +654,14 @@ describe('crawlCache across tabs', () => {
     changeListeners = []
     keySets = 0
     quotaWhenOver = Infinity
+    afterIndexSet = null
     const g = globalThis as any
     g.chrome.storage.onChanged = {
       addListener: (fn: any) => changeListeners.push(fn),
     }
+    const base = storageOver(clone)
     g.chrome.storage.local = {
-      get: async (k: string) => (k in mem ? { [k]: clone(mem[k]) } : {}),
+      ...base,
       set: async (obj: Record<string, any>) => {
         if (KEY in obj) {
           keySets++
@@ -609,16 +669,21 @@ describe('crawlCache across tabs', () => {
             throw new Error('QUOTA_BYTES quota exceeded')
           }
         }
-        Object.assign(mem, clone(obj))
+        await base.set(obj)
+        if (KEY in obj && afterIndexSet) {
+          const fn = afterIndexSet
+          afterIndexSet = null
+          fn()
+        }
       },
     }
     mem = {}
   })
 
   it('keeps an entry another tab added after our load, and ours too', async () => {
-    mem[KEY] = [entry('E1', 1000)]
+    seed([entry('E1', 1000)])
     const { cache, sto } = await freshCache()
-    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    seed([entry('E2', 2000), entry('E1', 1000)])
     sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
     sto.result = [file('patreon/u1/999#0')]
     const saved = await cache.autoSave({ silent: true })
@@ -628,25 +693,25 @@ describe('crawlCache across tabs', () => {
   })
 
   it('does not undo our delete when merging with another tab', async () => {
-    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    seed([entry('E2', 2000), entry('E1', 1000)])
     const { cache } = await freshCache()
     expect(await cache.remove('E1')).toBe(true)
-    mem[KEY] = [entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)]
+    seed([entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)])
     await settle()
     expect(ids()).toEqual(['E3', 'E2'])
   })
 
   it('does not undo the other tab delete unless we modified that entry', async () => {
-    mem[KEY] = [entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)]
+    seed([entry('E3', 3000), entry('E2', 2000), entry('E1', 1000)])
     const { cache } = await freshCache()
-    mem[KEY] = [entry('E3', 3000), entry('E1', 1000)]
+    seed([entry('E3', 3000), entry('E1', 1000)])
     expect(await cache.rename('E1', 'mine')).toBe(true)
     await settle()
     expect(ids()).toEqual(['E3', 'E1'])
     expect(cache.list().map((e) => e.id)).toEqual(['E3', 'E1'])
 
     // an entry we modified ourselves is written back even if it was deleted
-    mem[KEY] = [entry('E3', 3000)]
+    seed([entry('E3', 3000)])
     expect(await cache.rename('E1', 'mine again')).toBe(true)
     await settle()
     expect(ids()).toEqual(['E3', 'E1'])
@@ -654,13 +719,13 @@ describe('crawlCache across tabs', () => {
   })
 
   it('a rename here wins over the stored copy; untouched entries follow storage', async () => {
-    mem[KEY] = [entry('E3', 3000, 'c'), entry('E1', 1000, 'a')]
+    seed([entry('E3', 3000, 'c'), entry('E1', 1000, 'a')])
     const { cache } = await freshCache()
-    mem[KEY] = [
+    seed([
       entry('E3', 3000, 'c renamed elsewhere'),
       entry('E2', 2000),
       entry('E1', 1000, 'a renamed elsewhere'),
-    ]
+    ])
     expect(await cache.rename('E1', 'mine')).toBe(true)
     await settle()
     const saved = mem[KEY] as CacheEntry[]
@@ -673,8 +738,8 @@ describe('crawlCache across tabs', () => {
 
   it('still caps at MAX_ENTRIES after a merge, dropping the oldest', async () => {
     const { cache, sto } = await freshCache()
-    mem[KEY] = Array.from({ length: MAX_ENTRIES }, (_, i) =>
-      entry(`O${i}`, 5000 - i)
+    seed(
+      Array.from({ length: MAX_ENTRIES }, (_, i) => entry(`O${i}`, 5000 - i))
     )
     sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
     sto.result = [file('patreon/u1/999#0')]
@@ -687,12 +752,12 @@ describe('crawlCache across tabs', () => {
   })
 
   it('follows changes from another tab without a reload', async () => {
-    mem[KEY] = [entry('E1', 1000)]
+    seed([entry('E1', 1000)])
     const { cache } = await freshCache()
     const changes: any[] = []
     evt.on('cacheChange', (ev) => changes.push(ev.detail.data))
     const next = [entry('E2', 2000), entry('E1', 1000, 'renamed elsewhere')]
-    mem[KEY] = next
+    seed(next)
     emitChange(next)
     expect(cache.list().map((e) => [e.id, e.title])).toEqual([
       ['E2', 'E2'],
@@ -705,7 +770,7 @@ describe('crawlCache across tabs', () => {
   })
 
   it('the mounted entry disappearing flips to mounted-but-unsaved', async () => {
-    mem[KEY] = [entry('E1', 1000)]
+    seed([entry('E1', 1000)])
     const { cache, sto } = await freshCache()
     expect(await cache.mount('E1')).toBe(true)
     expect(sto.result).toHaveLength(1)
@@ -713,7 +778,7 @@ describe('crawlCache across tabs', () => {
     const mounts: any[] = []
     evt.on('mountChange', (ev) => mounts.push(ev.detail.data))
 
-    mem[KEY] = []
+    seed([])
     emitChange([])
 
     expect(cache.list()).toHaveLength(0)
@@ -739,7 +804,7 @@ describe('crawlCache across tabs', () => {
   })
 
   it('quota eviction does not bring the dropped entry back from storage', async () => {
-    mem[KEY] = [entry('E2', 2000), entry('E1', 1000)]
+    seed([entry('E2', 2000), entry('E1', 1000)])
     const { cache, sto } = await freshCache()
     quotaWhenOver = 2
     sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
@@ -749,6 +814,134 @@ describe('crawlCache across tabs', () => {
     expect(ids()).toEqual([saved!.id, 'E2'])
     expect(cache.list().map((e) => e.id)).toEqual([saved!.id, 'E2'])
   })
+
+  it('keeps the results of an entry another tab saved while our write was in flight', async () => {
+    seed([entry('E1', 1000)])
+    const { cache, sto } = await freshCache()
+    // The other tab writes E9 (index and results) right after our write
+    // lands, and its change event reaches us before our set() resolves
+    afterIndexSet = () => {
+      const next = [entry('E9', 9000), ...(mem[KEY] as CacheEntry[])]
+      seed(next)
+      emitChange(mem[KEY])
+    }
+    sto.resultMeta = [file('patreon/u1/999', { id: 'patreon/u1/999' })]
+    sto.result = [file('patreon/u1/999#0')]
+    await cache.autoSave({ silent: true })
+    await settle()
+    expect(ids()).toContain('E9')
+    expect(mem['pawchiveProCrawlCache:entry:E9']).toBeDefined()
+    expect(await cache.mount('E9')).toBe(true)
+  })
+
+  it('mounting an entry whose results key is gone fails with a message', async () => {
+    seed([entry('E1', 1000)])
+    delete mem['pawchiveProCrawlCache:entry:E1']
+    const { cache, sto } = await freshCache()
+    const { toast: tst } = await import('../src/Toast')
+    expect(await cache.mount('E1')).toBe(false)
+    expect(tst.error).toHaveBeenCalled()
+    expect(sto.result).toHaveLength(0)
+  })
+
+  describe('migration from the single key', () => {
+    const LEGACY = 'pawchiveProCrawlCache'
+    const bodyIn = (id: string) => mem[`pawchiveProCrawlCache:entry:${id}`]
+
+    it('moves the old entries to the index and their own keys, then removes the old key', async () => {
+      mem[LEGACY] = [entry('E2', 2000, 'two'), entry('E1', 1000)]
+      const { cache, sto } = await freshCache()
+      expect(cache.list().map((e) => [e.id, e.title])).toEqual([
+        ['E2', 'two'],
+        ['E1', 'E1'],
+      ])
+      await settle()
+      expect(LEGACY in mem).toBe(false)
+      expect(ids()).toEqual(['E2', 'E1'])
+      expect(mem[KEY][0]).not.toHaveProperty('results')
+      expect(bodyIn('E2').results).toHaveLength(1)
+      expect(bodyIn('E1').metas).toHaveLength(1)
+      expect(await cache.mount('E1')).toBe(true)
+      expect(sto.result[0].id).toBe('E1#0')
+    })
+
+    it('keeps what the index already has and adds only the missing entries', async () => {
+      seed([entry('E2', 2000, 'renamed in the new layout')])
+      mem[LEGACY] = [entry('E2', 2000, 'old title'), entry('E1', 1000)]
+      const { cache } = await freshCache()
+      await settle()
+      expect(LEGACY in mem).toBe(false)
+      expect(mem[KEY].map((e: CacheEntry) => [e.id, e.title])).toEqual([
+        ['E2', 'renamed in the new layout'],
+        ['E1', 'E1'],
+      ])
+      expect(cache.list()).toHaveLength(2)
+    })
+
+    it('two tabs migrating at once end with every entry once', async () => {
+      mem[LEGACY] = [entry('E2', 2000), entry('E1', 1000)]
+      const a = await freshCache()
+      const b = await freshCache()
+      await settle()
+      expect(LEGACY in mem).toBe(false)
+      expect(ids()).toEqual(['E2', 'E1'])
+      expect(a.cache.list()).toHaveLength(2)
+      expect(b.cache.list()).toHaveLength(2)
+    })
+
+    it('a failed write keeps the old key; the entries stay usable and the next load retries', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      mem[LEGACY] = [entry('E1', 1000)]
+      quotaWhenOver = -1
+      const { cache, sto } = await freshCache()
+      await settle()
+      expect(LEGACY in mem).toBe(true)
+      expect(KEY in mem).toBe(false)
+      expect(await cache.mount('E1')).toBe(true)
+      expect(sto.result).toHaveLength(1)
+
+      quotaWhenOver = Infinity
+      await freshCache()
+      await settle()
+      expect(LEGACY in mem).toBe(false)
+      expect(ids()).toEqual(['E1'])
+    })
+  })
+})
+
+describe('CacheView', () => {
+  it('tags an entry saved from an incomplete crawl', async () => {
+    const { CacheView } = await import('../src/setting/pages/cache')
+    const { lang } = await import('../src/Language')
+    // The same module instance the view imports (earlier suites reset modules)
+    const { crawlCache: cache } = await import('../src/download/CrawlCache')
+    const view = new CacheView({ reapplySearch: () => {} } as any)
+    const list = fakeEl()
+    ;(view as any).cacheList = list
+    vi.spyOn(cache, 'list').mockReturnValue([
+      { ...summaryOf('A'), incomplete: true },
+      summaryOf('B'),
+    ])
+    view.render()
+    const titles = list.children.map(
+      (card: any) => card.children[0].textContent
+    )
+    expect(titles).toEqual([`A ${lang.transl('_cacheIncompleteTag')}`, 'B'])
+  })
+
+  function summaryOf(id: string) {
+    return {
+      id,
+      title: id,
+      service: 'patreon',
+      creatorId: 'u1',
+      creator: 'artist',
+      host: 'kemono.su',
+      postCount: 1,
+      fileCount: 1,
+      createdAt: 1000,
+    }
+  }
 })
 
 describe('mergeEntries', () => {

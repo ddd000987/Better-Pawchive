@@ -47,6 +47,7 @@ Object.defineProperty(globalThis, 'navigator', {
     local: {
       get: async () => ({}),
       set: async () => {},
+      remove: async () => {},
     },
   },
   runtime: { sendMessage: async () => {} },

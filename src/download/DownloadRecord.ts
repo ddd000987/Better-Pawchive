@@ -3,10 +3,11 @@
  * derived from: PixivBatchDownloader src/ts/download/DownloadRecord.ts
  *          record shape + export/import/clear concept
  *          (xuejianxianzun)
- * changes: schema redesigned — single chrome.storage.local
- *          store keyed by per-file result id (`${postKey}#${index}`);
- *          no ID-shard stores (PBD's 9 numeric shards don't fit Kemono
- *          string keys), no IndexedDB (records are small). d = published
+ * changes: schema redesigned — chrome.storage.local records keyed by
+ *          per-file result id (`${postKey}#${index}`), spread over 64
+ *          shard keys by a hash of the post key (PBD's 9 numeric ID shards
+ *          don't fit Kemono string keys); no IndexedDB (not shared between
+ *          the Kemono and Pawchive origins). d = published
  *          date; matching is by id only (the old strict mode was dropped).
  *          Replaces the earlier DownloadedKeys store (deleted).
  */
@@ -20,7 +21,16 @@ import { skipByRecord } from '../setting/skipMode'
 import { Result } from '../store/StoreType'
 import { toast } from '../Toast'
 
-const STORE_KEY = 'pawchiveProDownloadRecord'
+/** The records before they were split into shards (read once to migrate) */
+const LEGACY_KEY = 'pawchiveProDownloadRecord'
+/** Records are spread over this many storage keys by a hash of the post key,
+ * so a save rewrites only the shards it touched and the change event other
+ * tabs get carries only those shards. */
+export const SHARD_COUNT = 64
+const SHARD_KEYS = Array.from(
+  { length: SHARD_COUNT },
+  (_, i) => `${LEGACY_KEY}:${String(i).padStart(2, '0')}`
+)
 /** Quiet time after the last new record before it is written */
 const SAVE_DEBOUNCE_MS = 200
 /** Longest a new record waits for its write while more keep arriving */
@@ -40,15 +50,73 @@ export interface RecordItem {
   p?: string
 }
 
-/** FNV-1a 32-bit hash in base 36: short and stable, for the file identity */
-function shortHash(text: string): string {
+/** FNV-1a 32-bit hash */
+function fnv1a(text: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i)
     h = Math.imul(h, 0x01000193)
   }
-  return (h >>> 0).toString(36)
+  return h >>> 0
 }
+
+/** The hash in base 36: short and stable, for the file identity */
+function shortHash(text: string): string {
+  return fnv1a(text).toString(36)
+}
+
+/** The post key of a record id (`${postKey}#${index}`), or null */
+function postKeyOf(id: string): string | null {
+  const hash = id.lastIndexOf('#')
+  return hash < 0 ? null : id.slice(0, hash)
+}
+
+/** Shard of a post: every record of a post lives in the same shard */
+function shardOfPost(postKey: string): number {
+  return fnv1a(postKey) % SHARD_COUNT
+}
+
+/** Shard of a record id (an id without a post key is hashed whole) */
+export function shardOf(id: string): number {
+  return shardOfPost(postKeyOf(id) ?? id)
+}
+
+/** Storage key of the shard that holds `id` */
+export function shardKeyOf(id: string): string {
+  return SHARD_KEYS[shardOf(id)]
+}
+
+/** Shard number of a storage key, or -1 when it is not a shard key */
+function shardOfKey(key: string): number {
+  return SHARD_KEYS.indexOf(key)
+}
+
+type RecordMap = Record<string, RecordItem>
+
+/** A stored record map, or null when the value is not one */
+function asRecordMap(value: unknown): RecordMap | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as RecordMap)
+    : null
+}
+
+/** Split records by shard */
+function groupByShard(items: Iterable<RecordItem>): Map<number, RecordMap> {
+  const out = new Map<number, RecordMap>()
+  for (const item of items) {
+    const shard = shardOf(item.id)
+    let map = out.get(shard)
+    if (!map) {
+      map = {}
+      out.set(shard, map)
+    }
+    map[item.id] = item
+  }
+  return out
+}
+
+const emptyShards = (): RecordMap[] =>
+  Array.from({ length: SHARD_COUNT }, () => ({}))
 
 /** Identity of a result's file inside its post (see RecordItem.p). The host
  * and the thumbnail/data prefix are dropped: the same file can be reached
@@ -72,16 +140,22 @@ class DownloadRecord {
     this.bindEvents()
   }
 
-  private records: Record<string, RecordItem> = {}
+  /** In-memory copy of every shard: stored records plus this tab's pending */
+  private shards: RecordMap[] = emptyShards()
   /** Records added or updated in this tab that are not in storage yet. The
    * content script runs once per tab, so a save must merge these into what
    * storage holds now instead of overwriting it with this tab's snapshot. */
   private pending = new Map<string, RecordItem>()
-  /** A clear is waiting to be written: the next save starts from {} rather
-   * than from the stored records, so cleared records are not merged back. */
+  /** A clear is waiting to be written: the next save starts every shard from
+   * {} rather than from the stored records, so cleared records are not merged
+   * back. */
   private resetPending = false
-  /** postKey → 該帖記錄的索引（hasPost 用，避免每帖全表掃描） */
-  private postIndex: Map<string, RecordItem[]> | null = null
+  /** Per shard: postKey → the post's records (for hasPost and matchInPost,
+   * so a post does not scan every record). Built lazily, dropped when its
+   * shard is replaced. */
+  private postIndexes: Array<Map<string, RecordItem[]> | null> = new Array(
+    SHARD_COUNT
+  ).fill(null)
   private loadPromise: Promise<void> | null = null
   /** The first load finished; storage change events are ignored before it. */
   private loaded = false
@@ -89,17 +163,43 @@ class DownloadRecord {
   /** Writes are chained so that two read-merge-write cycles never overlap. */
   private writeChain: Promise<void> = Promise.resolve()
 
+  /** This tab's pending records that belong to `shard` */
+  private pendingIn(shard: number): RecordMap {
+    const out: RecordMap = {}
+    for (const [id, item] of this.pending) {
+      if (shardOf(id) === shard) {
+        out[id] = item
+      }
+    }
+    return out
+  }
+
+  /** Replace one shard in memory; this tab's pending records stay on top */
+  private setShard(shard: number, stored: RecordMap): void {
+    this.shards[shard] = { ...stored, ...this.pendingIn(shard) }
+    this.postIndexes[shard] = null
+  }
+
   /** 單例門：冷啟動時併發呼叫共用同一次載入，避免後寫入的記錄被讀回的舊資料覆寫 */
   private load(): Promise<void> {
     if (!this.loadPromise) {
       this.loadPromise = (async () => {
         try {
-          const data = await chrome.storage.local.get(STORE_KEY)
-          const saved = data[STORE_KEY] as
-            Record<string, RecordItem> | undefined
-          if (saved && typeof saved === 'object') {
-            this.records = { ...saved, ...Object.fromEntries(this.pending) }
-            this.postIndex = null
+          const data = await chrome.storage.local.get([
+            ...SHARD_KEYS,
+            LEGACY_KEY,
+          ])
+          // Records not migrated yet sit under the shards: the shards are newer
+          const legacy = asRecordMap(data[LEGACY_KEY])
+          const fromLegacy = groupByShard(Object.values(legacy ?? {}))
+          for (let i = 0; i < SHARD_COUNT; i++) {
+            this.setShard(i, {
+              ...fromLegacy.get(i),
+              ...asRecordMap(data[SHARD_KEYS[i]]),
+            })
+          }
+          if (legacy) {
+            this.writeChain = this.writeChain.then(() => this.migrate())
           }
         } catch (e) {
           console.error('[PawchivePro] load download record failed', e)
@@ -109,6 +209,37 @@ class DownloadRecord {
       })()
     }
     return this.loadPromise
+  }
+
+  /** Move the records from the old single key into the shards. The old key
+   * is removed only after the shards read back with every record in them; a
+   * failure leaves it for the next load. Two tabs migrating at once is fine:
+   * each merges the old records under what the shards hold. */
+  private async migrate(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get([...SHARD_KEYS, LEGACY_KEY])
+      const legacy = asRecordMap(data[LEGACY_KEY])
+      if (!legacy) {
+        // Another tab finished it, or a clear removed it
+        return
+      }
+      const out: Record<string, RecordMap> = {}
+      for (const [shard, items] of groupByShard(Object.values(legacy))) {
+        const key = SHARD_KEYS[shard]
+        out[key] = { ...items, ...asRecordMap(data[key]) }
+      }
+      await chrome.storage.local.set(out)
+      const check = await chrome.storage.local.get(Object.keys(out))
+      const missing = Object.keys(legacy).find(
+        (id) => !(id in (asRecordMap(check[shardKeyOf(id)]) ?? {}))
+      )
+      if (missing !== undefined) {
+        throw new Error(`record ${missing} did not reach its shard`)
+      }
+      await chrome.storage.local.remove(LEGACY_KEY)
+    } catch (e) {
+      console.error('[PawchivePro] migrate download record failed', e)
+    }
   }
 
   /** When the oldest unsaved record must be written at the latest (0 = none) */
@@ -136,7 +267,7 @@ class DownloadRecord {
   /** Add or update one record: it is kept in memory and queued for the next
    * merge-save. */
   private setRecord(item: RecordItem): void {
-    this.records[item.id] = item
+    this.shards[shardOf(item.id)][item.id] = item
     this.pending.set(item.id, item)
     this.indexRecord(item)
   }
@@ -144,17 +275,14 @@ class DownloadRecord {
   /** Keep the post index current without rebuilding it: a batch adds a record
    * per file and every one would otherwise throw the whole index away. */
   private indexRecord(item: RecordItem): void {
-    if (!this.postIndex) {
+    const postKey = postKeyOf(item.id)
+    const index = this.postIndexes[shardOf(item.id)]
+    if (postKey === null || !index) {
       return
     }
-    const hash = item.id.lastIndexOf('#')
-    if (hash < 0) {
-      return
-    }
-    const postKey = item.id.slice(0, hash)
-    const list = this.postIndex.get(postKey)
+    const list = index.get(postKey)
     if (!list) {
-      this.postIndex.set(postKey, [item])
+      index.set(postKey, [item])
       return
     }
     const at = list.findIndex((r) => r.id === item.id)
@@ -171,9 +299,10 @@ class DownloadRecord {
     this.writeChain = run
   }
 
-  /** Read-merge-write: other tabs may have saved records since this tab
-   * loaded, so merge this tab's unsaved records into the stored ones. After
-   * a clear the stored records are discarded instead. */
+  /** Read-merge-write of the shards this tab has pending records in: other
+   * tabs may have saved records since this tab loaded, so merge into the
+   * stored ones. After a clear every shard is written from {} instead (and
+   * the old single key, if still there, is removed). */
   private async write(): Promise<void> {
     const reset = this.resetPending
     this.resetPending = false
@@ -182,16 +311,20 @@ class DownloadRecord {
       return
     }
     try {
-      let base: Record<string, RecordItem> = {}
-      if (!reset) {
-        const data = await chrome.storage.local.get(STORE_KEY)
-        const stored = data[STORE_KEY] as Record<string, RecordItem> | undefined
-        if (stored && typeof stored === 'object') {
-          base = stored
-        }
+      const changed = groupByShard(snapshot.values())
+      const targets = reset ? SHARD_KEYS.map((_, i) => i) : [...changed.keys()]
+      const stored: Record<string, unknown> = reset
+        ? {}
+        : await chrome.storage.local.get(targets.map((i) => SHARD_KEYS[i]))
+      const out: Record<string, RecordMap> = {}
+      for (const shard of targets) {
+        const key = SHARD_KEYS[shard]
+        out[key] = { ...asRecordMap(stored[key]), ...changed.get(shard) }
       }
-      const merged = { ...base, ...Object.fromEntries(snapshot) }
-      await chrome.storage.local.set({ [STORE_KEY]: merged })
+      await chrome.storage.local.set(out)
+      if (reset) {
+        await chrome.storage.local.remove(LEGACY_KEY)
+      }
       // An entry updated while the write was in flight stays pending
       for (const [id, item] of snapshot) {
         if (this.pending.get(id) === item) {
@@ -199,11 +332,10 @@ class DownloadRecord {
         }
       }
       // A clear during the write means the merged records are already stale
-      this.records = {
-        ...(this.resetPending ? {} : merged),
-        ...Object.fromEntries(this.pending),
+      const cleared = this.resetPending
+      for (const shard of targets) {
+        this.setShard(shard, cleared ? {} : out[SHARD_KEYS[shard]])
       }
-      this.postIndex = null
       this.saveFailedNotified = false
     } catch (e) {
       if (reset) {
@@ -219,18 +351,25 @@ class DownloadRecord {
     }
   }
 
-  /** Another tab (or this one) changed the stored records: follow it, keeping
+  /** Another tab (or this one) changed stored shards: follow them, keeping
    * this tab's unsaved records on top. Never writes. */
-  private onStorageChanged(newValue: unknown): void {
+  private onStorageChanged(
+    changes: Record<string, chrome.storage.StorageChange>
+  ): void {
     if (!this.loaded) {
       return
     }
-    const stored =
-      newValue && typeof newValue === 'object'
-        ? (newValue as Record<string, RecordItem>)
-        : {}
-    this.records = { ...stored, ...Object.fromEntries(this.pending) }
-    this.postIndex = null
+    for (const [key, change] of Object.entries(changes)) {
+      const shard = shardOfKey(key)
+      if (shard >= 0) {
+        this.setShard(shard, asRecordMap(change.newValue) ?? {})
+      }
+    }
+  }
+
+  /** Every record (stored and pending), across all shards */
+  private allRecords(): RecordItem[] {
+    return this.shards.flatMap((s) => Object.values(s))
   }
 
   /** 由抓取結果生成一條記錄 */
@@ -259,7 +398,7 @@ class DownloadRecord {
 
   public async getRecord(id: string): Promise<RecordItem | null> {
     await this.load()
-    return this.records[id] ?? null
+    return this.shards[shardOf(id)][id] ?? null
   }
 
   /** 檢查單檔是否重複。true = 跳過 */
@@ -292,9 +431,8 @@ class DownloadRecord {
    */
   private matchInPost(result: Result): boolean {
     // The index is keyed by the id prefix, which is the post key
-    const hash = result.id.lastIndexOf('#')
-    const siblings =
-      hash < 0 ? undefined : this.buildPostIndex().get(result.id.slice(0, hash))
+    const postKey = postKeyOf(result.id)
+    const siblings = postKey === null ? undefined : this.postRecords(postKey)
     if (!siblings) {
       return false
     }
@@ -318,27 +456,28 @@ class DownloadRecord {
     return false
   }
 
-  /** 建立 postKey → 記錄列表的索引（只建一次，記錄異動時作廢） */
-  private buildPostIndex(): Map<string, RecordItem[]> {
-    if (this.postIndex) {
-      return this.postIndex
-    }
-    const index = new Map<string, RecordItem[]>()
-    for (const key of Object.keys(this.records)) {
-      const hash = key.lastIndexOf('#')
-      if (hash < 0) {
-        continue
+  /** The records of one post, from its shard's post index (built on first
+   * use, dropped when the shard is replaced) */
+  private postRecords(postKey: string): RecordItem[] | undefined {
+    const shard = shardOfPost(postKey)
+    let index = this.postIndexes[shard]
+    if (!index) {
+      index = new Map()
+      for (const item of Object.values(this.shards[shard])) {
+        const key = postKeyOf(item.id)
+        if (key === null) {
+          continue
+        }
+        const list = index.get(key)
+        if (list) {
+          list.push(item)
+        } else {
+          index.set(key, [item])
+        }
       }
-      const postKey = key.slice(0, hash)
-      const list = index.get(postKey)
-      if (list) {
-        list.push(this.records[key])
-      } else {
-        index.set(postKey, [this.records[key]])
-      }
+      this.postIndexes[shard] = index
     }
-    this.postIndex = index
-    return index
+    return index.get(postKey)
   }
 
   /** 整帖是否已下完：同帖同日期的記錄數量足夠即可，不比對檔名 */
@@ -352,7 +491,7 @@ class DownloadRecord {
       return false
     }
     let matched = 0
-    for (const r of this.buildPostIndex().get(postKey) ?? []) {
+    for (const r of this.postRecords(postKey) ?? []) {
       if (r.d === published) {
         matched++
       }
@@ -362,16 +501,17 @@ class DownloadRecord {
 
   public async count(): Promise<number> {
     await this.load()
-    return Object.keys(this.records).length
+    return this.shards.reduce((n, s) => n + Object.keys(s).length, 0)
   }
 
   public async clear(silent = false): Promise<void> {
     await this.load()
     // Removal path: drop unsaved records too and write exactly {} next save
-    this.records = {}
     this.pending.clear()
+    for (let i = 0; i < SHARD_COUNT; i++) {
+      this.setShard(i, {})
+    }
     this.resetPending = true
-    this.postIndex = null
     this.scheduleSave()
     // 不在此 fire clearDownloadRecord：監聽器會再調 clear()，造成無限遞迴
     if (!silent) {
@@ -397,10 +537,9 @@ class DownloadRecord {
   private bindEvents() {
     // Records saved by other tabs show up without a reload
     chrome.storage?.onChanged?.addListener((changes, area) => {
-      if (area !== 'local' || !(STORE_KEY in changes)) {
-        return
+      if (area === 'local') {
+        this.onStorageChanged(changes)
       }
-      this.onStorageChanged(changes[STORE_KEY].newValue)
     })
 
     // 下載完成即時落盤，避免防抖窗口內關頁面丟失尾部記錄
@@ -420,16 +559,10 @@ class DownloadRecord {
     EVT.on(EVT.list.exportDownloadRecord, () => {
       void (async () => {
         await this.load()
-        this.downloadJson(
-          `pawchive-record-${Date.now()}.json`,
-          Object.values(this.records)
-        )
-        toast.show(
-          lang.transl(
-            '_recordExported',
-            String(Object.keys(this.records).length)
-          )
-        )
+        // Same file format as before the shards: one flat array of records
+        const all = this.allRecords()
+        this.downloadJson(`pawchive-record-${Date.now()}.json`, all)
+        toast.show(lang.transl('_recordExported', String(all.length)))
       })()
     })
 

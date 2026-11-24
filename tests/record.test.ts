@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { downloadRecord } from '../src/download/DownloadRecord'
+import { downloadRecord, shardKeyOf } from '../src/download/DownloadRecord'
 import { settings } from '../src/setting/Settings'
 import type { Result } from '../src/store/StoreType'
 
@@ -230,7 +230,7 @@ describe('downloadRecord', () => {
     // 兩次呼叫在 storage 回傳前就開始，共用同一次載入
     const p1 = fresh.addRecord(file('patreon/u1/999#0'))
     const p2 = fresh.addRecord(file('patreon/u1/999#1', { fileIndex: 1 }))
-    resolveGet({ pawchiveProDownloadRecord: { [oldRecord.id]: oldRecord } })
+    resolveGet({ [shardKeyOf(oldRecord.id)]: { [oldRecord.id]: oldRecord } })
     await Promise.all([p1, p2])
 
     expect(await fresh.getRecord(oldRecord.id)).not.toBeNull()
@@ -250,6 +250,7 @@ describe('downloadRecord', () => {
 describe('downloadRecord across tabs', () => {
   const KEY = 'pawchiveProDownloadRecord'
   const rec = (id: string) => ({ id, n: `${id}.png`, d: '2024-01-02T03:04:05' })
+  const isShardKey = (k: string) => k.startsWith(`${KEY}:`)
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
   const settle = () => wait(300)
 
@@ -261,15 +262,44 @@ describe('downloadRecord across tabs', () => {
   let failNextSet: boolean
   let gate: Promise<void> | null
 
+  /** Records spread over their shard keys, as storage holds them */
+  function asShards(records: Record<string, any>): Record<string, any> {
+    const out: Record<string, any> = {}
+    for (const [id, item] of Object.entries(records)) {
+      const key = shardKeyOf(id)
+      out[key] = { ...out[key], [id]: item }
+    }
+    return out
+  }
+  /** Every stored record, merged across the shards */
+  function stored(): Record<string, any> {
+    return Object.assign(
+      {},
+      ...Object.keys(mem)
+        .filter(isShardKey)
+        .map((k) => mem[k])
+    )
+  }
   /** The other tab writes straight into storage, bypassing this instance */
   function otherTabWrites(records: Record<string, any>) {
-    mem[KEY] = records
+    for (const k of Object.keys(mem).filter(isShardKey)) delete mem[k]
+    Object.assign(mem, asShards(records))
   }
-  function emitChange(newValue: unknown) {
+  /** A change event for every shard, carrying `records` */
+  function emitChange(records: Record<string, any>) {
+    const shards = asShards(records)
+    const changes: Record<string, any> = {}
+    for (let i = 0; i < 64; i++) {
+      const key = `${KEY}:${String(i).padStart(2, '0')}`
+      changes[key] = { newValue: shards[key] }
+    }
     for (const fn of changeListeners) {
-      fn({ [KEY]: { newValue } }, 'local')
+      fn(changes, 'local')
     }
   }
+  /** Storage writes that touched a record shard */
+  const shardSets = () =>
+    setCalls.filter((c) => Object.keys(c).some(isShardKey))
 
   async function fresh() {
     vi.resetModules()
@@ -293,12 +323,16 @@ describe('downloadRecord across tabs', () => {
       addListener: (fn: any) => changeListeners.push(fn),
     }
     g.chrome.storage.local = {
-      get: async (k: string) => {
+      get: async (keys: string | string[]) => {
         active++
         maxActive = Math.max(maxActive, active)
         await Promise.resolve()
         active--
-        return k in mem ? { [k]: JSON.parse(JSON.stringify(mem[k])) } : {}
+        const out: Record<string, any> = {}
+        for (const k of typeof keys === 'string' ? [keys] : keys) {
+          if (k in mem) out[k] = JSON.parse(JSON.stringify(mem[k]))
+        }
+        return out
       },
       set: async (obj: Record<string, any>) => {
         active++
@@ -315,6 +349,9 @@ describe('downloadRecord across tabs', () => {
           active--
         }
       },
+      remove: async (keys: string | string[]) => {
+        for (const k of typeof keys === 'string' ? [keys] : keys) delete mem[k]
+      },
     }
   })
 
@@ -322,10 +359,10 @@ describe('downloadRecord across tabs', () => {
     const { r } = await fresh()
     await r.addRecord(file('patreon/u1/1#0'))
     await settle()
-    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    otherTabWrites({ ...stored(), 'patreon/u1/2#0': rec('patreon/u1/2#0') })
     await r.addRecord(file('patreon/u1/3#0'))
     await settle()
-    expect(Object.keys(mem[KEY]).sort()).toEqual([
+    expect(Object.keys(stored()).sort()).toEqual([
       'patreon/u1/1#0',
       'patreon/u1/2#0',
       'patreon/u1/3#0',
@@ -350,17 +387,17 @@ describe('downloadRecord across tabs', () => {
     expect(await r.hasPost('patreon/u1/2', other.published, 1)).toBe(true)
     // the change event itself must not write the record store
     await settle()
-    expect(setCalls.filter((c) => KEY in c)).toHaveLength(0)
+    expect(shardSets()).toHaveLength(0)
   })
 
   it('keeps unsaved local records when a storage change arrives', async () => {
     const { r } = await fresh()
     await r.addRecord(file('patreon/u1/1#0'))
     otherTabWrites({ 'patreon/u1/2#0': rec('patreon/u1/2#0') })
-    emitChange(mem[KEY])
+    emitChange(stored())
     expect(await r.count()).toBe(2)
     await settle()
-    expect(Object.keys(mem[KEY]).sort()).toEqual([
+    expect(Object.keys(stored()).sort()).toEqual([
       'patreon/u1/1#0',
       'patreon/u1/2#0',
     ])
@@ -375,19 +412,19 @@ describe('downloadRecord across tabs', () => {
     const { r } = await fresh()
     const first = r.count()
     emitChange({ 'patreon/u1/9#0': rec('patreon/u1/9#0') })
-    release({ [KEY]: { 'patreon/u1/1#0': rec('patreon/u1/1#0') } })
+    release(asShards({ 'patreon/u1/1#0': rec('patreon/u1/1#0') }))
     expect(await first).toBe(1)
-    expect(setCalls.filter((c) => KEY in c)).toHaveLength(0)
+    expect(shardSets()).toHaveLength(0)
   })
 
   it('clear really removes records, including ones another tab wrote', async () => {
     const { r } = await fresh()
     await r.addRecord(file('patreon/u1/1#0'))
     await settle()
-    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    otherTabWrites({ ...stored(), 'patreon/u1/2#0': rec('patreon/u1/2#0') })
     await r.clear(true)
     await settle()
-    expect(mem[KEY]).toEqual({})
+    expect(stored()).toEqual({})
     expect(await r.count()).toBe(0)
   })
 
@@ -398,7 +435,7 @@ describe('downloadRecord across tabs', () => {
     await r.clear(true)
     await r.addRecord(file('patreon/u1/2#0'))
     await settle()
-    expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/2#0'])
+    expect(Object.keys(stored())).toEqual(['patreon/u1/2#0'])
     expect(await r.getRecord('patreon/u1/1#0')).toBeNull()
   })
 
@@ -415,7 +452,7 @@ describe('downloadRecord across tabs', () => {
     gate = null
     open()
     await settle()
-    expect(mem[KEY]).toEqual({})
+    expect(stored()).toEqual({})
     expect(await r.count()).toBe(0)
   })
 
@@ -426,7 +463,8 @@ describe('downloadRecord across tabs', () => {
     vi.spyOn(toast, 'show').mockImplementation(() => {})
     vi.spyOn(log, 'success').mockImplementation(() => {})
     await r.count()
-    otherTabWrites({ 'patreon/u1/0#0': rec('patreon/u1/0#0') })
+    // Same post as an imported record, so it sits in a shard the import writes
+    otherTabWrites({ 'patreon/u1/1#5': rec('patreon/u1/1#5') })
 
     // Drive the real import handler with a stubbed file picker and reader
     const doc = (globalThis as any).document
@@ -455,9 +493,9 @@ describe('downloadRecord across tabs', () => {
       doc.createElement = origCreate
       ;(globalThis as any).FileReader = origReader
     }
-    expect(Object.keys(mem[KEY]).sort()).toEqual([
-      'patreon/u1/0#0',
+    expect(Object.keys(stored()).sort()).toEqual([
       'patreon/u1/1#0',
+      'patreon/u1/1#5',
       'patreon/u1/2#0',
     ])
     expect(await r.count()).toBe(3)
@@ -481,7 +519,7 @@ describe('downloadRecord across tabs', () => {
     await wait(20)
     expect(await r.getRecord('patreon/u1/2#0')).not.toBeNull()
     await settle()
-    expect(Object.keys(mem[KEY]).sort()).toEqual([
+    expect(Object.keys(stored()).sort()).toEqual([
       'patreon/u1/0#0',
       'patreon/u1/1#0',
       'patreon/u1/2#0',
@@ -502,17 +540,191 @@ describe('downloadRecord across tabs', () => {
     evt.fire('downloadComplete')
     await wait(20)
     expect(err).toHaveBeenCalledTimes(1)
-    expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+    expect(Object.keys(stored())).toEqual(['patreon/u1/0#0'])
     // another tab saves meanwhile; the next save still carries our record
-    otherTabWrites({ ...mem[KEY], 'patreon/u1/2#0': rec('patreon/u1/2#0') })
+    otherTabWrites({ ...stored(), 'patreon/u1/2#0': rec('patreon/u1/2#0') })
     await r.addRecord(file('patreon/u1/3#0'))
     await settle()
-    expect(Object.keys(mem[KEY]).sort()).toEqual([
+    expect(Object.keys(stored()).sort()).toEqual([
       'patreon/u1/0#0',
       'patreon/u1/1#0',
       'patreon/u1/2#0',
       'patreon/u1/3#0',
     ])
+  })
+
+  describe('shards', () => {
+    /** Two record ids of different posts that land in different shards */
+    function idsInTwoShards(): [string, string] {
+      const a = 'patreon/u1/1#0'
+      for (let n = 2; ; n++) {
+        const b = `patreon/u1/${n}#0`
+        if (shardKeyOf(b) !== shardKeyOf(a)) return [a, b]
+      }
+    }
+
+    it('keeps every record of a post in one shard', () => {
+      expect(shardKeyOf('patreon/u1/7#0')).toBe(shardKeyOf('patreon/u1/7#12'))
+      expect(shardKeyOf('patreon/u1/7#0')).toMatch(
+        /^pawchiveProDownloadRecord:\d\d$/
+      )
+    })
+
+    it('writes only the shards it has new records in', async () => {
+      const { r } = await fresh()
+      await r.count()
+      await r.addRecord(file('patreon/u1/1#0'))
+      await r.addRecord(file('patreon/u1/1#1', { fileIndex: 1 }))
+      await settle()
+      expect(shardSets()).toHaveLength(1)
+      expect(Object.keys(shardSets()[0])).toEqual([
+        shardKeyOf('patreon/u1/1#0'),
+      ])
+    })
+
+    it('a change to one shard leaves the other shards alone', async () => {
+      const [a, b] = idsInTwoShards()
+      otherTabWrites({ [a]: rec(a), [b]: rec(b) })
+      const { r } = await fresh()
+      expect(await r.count()).toBe(2)
+      for (const fn of changeListeners) {
+        fn({ [shardKeyOf(a)]: { newValue: undefined } }, 'local')
+      }
+      expect(await r.getRecord(a)).toBeNull()
+      expect(await r.getRecord(b)).not.toBeNull()
+      expect(await r.hasPost('patreon/u1/1', rec(a).d, 1)).toBe(false)
+    })
+
+    it('export writes one flat array, as before the shards', async () => {
+      const [a, b] = idsInTwoShards()
+      otherTabWrites({ [a]: rec(a), [b]: rec(b) })
+      const { r, evt } = await fresh()
+      await r.count()
+      const { toast } = await import('../src/Toast')
+      vi.spyOn(toast, 'show').mockImplementation(() => {})
+      let blob: Blob | null = null
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((v) => {
+        blob = v as Blob
+        return 'blob:x'
+      })
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+      const doc = (globalThis as any).document
+      const origCreate = doc.createElement
+      doc.createElement = () => ({ click: () => {} })
+      try {
+        evt.fire('exportDownloadRecord')
+        await wait(20)
+      } finally {
+        doc.createElement = origCreate
+      }
+      const list = JSON.parse(await blob!.text())
+      expect(Array.isArray(list)).toBe(true)
+      expect(list.map((x: any) => x.id).sort()).toEqual([a, b].sort())
+    })
+  })
+
+  describe('migration from the single key', () => {
+    let dropKeys: Set<string>
+
+    beforeEach(() => {
+      dropKeys = new Set()
+      const local = (globalThis as any).chrome.storage.local
+      const set = local.set
+      // A write that silently loses some keys
+      local.set = (obj: Record<string, any>) => {
+        const kept = { ...obj }
+        for (const k of dropKeys) delete kept[k]
+        return set(kept)
+      }
+    })
+
+    const legacy = () => ({
+      'patreon/u1/1#0': rec('patreon/u1/1#0'),
+      'patreon/u1/1#1': rec('patreon/u1/1#1'),
+      'patreon/u1/2#0': rec('patreon/u1/2#0'),
+    })
+
+    it('moves the old records into the shards, then removes the old key', async () => {
+      mem[KEY] = legacy()
+      const { r } = await fresh()
+      expect(await r.count()).toBe(3)
+      await settle()
+      expect(KEY in mem).toBe(false)
+      expect(stored()).toEqual(legacy())
+      expect(mem[shardKeyOf('patreon/u1/1#0')]).toHaveProperty([
+        'patreon/u1/1#1',
+      ])
+    })
+
+    it('merges under what the shards already hold (they are newer)', async () => {
+      mem[KEY] = legacy()
+      mem[shardKeyOf('patreon/u1/1#0')] = {
+        'patreon/u1/1#0': { ...rec('patreon/u1/1#0'), n: 'newer.png' },
+      }
+      const { r } = await fresh()
+      expect((await r.getRecord('patreon/u1/1#0'))?.n).toBe('newer.png')
+      await settle()
+      expect(KEY in mem).toBe(false)
+      expect(stored()['patreon/u1/1#0'].n).toBe('newer.png')
+      expect(Object.keys(stored()).sort()).toEqual(Object.keys(legacy()).sort())
+    })
+
+    it('two tabs migrating at once end with every record once', async () => {
+      mem[KEY] = legacy()
+      let open: () => void = () => {}
+      gate = new Promise((resolve) => {
+        open = resolve
+      })
+      const a = await fresh()
+      await a.r.count()
+      const b = await fresh()
+      await b.r.count()
+      gate = null
+      open()
+      await settle()
+      expect(KEY in mem).toBe(false)
+      expect(stored()).toEqual(legacy())
+      expect(await a.r.count()).toBe(3)
+      expect(await b.r.count()).toBe(3)
+    })
+
+    it('a failed write keeps the old key, its records stay readable, and the next load retries', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      mem[KEY] = legacy()
+      failNextSet = true
+      const { r } = await fresh()
+      expect(await r.count()).toBe(3)
+      await settle()
+      expect(mem[KEY]).toEqual(legacy())
+      expect(stored()).toEqual({})
+
+      const again = await fresh()
+      expect(await again.r.count()).toBe(3)
+      await settle()
+      expect(KEY in mem).toBe(false)
+      expect(stored()).toEqual(legacy())
+    })
+
+    it('keeps the old key when a shard does not read back complete', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mem[KEY] = legacy()
+      dropKeys.add(shardKeyOf('patreon/u1/2#0'))
+      const { r } = await fresh()
+      await r.count()
+      await settle()
+      expect(err).toHaveBeenCalled()
+      expect(mem[KEY]).toEqual(legacy())
+    })
+
+    it('a clear also removes the old key', async () => {
+      mem[KEY] = legacy()
+      const { r } = await fresh()
+      await r.clear(true)
+      await settle()
+      expect(KEY in mem).toBe(false)
+      expect(stored()).toEqual({})
+      expect(await r.count()).toBe(0)
+    })
   })
 
   describe('save timing', () => {
@@ -535,7 +747,7 @@ describe('downloadRecord across tabs', () => {
       expect(setCalls).toHaveLength(0)
       await vi.advanceTimersByTimeAsync(100)
       expect(setCalls).toHaveLength(1)
-      expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+      expect(Object.keys(stored())).toEqual(['patreon/u1/0#0'])
     })
 
     it('does not postpone the write past 2 s while records keep arriving', async () => {
@@ -546,10 +758,10 @@ describe('downloadRecord across tabs', () => {
         await vi.advanceTimersByTimeAsync(100)
       }
       expect(setCalls.length).toBeGreaterThanOrEqual(1)
-      expect(Object.keys(mem[KEY]).length).toBeGreaterThan(0)
+      expect(Object.keys(stored()).length).toBeGreaterThan(0)
       // The rest is written once the stream ends
       await vi.advanceTimersByTimeAsync(300)
-      expect(Object.keys(mem[KEY])).toHaveLength(21)
+      expect(Object.keys(stored())).toHaveLength(21)
     })
 
     it.each(['downloadPause', 'downloadStop'] as const)(
@@ -561,7 +773,7 @@ describe('downloadRecord across tabs', () => {
         evt.fire(name)
         await vi.advanceTimersByTimeAsync(0)
         expect(setCalls).toHaveLength(1)
-        expect(Object.keys(mem[KEY])).toEqual(['patreon/u1/0#0'])
+        expect(Object.keys(stored())).toEqual(['patreon/u1/0#0'])
         // The cancelled debounce timer does not write a second time
         await vi.advanceTimersByTimeAsync(500)
         expect(setCalls).toHaveLength(1)

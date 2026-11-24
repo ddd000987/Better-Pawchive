@@ -228,6 +228,7 @@ export const texts = {
   _cacheFull: `Cache is full ({} entries), delete old ones first`,
   _recordStoreFailed: `Failed to save download records (storage may be full); new records will not be kept and deduplication may not work`,
   _cacheStoreFailed: `Cache write failed (maybe out of space); this entry only lives for this session`,
+  _cacheEntryMissing: `This cache entry's data is missing from storage; delete it and crawl again`,
   _cacheEvicted: `Cache quota reached; dropped the oldest entry: {}`,
   _cacheEmpty: `No cache yet; finished crawls will appear here`,
   _cacheMeta: `{} · {} posts · {} files · {}`,

@@ -228,6 +228,7 @@ export const texts: LocaleTexts = {
   _cacheFull: `快取已满（{} 笔），请先删除旧的`,
   _recordStoreFailed: `下载记录写入失败（可能是空间不足），新记录不会被保存，去重可能失效`,
   _cacheStoreFailed: `快取写入失败（可能是空间不足），本笔仅保留在此次开启中`,
+  _cacheEntryMissing: `这笔快取的资料已不在储存空间中，请删除后重新抓取`,
   _cacheEvicted: `快取空间不足，已丢弃最旧的一笔：{}`,
   _cacheEmpty: `尚无快取，抓取完成后会自动存放在这里`,
   _cacheMeta: `{} · {}帖 · {}档 · {}`,
