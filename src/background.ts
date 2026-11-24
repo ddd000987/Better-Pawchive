@@ -139,7 +139,7 @@ function checkSaveRequest(msg: SaveFileMsg): string | null {
   if (!url) {
     return 'No usable download URL'
   }
-  let protocol = ''
+  let protocol: string
   try {
     protocol = new URL(url).protocol
   } catch {
@@ -435,7 +435,7 @@ async function pruneDlData() {
     if (rec.t !== undefined && Date.now() - rec.t < DL_RECORD_GRACE_MS) {
       continue
     }
-    let stale = false
+    let stale: boolean
     try {
       let alive = tabAlive.get(rec.tabId)
       if (alive === undefined) {

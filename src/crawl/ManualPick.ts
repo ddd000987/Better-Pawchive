@@ -169,7 +169,7 @@ class ManualPick {
       started = true
     }
     EVT.on(EVT.list.crawlStart, onStart, { once: true })
-    let added: string[] = []
+    let added: string[]
     try {
       added = await engine.crawlIds(idList, { picked: true })
     } finally {

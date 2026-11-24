@@ -159,7 +159,7 @@ class ProgressBar {
     bar.name.textContent = data.name
     bar.name.setAttribute('title', data.name)
 
-    let text = ''
+    let text: string
     if (data.total >= this.MiB) {
       // 使用 MiB 作為單位
       text = `${(data.loaded / this.MiB).toFixed(1)}/${(
