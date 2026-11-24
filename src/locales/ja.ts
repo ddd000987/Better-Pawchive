@@ -25,6 +25,7 @@ export const texts: LocaleTexts = {
   _f_downloadOriginalImage: `原寸画像をダウンロード`,
   _f_showPreviewWorkTip: `プレビュー情報バーを表示`,
   _f_keepPreviewOnFloatHover: `プレビュー上にカーソルがある間は表示を維持`,
+  _f_previewMiddleClickOpenWindow: `中クリックで画像を別ウィンドウで開く`,
   // ---------- 預覽資訊列：欄位與位置 ----------
   _previewInfoTitle: `情報バーの内容`,
   _previewInfoHint: `読み込み中・エラーのメッセージは常に上部に表示されます`,
@@ -131,6 +132,7 @@ export const texts: LocaleTexts = {
   _d_downloadOriginalImage: `画像を原寸でダウンロードします。オフにするとサムネイルをダウンロードします（ファイルは小さいですが画質は低下します）。クロール済みまたはキャッシュ内のサムネイル URL は、ダウンロード時に自動で原寸画像に置き換えられます。`,
   _d_showPreviewWorkTip: `プレビューに情報バー（番号、タイトル、日付など）を表示します。`,
   _d_keepPreviewOnFloatHover: `オンの場合、カーソルがカードから離れてプレビュー上にある間は表示を維持します。オフの場合、カードから離れるとすぐにプレビューを閉じます。`,
+  _d_previewMiddleClickOpenWindow: `プレビュー表示中に投稿カードまたはプレビューを中クリックすると、現在の画像を別ウィンドウで開きます（ウィンドウを開くキーと同じ）。キー入力は届かなくてもクリックは届くため、ブラウザのウィンドウがフォーカスされていなくても使えます。オンの間、プレビュー中のカードを中クリックしても新しいタブでは開きません。`,
   _d_previewInfoPlacement: `この項目をプレビュー画像の上、下のどちらに表示するか、または表示しないかを選びます。`,
   _d_allowPreviewCoverThumbnail: `サムネイルのないテキストのみの投稿リンクでもプレビューを表示します。`,
   _d_wheelScrollPageMoveDistance: `プレビュー表示中、0.2 秒以内にマウスがこの距離（px）以上動いたときだけホイールでページをスクロールします。少し動いただけなら画像を切り替えます。数値が大きいほど誤ってスクロールしにくくなります。`,

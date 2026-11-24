@@ -25,6 +25,7 @@ export const texts: LocaleTexts = {
   _f_downloadOriginalImage: `下载原图`,
   _f_showPreviewWorkTip: `显示预览信息栏`,
   _f_keepPreviewOnFloatHover: `停留在预览框上时保持显示`,
+  _f_previewMiddleClickOpenWindow: `鼠标中键在独立窗口打开图片`,
   // ---------- 預覽資訊列：欄位與位置 ----------
   _previewInfoTitle: `信息栏内容`,
   _previewInfoHint: `加载中/错误提示固定显示在上方`,
@@ -131,6 +132,7 @@ export const texts: LocaleTexts = {
   _d_downloadOriginalImage: `下载图片时使用原始尺寸；关闭则下载缩图（文件小但画质差）。已抓取或缓存里的缩图网址会在下载时自动换成原图。`,
   _d_showPreviewWorkTip: `在预览浮层上显示信息栏（序号、标题、日期等）。`,
   _d_keepPreviewOnFloatHover: `开启时鼠标离开卡片、停在预览框上会保持显示；关闭后一离开卡片就关闭预览。`,
+  _d_previewMiddleClickOpenWindow: `预览显示时，在帖子卡片或预览框上按鼠标中键，会在独立窗口打开当前图片（同开窗口的快捷键）。浏览器窗口没有焦点时按键收不到，但点击收得到，所以这时也能用。开启后，在预览中的卡片上按中键不再以新标签页打开。`,
   _d_previewInfoPlacement: `决定该栏位显示在预览图的上方、下方，还是不显示。`,
   _d_allowPreviewCoverThumbnail: `连没有图片的纯文字帖子链接也会触发预览。`,
   _d_wheelScrollPageMoveDistance: `预览显示时，鼠标在 0.2 秒内移动超过这个距离（像素），滚轮才会滚动网页；只动一点点仍然切换图片。数字越大越不容易误滚网页。`,

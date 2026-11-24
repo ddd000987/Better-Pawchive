@@ -30,6 +30,9 @@ interface PreviewSettings {
   showPreviewWorkTip: boolean
   /** 滑鼠離開卡片後、停在預覽浮層上是否保持顯示（false = 離開卡片即關） */
   keepPreviewOnFloatHover: boolean
+  /** Middle-click the previewed card or the float to open the image in its own
+   * window (works when the browser window is not focused, unlike the key) */
+  previewMiddleClickOpenWindow: boolean
   /** 預覽資訊列：每個欄位顯示在圖片上方／下方／不顯示 */
   previewInfoPlacement: PreviewInfoPlacement
   /** hover 封面縮圖也觸發預覽 */
@@ -375,6 +378,7 @@ const defaultSettings: PawchiveSettings = {
   previewOriginalImage: false,
   showPreviewWorkTip: true,
   keepPreviewOnFloatHover: true,
+  previewMiddleClickOpenWindow: false,
   previewInfoPlacement: defaultPreviewInfoPlacement,
   allowPreviewCoverThumbnail: false,
   wheelScrollSwitchImageOnPreviewWork: true,

@@ -25,6 +25,7 @@ export const texts: LocaleTexts = {
   _f_downloadOriginalImage: `下載原圖`,
   _f_showPreviewWorkTip: `顯示預覽資訊列`,
   _f_keepPreviewOnFloatHover: `停留在預覽框上時保持顯示`,
+  _f_previewMiddleClickOpenWindow: `滑鼠中鍵在獨立視窗開啟圖片`,
   // ---------- 預覽資訊列：欄位與位置 ----------
   _previewInfoTitle: `資訊列內容`,
   _previewInfoHint: `載入／錯誤訊息固定顯示在上方`,
@@ -131,6 +132,7 @@ export const texts: LocaleTexts = {
   _d_downloadOriginalImage: `下載圖片時使用原始尺寸；關閉則下載縮圖（檔案小但畫質差）。已抓取或快取裡的縮圖網址會在下載時自動換成原圖。`,
   _d_showPreviewWorkTip: `在預覽浮層上顯示資訊列（序號、標題、日期等）。`,
   _d_keepPreviewOnFloatHover: `開啟時滑鼠離開卡片、停在預覽框上會保持顯示；關閉後一離開卡片就關閉預覽。`,
+  _d_previewMiddleClickOpenWindow: `預覽顯示時，在貼文卡片或預覽框上按滑鼠中鍵，會在獨立視窗開啟目前的圖片（同開視窗的快捷鍵）。瀏覽器視窗沒有焦點時按鍵收不到，但點擊收得到，所以這時也能用。開啟後，在預覽中的卡片上按中鍵不會再以新分頁開啟。`,
   _d_previewInfoPlacement: `決定該欄位顯示在預覽圖的上方、下方，還是不顯示。`,
   _d_allowPreviewCoverThumbnail: `連沒有圖片的純文字貼文連結也會觸發預覽。`,
   _d_wheelScrollPageMoveDistance: `預覽顯示時，滑鼠在 0.2 秒內移動超過這個距離（像素），滾輪才會捲動網頁；只動一點點仍然切換圖片。數字越大越不容易誤捲網頁。`,

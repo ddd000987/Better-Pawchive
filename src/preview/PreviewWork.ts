@@ -59,6 +59,9 @@
  *   CHANGED: next-image preload → previewPreloadNext / previewPreloadPrev
  *           images on each side (previewPreload.ts, wraps like the wheel);
  *           unfinished preloads are cancelled on post switch and close.
+ *   ADDED:  settings.previewMiddleClickOpenWindow (default off): middle-click
+ *           on the previewed card or the float opens the image window, which
+ *           works while the browser window is unfocused (keys do not reach it).
  */
 
 import { EVT } from '../EVT'
@@ -154,6 +157,8 @@ class PreviewWork {
   /** The image element renderCurrent is loading (not yet in the DOM) */
   private pendingImg: HTMLImageElement | null = null
   private readonly onWheel = (ev: WheelEvent): void => this.onWheelScroll(ev)
+  /** The current middle click opened the image window (its auxclick is eaten) */
+  private middleHandled = false
 
   constructor() {
     workThumbnail.onEnter((el, postKey, ev, auto) =>
@@ -181,6 +186,10 @@ class PreviewWork {
       if (states.previewWorkIsShow) this.close()
     })
     window.addEventListener('keydown', (ev) => this.onKeyDown(ev))
+    // Capture phase: claim the middle click before the card link or the site
+    // sees it (autoscroll on mousedown, new tab on auxclick)
+    window.addEventListener('mousedown', (ev) => this.onMiddleDown(ev), true)
+    window.addEventListener('auxclick', (ev) => this.onMiddleAux(ev), true)
     // 整頁離開（含進 BFCache）時收掉，否則按返回還原頁面時浮層原樣留著
     window.addEventListener('pagehide', () => this.close())
     // 設定面板／設定匯入改了資訊列相關設定時即時重繪（預覽浮層可能正開著）
@@ -750,6 +759,34 @@ class PreviewWork {
     } else if (matchesHotkey(ev, keys.previewOpenWindow)) {
       this.openWindow()
     }
+  }
+
+  /** Middle-click on the previewed card or the float opens the image window.
+   * Mouse events reach the page even while the browser window is unfocused,
+   * so this works where the open-window key cannot */
+  private onMiddleDown(ev: MouseEvent): void {
+    this.middleHandled = false
+    if (ev.button !== 1 || !settings.get('previewMiddleClickOpenWindow')) return
+    if (!states.previewWorkIsShow || !this.current) return
+    const target = ev.target
+    const onFloat = target instanceof Node && !!this.wrap?.contains(target)
+    const onCard =
+      !onFloat &&
+      workThumbnail.findCardUnderCursor()?.postKey === this.current.postKey
+    if (!onFloat && !onCard) return
+    ev.preventDefault()
+    ev.stopPropagation()
+    this.middleHandled = true
+    this.openWindow()
+  }
+
+  /** Swallow the auxclick of a middle click we handled, so the card link does
+   * not also open in a new tab */
+  private onMiddleAux(ev: MouseEvent): void {
+    if (ev.button !== 1 || !this.middleHandled) return
+    this.middleHandled = false
+    ev.preventDefault()
+    ev.stopPropagation()
   }
 
   /** Open the current image in its own window: the original when known, with

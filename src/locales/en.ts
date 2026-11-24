@@ -25,6 +25,7 @@ export const texts = {
   _f_downloadOriginalImage: `Download original images`,
   _f_showPreviewWorkTip: `Show preview info bar`,
   _f_keepPreviewOnFloatHover: `Keep showing when hovering the preview float`,
+  _f_previewMiddleClickOpenWindow: `Middle-click opens the image in its own window`,
   // ---------- 預覽資訊列：欄位與位置 ----------
   _previewInfoTitle: `Info bar content`,
   _previewInfoHint: `Loading/error messages always appear on top`,
@@ -131,6 +132,7 @@ export const texts = {
   _d_downloadOriginalImage: `Download images at their original size; off downloads thumbnails (small files, poor quality). Thumbnail URLs already crawled or cached are swapped for originals at download time.`,
   _d_showPreviewWorkTip: `Show the info bar (index, title, date, etc.) on the preview float.`,
   _d_keepPreviewOnFloatHover: `On: the preview stays while the cursor rests on the float. Off: it closes as soon as the cursor leaves the card.`,
+  _d_previewMiddleClickOpenWindow: `While a preview is showing, middle-click the post card or the preview to open the current image in its own window (same as the open-window key). Works even when the browser window is not focused, since mouse clicks still reach it but key presses do not. While on, middle-clicking a card that is being previewed no longer opens it in a new tab.`,
   _d_previewInfoPlacement: `Choose whether this field shows above the preview image, below it, or not at all.`,
   _d_allowPreviewCoverThumbnail: `Also trigger preview on text-only post links without thumbnails.`,
   _d_wheelScrollPageMoveDistance: `While previewing, the wheel scrolls the page only if the mouse moved at least this far (px) in the last 0.2 s; smaller movements still switch images. A larger number makes accidental page scrolling less likely.`,
