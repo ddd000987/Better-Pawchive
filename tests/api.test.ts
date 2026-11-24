@@ -94,6 +94,48 @@ describe('api', () => {
     ).rejects.toThrow('invalid offset: -1')
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('uses explicit host when provided for profile, posts, and post', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ post: { id: '42' }, attachments: [] }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.profile({
+      service: 'patreon',
+      creatorId: 'host-user',
+      host: 'kemono.cr',
+    })
+    await api.posts({
+      service: 'fanbox',
+      creatorId: 'host-user',
+      index: 50,
+      host: 'pawchive.pw',
+    })
+    await api.post(
+      { service: 'patreon', creatorId: 'host-user', postId: '42' },
+      undefined,
+      { host: 'kemono.su' }
+    )
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://kemono.cr/api/v1/patreon/user/host-user/profile',
+      expect.any(Object)
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://pawchive.pw/api/v1/fanbox/user/host-user/posts?o=50',
+      expect.any(Object)
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://kemono.su/api/v1/patreon/user/host-user/post/42',
+      expect.any(Object)
+    )
+  })
 })
 
 describe('api 快取', () => {

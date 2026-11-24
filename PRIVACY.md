@@ -9,15 +9,16 @@ Everything is stored locally in the extension's own storage (`chrome.storage.loc
 - Your settings (preview options, naming rules, hotkeys, interface language).
 - Download history (post IDs and file names you have downloaded), used to skip duplicates.
 - Crawl cache (post lists from recent crawls, up to 20 entries).
+- Watchlist: the creators you follow, your folders, custom names, notes and covers (uploaded covers are kept in IndexedDB), tracking state, and a short list of each followed creator's newest posts.
 - Optional: if you choose a download folder for the "skip files that already exist" check, a handle to that folder. You pick it in the extension's own window, and read access is granted to the extension, not to any website. The extension only lists file names and sizes in that folder to decide what to skip; it never reads file contents. Websites cannot see the handle or the folder.
 
-You can export, import or clear the download history and crawl cache from the settings panel. Removing the extension deletes all of it.
+You can export, import or clear the download history and crawl cache from the settings panel, and export or import the watchlist from the watch page. Removing the extension deletes all of it.
 
 Versions up to 0.2.0 stored the folder handle in the website's own storage. The current version deletes that old copy automatically the next time you open a Kemono / Pawchive page, and asks you to pick the folder again.
 
 ## Network requests
 
-The extension only talks to the Kemono / Pawchive sites you are already visiting (their public API and file servers). It does not contact any other server. It has no analytics, telemetry, ads, or remote code.
+The extension only talks to the Kemono / Pawchive sites (their public API and file servers): the ones you are visiting, and, from the watch page, the sites of the creators on your watchlist. Checking tracked creators for new posts requests each creator's newest page of posts from that site. It does not contact any other server. It has no analytics, telemetry, ads, or remote code.
 
 ## Permissions
 

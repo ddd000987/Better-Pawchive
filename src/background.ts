@@ -13,6 +13,9 @@
 
 import './folder/folderService'
 import './viewer/viewerService'
+import { totalUnread, validateWatchData } from './watch/watchData'
+import { siteOfHost } from './watch/watchKey'
+import { STORE_KEY } from './watch/watchTypes'
 
 interface SaveFileMsg {
   msg: string
@@ -54,8 +57,52 @@ let dlData: Record<string, DlRecord> = {}
 let batchNo: BatchNoMap = {}
 let idList: IdListMap = {}
 
+const VALID_WATCH_HASH = /^#\/[A-Za-z0-9/%._-]*$/
+
+function openWatchPage(hash?: unknown): void {
+  const suffix =
+    typeof hash === 'string' && VALID_WATCH_HASH.test(hash) ? hash : ''
+  void Promise.resolve(
+    chrome.tabs.create({ url: chrome.runtime.getURL('watch.html') + suffix })
+  ).catch((e) => console.warn('Open watch page failed', e))
+}
+
+function updateWatchBadge(raw: unknown): void {
+  const count = totalUnread(validateWatchData(raw))
+  const text = count > 0 ? (count > 999 ? '999+' : String(count)) : ''
+  void Promise.resolve(chrome.action?.setBadgeText?.({ text })).catch(() => {})
+  if (count > 0) {
+    void Promise.resolve(
+      chrome.action?.setBadgeBackgroundColor?.({ color: '#e5484d' })
+    ).catch(() => {})
+  }
+}
+
+void chrome.storage?.local
+  ?.get?.(STORE_KEY)
+  ?.then((data) => updateWatchBadge(data?.[STORE_KEY]))
+  ?.catch(() => {})
+
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === 'local' && STORE_KEY in changes) {
+    updateWatchBadge(changes[STORE_KEY].newValue)
+  }
+})
+
 chrome.action.onClicked.addListener((tab) => {
-  if (!tab.url || tab.id === undefined) return
+  let site = null
+  if (tab.url) {
+    try {
+      site = siteOfHost(new URL(tab.url).host)
+    } catch {
+      site = null
+    }
+  }
+  if (!site) {
+    openWatchPage()
+    return
+  }
+  if (tab.id === undefined) return
   chrome.tabs
     .sendMessage(tab.id, { msg: 'click_icon' })
     .catch((e) => console.warn('Send click_icon failed', e))
@@ -190,6 +237,10 @@ chrome.runtime.onMessage.addListener((rawMsg, sender) => {
   }
   // Only this extension's own content scripts and pages
   if (sender.id !== chrome.runtime.id) {
+    return false
+  }
+  if (rawMsg.msg === 'watch_open') {
+    openWatchPage((rawMsg as { hash?: unknown }).hash)
     return false
   }
   const msg = rawMsg

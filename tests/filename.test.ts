@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Config } from '../src/Config'
 import { fileName } from '../src/filename/FileName'
 import { settings } from '../src/setting/Settings'
 import type { Result } from '../src/store/StoreType'
+import { emptyWatchData } from '../src/watch/watchData'
+import { watchStore } from '../src/watch/watchStore'
 
 const LIMIT = Config.fullNameLengthLimit
 
@@ -212,6 +214,79 @@ describe('fileName.createFileName', () => {
     settings.set('namingRule', '{file_name}.{ext}')
     const name = fileName.createFileName(result({ fileName: 'a', ext: 'p/ng' }))
     expect(name).toBe('a.p／ng')
+  })
+})
+
+describe('fileName {creator_alias}', () => {
+  beforeEach(() => {
+    settings.set('namingRule', '{creator_alias}/{post_id}.{ext}')
+    settings.set('namingRulePawchive', '')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('uses the watchlist alias when set for the creator on this site', () => {
+    const data = emptyWatchData()
+    data.creators['kemono/patreon/u1'] = {
+      key: 'kemono/patreon/u1',
+      site: 'kemono',
+      service: 'patreon',
+      creatorId: 'u1',
+      name: 'some artist',
+      alias: 'My Favorite',
+      folderId: 'unsorted',
+      addedAt: 1,
+    }
+    vi.spyOn(watchStore, 'data', 'get').mockReturnValue(data)
+
+    expect(fileName.createFileName(result(), 'kemono.cr')).toBe(
+      'My Favorite/999.png'
+    )
+  })
+
+  it('falls back to {creator} when alias is not set or creator is not watched', () => {
+    const data = emptyWatchData()
+    data.creators['kemono/patreon/u1'] = {
+      key: 'kemono/patreon/u1',
+      site: 'kemono',
+      service: 'patreon',
+      creatorId: 'u1',
+      name: 'some artist',
+      folderId: 'unsorted',
+      addedAt: 1,
+    }
+    vi.spyOn(watchStore, 'data', 'get').mockReturnValue(data)
+
+    expect(fileName.createFileName(result(), 'kemono.cr')).toBe(
+      'some artist/999.png'
+    )
+    expect(
+      fileName.createFileName(
+        result({ creatorId: 'u2', creator: '' }),
+        'kemono.cr'
+      )
+    ).toBe('u2/999.png')
+  })
+
+  it('falls back to {creator} when the host site is unknown', () => {
+    const data = emptyWatchData()
+    data.creators['kemono/patreon/u1'] = {
+      key: 'kemono/patreon/u1',
+      site: 'kemono',
+      service: 'patreon',
+      creatorId: 'u1',
+      name: 'some artist',
+      alias: 'My Favorite',
+      folderId: 'unsorted',
+      addedAt: 1,
+    }
+    vi.spyOn(watchStore, 'data', 'get').mockReturnValue(data)
+
+    expect(fileName.createFileName(result(), 'example.com')).toBe(
+      'some artist/999.png'
+    )
   })
 })
 

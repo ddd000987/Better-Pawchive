@@ -25,6 +25,7 @@ function makeChrome(
     },
     runtime: {
       id: 'ext-id',
+      getURL: vi.fn((path: string) => `chrome-extension://ext-id/${path}`),
       onInstalled: {
         addListener: (fn: Listener) => listeners.installed.push(fn),
       },
@@ -40,6 +41,7 @@ function makeChrome(
       },
     },
     tabs: {
+      create: vi.fn(async () => ({})),
       sendMessage: vi.fn(async () => {}),
       get: vi.fn(async () => ({})),
     },
@@ -620,5 +622,246 @@ describe('background save_work_file request checks', () => {
     expect(chrome.downloads.download).toHaveBeenCalledWith(
       expect.objectContaining({ conflictAction: expected })
     )
+  })
+})
+
+describe('background watchlist navigation', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
+  })
+
+  async function setup() {
+    const { chrome, listeners } = makeChrome(
+      { batchNo: {}, idList: {} },
+      async () => 1
+    )
+    ;(globalThis as any).chrome = chrome
+    await import('../src/background')
+    return { chrome, listeners }
+  }
+
+  it('opens the watch page when action is clicked without tab.url', async () => {
+    const { chrome, listeners } = await setup()
+
+    listeners.action[0]({ id: 5 })
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://ext-id/watch.html',
+    })
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('opens the watch page when action is clicked on a non-supported site', async () => {
+    const { chrome, listeners } = await setup()
+
+    listeners.action[0]({ id: 5, url: 'https://example.com/page' })
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://ext-id/watch.html',
+    })
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['kemono.cr', 'https://kemono.cr/patreon/user/123'],
+    ['pawchive.pw', 'https://pawchive.pw/fanbox/user/456'],
+  ])('sends click_icon when action is clicked on %s', async (_host, url) => {
+    const { chrome, listeners } = await setup()
+
+    listeners.action[0]({ id: 7, url })
+
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(7, {
+      msg: 'click_icon',
+    })
+    expect(chrome.tabs.create).not.toHaveBeenCalled()
+  })
+
+  it('opens the watch page on watch_open from a content script or extension page', async () => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0](
+      { msg: 'watch_open' },
+      { id: 'ext-id', tab: { id: 1 } }
+    )
+    listeners.message[0]({ msg: 'watch_open' }, { id: 'ext-id' })
+
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(2)
+    expect(chrome.tabs.create).toHaveBeenNthCalledWith(1, {
+      url: 'chrome-extension://ext-id/watch.html',
+    })
+    expect(chrome.tabs.create).toHaveBeenNthCalledWith(2, {
+      url: 'chrome-extension://ext-id/watch.html',
+    })
+  })
+
+  it('ignores watch_open from foreign or anonymous senders', async () => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0](
+      { msg: 'watch_open' },
+      { id: 'other-ext', tab: { id: 1 } }
+    )
+    listeners.message[0]({ msg: 'watch_open' }, { tab: { id: 1 } })
+
+    expect(chrome.tabs.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['#/feed', '#/updates', '#/creator/kemono%2Fpatreon%2F1'])(
+    'appends valid watch_open hash %s to watch.html URL',
+    async (hash) => {
+      const { chrome, listeners } = await setup()
+
+      listeners.message[0](
+        { msg: 'watch_open', hash },
+        { id: 'ext-id', tab: { id: 1 } }
+      )
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: `chrome-extension://ext-id/watch.html${hash}`,
+      })
+    }
+  )
+
+  it.each([
+    'javascript:alert(1)',
+    'https://evil.example/#/',
+    '#feed',
+    '#/feed?foo=1',
+    '#/feed#extra',
+    123,
+  ])('ignores invalid watch_open hash %s', async (hash) => {
+    const { chrome, listeners } = await setup()
+
+    listeners.message[0](
+      { msg: 'watch_open', hash },
+      { id: 'ext-id', tab: { id: 1 } }
+    )
+
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://ext-id/watch.html',
+    })
+  })
+})
+
+describe('background watchlist unread badge', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue(0 as any)
+  })
+
+  function makeWatchDataWithUnread(count: number) {
+    const creators: Record<string, any> = {}
+    let remaining = count
+    let idx = 0
+    while (remaining > 0) {
+      const take = Math.min(remaining, 500)
+      const id = String(++idx)
+      const key = `kemono/patreon/${id}`
+      creators[key] = {
+        key,
+        site: 'kemono',
+        service: 'patreon',
+        creatorId: id,
+        name: `Creator ${id}`,
+        folderId: 'unsorted',
+        addedAt: 1,
+        tracking: {
+          enabled: true,
+          since: 1,
+          baselinePublished: '2026-01-01',
+          seenIds: [],
+          unread: Array.from({ length: take }, (_, i) => ({
+            id: `p_${idx}_${i}`,
+            title: `Post ${i}`,
+            published: '2026-01-02',
+          })),
+        },
+      }
+      remaining -= take
+    }
+    return {
+      version: 1,
+      folders: [{ id: 'unsorted', name: '', order: 0, createdAt: 0 }],
+      creators,
+      hosts: {},
+    }
+  }
+
+  async function setupBadge(initialWatch?: unknown) {
+    const storageListeners: Listener[] = []
+    const { chrome } = makeChrome(
+      {
+        batchNo: {},
+        idList: {},
+        ...(initialWatch !== undefined
+          ? { pawchiveProWatchlist: initialWatch }
+          : {}),
+      },
+      async () => 1
+    )
+    ;(chrome.action as any).setBadgeText = vi.fn(async () => {})
+    ;(chrome.action as any).setBadgeBackgroundColor = vi.fn(async () => {})
+    ;(chrome.storage as any).onChanged = {
+      addListener: (fn: Listener) => storageListeners.push(fn),
+    }
+    ;(globalThis as any).chrome = chrome
+    await import('../src/background')
+    await vi.waitFor(() => {
+      expect((chrome.action as any).setBadgeText).toHaveBeenCalled()
+    })
+    return { chrome, storageListeners }
+  }
+
+  it.each([
+    [0, ''],
+    [5, '5'],
+    [1200, '999+'],
+  ])(
+    'sets badge text on startup for %i unread posts -> %j',
+    async (count, expected) => {
+      const { chrome } = await setupBadge(makeWatchDataWithUnread(count))
+      expect((chrome.action as any).setBadgeText).toHaveBeenCalledWith({
+        text: expected,
+      })
+      if (count > 0) {
+        expect(
+          (chrome.action as any).setBadgeBackgroundColor
+        ).toHaveBeenCalledWith({ color: '#e5484d' })
+      }
+    }
+  )
+
+  it('updates badge text when watchlist changes in storage.local', async () => {
+    const { chrome, storageListeners } = await setupBadge(
+      makeWatchDataWithUnread(0)
+    )
+    expect((chrome.action as any).setBadgeText).toHaveBeenLastCalledWith({
+      text: '',
+    })
+
+    storageListeners[0](
+      {
+        pawchiveProWatchlist: {
+          newValue: makeWatchDataWithUnread(5),
+        },
+      },
+      'local'
+    )
+    expect((chrome.action as any).setBadgeText).toHaveBeenLastCalledWith({
+      text: '5',
+    })
+
+    storageListeners[0](
+      {
+        pawchiveProWatchlist: {
+          newValue: makeWatchDataWithUnread(1200),
+        },
+      },
+      'local'
+    )
+    expect((chrome.action as any).setBadgeText).toHaveBeenLastCalledWith({
+      text: '999+',
+    })
   })
 })

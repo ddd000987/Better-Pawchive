@@ -33,6 +33,11 @@ import './download/ShowBorderOnDownloadedWorks'
 import { engine } from './crawl/engine'
 import { manualPick } from './crawl/ManualPick'
 import { pickBar } from './crawl/PickBar'
+import { watchStore } from './watch/watchStore'
+import { watchButton } from './watch/WatchButton'
+import { watchNotice } from './watch/WatchNotice'
+import { autoScan } from './watch/scanner'
+import { siteOfHost } from './watch/watchKey'
 
 // webpack 的 mode 會替換 process.env.NODE_ENV；tsconfig 只載入 chrome 型別，
 // 這裡自行宣告避免 tsc 找不到 process
@@ -60,6 +65,7 @@ function checkModules() {
     showOriginSizeImage,
     thumbDownloadButton,
     hotkeyListener,
+    watchButton,
   }
   const missing = Object.entries(modules)
     .filter(([, value]) => !value)
@@ -141,8 +147,48 @@ EVT.on(EVT.list.pageSwitch, reportPage)
 async function bootstrap() {
   // 讀回設定（完成後發 settingInitialized，SettingsCenter 據此建 UI）
   await settings.restore()
+  try {
+    await watchStore.ready()
+    void watchStore
+      .rememberHost(location.host)
+      .catch((e) => console.error('[PawchivePro] rememberHost failed', e))
+  } catch (e) {
+    console.error('[PawchivePro] watchStore.ready failed', e)
+  }
   checkModules()
   reportPage()
+  scheduleAutoScan()
+}
+
+function scheduleAutoScan() {
+  const site = siteOfHost(location.host)
+  if (!site) return
+  const abortController = new AbortController()
+  const timer = window.setTimeout(() => {
+    if (abortController.signal.aborted) return
+    if (!settings.get('watchScanEnabled')) return
+    const hours = settings.get('watchScanIntervalHours')
+    void autoScan({
+      site,
+      host: location.host,
+      intervalMs: hours * 3600000,
+      signal: abortController.signal,
+      onDone: (result) => {
+        if (result.added.length > 0 && settings.get('watchNotice')) {
+          watchNotice.show(result)
+        }
+      },
+    }).catch((e) => console.error('[PawchivePro] autoScan failed', e))
+  }, 5000)
+
+  window.addEventListener(
+    'pagehide',
+    () => {
+      window.clearTimeout(timer)
+      abortController.abort()
+    },
+    { once: true }
+  )
 }
 
 void bootstrap()

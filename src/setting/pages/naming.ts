@@ -13,6 +13,7 @@ import { copyFallback, helpItem, inputRow, section } from './controls'
 const NAMING_TAGS: Array<{ token: string; descKey: LangTextKey }> = [
   { token: '{service}', descKey: '_nt_service' },
   { token: '{creator}', descKey: '_nt_creator' },
+  { token: '{creator_alias}', descKey: '_nt_creator_alias' },
   { token: '{creator_id}', descKey: '_nt_creator_id' },
   { token: '{post_id}', descKey: '_nt_post_id' },
   { token: '{title}', descKey: '_nt_title' },

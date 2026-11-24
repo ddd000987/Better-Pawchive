@@ -127,6 +127,12 @@ interface MetaSettings {
   hotkeys: HotkeyMap
   /** Keys used inside the hover preview; a cleared command is absent */
   previewHotkeys: PreviewHotkeyMap
+  /** Automatically scan tracked watchlist creators for new posts */
+  watchScanEnabled: boolean
+  /** Hours between automatic watchlist scans (1–168) */
+  watchScanIntervalHours: number
+  /** Show the in-page notice when tracked creators have new posts */
+  watchNotice: boolean
 }
 
 /** 快捷鍵組合（key 為 KeyboardEvent.code） */
@@ -420,6 +426,9 @@ const defaultSettings: PawchiveSettings = {
   namingRulePawchive: '',
   hotkeys: defaultHotkeys,
   previewHotkeys: defaultPreviewHotkeys,
+  watchScanEnabled: true,
+  watchScanIntervalHours: 6,
+  watchNotice: true,
 }
 
 /** 數值鍵的夾取規則（整數鍵先四捨五入） */
@@ -437,6 +446,7 @@ const numberRules: Partial<
   filterMinFiles: { min: 0, max: 100000, integer: true },
   filterMaxFiles: { min: 0, max: 100000, integer: true },
   filterMaxSizeMiB: { min: 0, max: 1048576 },
+  watchScanIntervalHours: { min: 1, max: 168, integer: true },
 }
 
 /** 枚舉鍵的白名單（不在名單內回預設） */

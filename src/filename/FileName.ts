@@ -17,10 +17,13 @@
 import { Config } from '../Config'
 import { log } from '../Log'
 import { lang } from '../Language'
+import { isKemonoService } from '../kemono/pages'
 import { isKemonoHost } from '../preview/previewAssets'
 import { settings } from '../setting/Settings'
 import { Result } from '../store/StoreType'
 import { handleWindowsReservedName, replaceUnsafeStr } from '../Tools'
+import { makeCreatorKey, siteOfHost } from '../watch/watchKey'
+import { watchStore } from '../watch/watchStore'
 
 /** 逸出正則表示式特殊字元（標記與副檔名都可能含正則語法） */
 function escapeRegExp(str: string): string {
@@ -95,7 +98,7 @@ class FileName {
   /** 為一條抓取結果生成檔名（含資料夾路徑） */
   public createFileName(result: Result, host = location.host): string {
     const rule = this.getRule(host) || this.defaultRule
-    const schema = this.buildSchema(result)
+    const schema = this.buildSchema(result, host)
     let name = this.generateFileName(rule, schema)
     // 規則沒寫 {ext} 時自動補副檔名（沿用 buildSchema 推回並清潔過的副檔名）
     if (!rule.includes('{ext}')) {
@@ -116,7 +119,7 @@ class FileName {
   }
 
   /** 由抓取結果建標記表 */
-  public buildSchema(result: Result): NamingSchema {
+  public buildSchema(result: Result, host = location.host): NamingSchema {
     const date = (result.published || '').slice(0, 10)
     const [year = '', month = '', day = ''] = date.split('-')
     const rawName = result.fileName || result.postId
@@ -129,9 +132,22 @@ class FileName {
       new RegExp(`\\.${escapeRegExp(ext)}$`, 'i'),
       ''
     )
+    const creator = result.creator || result.creatorId
+    let creatorAlias = creator
+    const site = siteOfHost(host)
+    if (site && isKemonoService(result.service) && result.creatorId) {
+      try {
+        const key = makeCreatorKey(site, result.service, result.creatorId)
+        const alias = watchStore.data.creators[key]?.alias?.trim()
+        if (alias) creatorAlias = alias
+      } catch {
+        // Invalid creatorId: fall back to creator name
+      }
+    }
     return {
       '{service}': { value: result.service || 'unknown' },
-      '{creator}': { value: result.creator || result.creatorId },
+      '{creator}': { value: creator },
+      '{creator_alias}': { value: creatorAlias },
       '{creator_id}': { value: result.creatorId },
       '{post_id}': { value: result.postId },
       '{title}': { value: result.title || result.postId },

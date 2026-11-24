@@ -40,14 +40,23 @@ import { NamingView } from './pages/naming'
 import { buildPreview } from './pages/preview'
 import { QueueView } from './pages/queue'
 import { StatusRows } from './pages/status'
+import { buildWatch } from './pages/watch'
 
 /** 設定中心的側欄分頁 */
 type CenterPage =
-  'home' | 'preview' | 'crawl' | 'download' | 'naming' | 'common' | 'help'
+  | 'home'
+  | 'watch'
+  | 'preview'
+  | 'crawl'
+  | 'download'
+  | 'naming'
+  | 'common'
+  | 'help'
 
 /** 側欄分頁定義（圖示用純文字元號） */
 const PAGES: Array<{ id: CenterPage; icon: string; label: LangTextKey }> = [
   { id: 'home', icon: '⌂', label: '_sc_home' },
+  { id: 'watch', icon: '☆', label: '_sc_watch' },
   { id: 'preview', icon: '◉', label: '_sc_preview' },
   { id: 'crawl', icon: '⇩', label: '_secCrawl' },
   { id: 'download', icon: '⬇', label: '_secDownload' },
@@ -276,6 +285,7 @@ class SettingsCenter {
       crawlProgress: this.crawlProgress,
       dlControls: this.dlControls,
     })
+    buildWatch(this.pageEls.get('watch')!)
     buildPreview(this.pageEls.get('preview')!)
     buildCrawl(
       this.pageEls.get('crawl')!,

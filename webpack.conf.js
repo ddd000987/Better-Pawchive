@@ -14,6 +14,7 @@ module.exports = {
     background: './src/background.ts',
     folder: './src/folder.ts',
     viewer: './src/viewer.ts',
+    watch: './src/watch.ts',
   },
   output: {
     filename: '[name].js',

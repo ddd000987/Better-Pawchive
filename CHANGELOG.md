@@ -4,6 +4,14 @@ English | [繁體中文](CHANGELOG.zh-TW.md)
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Watchlist: follow creators with the extension's own list, separate from the site's favorites. Click ☆ on a creator page (or in the avatar preview) to add a creator to a folder. The new watch page (toolbar icon on any other tab, or "Open watch page" in the settings panel) shows the creators as cards or a list, with folders, search, sorting, multi-select and drag-to-folder. Each creator can have a custom name, a note and a cover picked from their posts or uploaded from your computer. The watchlist can be exported to a file and imported back.
+- Tracking: turn on 🔔 for a creator and the extension remembers their newest post. When you visit the site it checks the tracked creators of that site (at most every 6 hours by default) and shows a notice when there are new posts; the toolbar icon shows the number of unread posts, and the watch page lists them in "New posts". Visiting the creator's page marks them as read.
+- Naming: the new `{creator_alias}` tag uses the custom name from the watchlist, or the creator's name when there is none.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added

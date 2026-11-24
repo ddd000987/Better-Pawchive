@@ -65,6 +65,19 @@ describe('sanitizeSetting', () => {
     expect(sanitizeSetting('previewPreloadPrev', '3')).toBe(0)
   })
 
+  it('watch scan settings defaults and interval clamping (1–168 integer)', () => {
+    expect(defaultSettings.watchScanEnabled).toBe(true)
+    expect(defaultSettings.watchScanIntervalHours).toBe(6)
+    expect(defaultSettings.watchNotice).toBe(true)
+    expect(sanitizeSetting('watchScanIntervalHours', 0)).toBe(1)
+    expect(sanitizeSetting('watchScanIntervalHours', 999)).toBe(168)
+    expect(sanitizeSetting('watchScanIntervalHours', 4.6)).toBe(5)
+    expect(sanitizeSetting('watchScanIntervalHours', NaN)).toBe(6)
+    expect(sanitizeSetting('watchScanIntervalHours', '12')).toBe(6)
+    expect(sanitizeSetting('watchScanEnabled', 'yes')).toBe(true)
+    expect(sanitizeSetting('watchNotice', 0)).toBe(true)
+  })
+
   it('枚舉鍵白名單', () => {
     expect(sanitizeSetting('textContent', 'xxx')).toBe('txt')
     expect(sanitizeSetting('skipDownloaded', 'both')).toBe('both')

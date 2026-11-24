@@ -15,9 +15,15 @@
 import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { markTransient } from '../PageRoots'
+import { toast } from '../Toast'
 import { api } from '../kemono/api'
+import type { PostsApiResponse } from '../kemono/apiTypes'
 import { settings } from '../setting/Settings'
 import { states } from '../store/States'
+import { snapshotFromPosts, snapshots } from '../watch/snapshot'
+import { makeCreatorKey, siteOfHost } from '../watch/watchKey'
+import { watchStore } from '../watch/watchStore'
+import { UNSORTED_FOLDER_ID } from '../watch/watchTypes'
 import {
   creatorGridShape,
   creatorPostCountLabel,
@@ -78,6 +84,9 @@ class PreviewCreator {
   private cursor: { x: number; y: number } | null = null
   /** Cursor position when the float opened; a re-layout keeps the same spot */
   private anchorPt = { x: 0, y: 0 }
+  private unsubWatch: (() => void) | null = null
+  private loadedPosts: PostsApiResponse | null = null
+  private currentWatchKey: string | null = null
 
   constructor() {
     document.addEventListener('mouseover', (ev) => this.onOver(ev), true)
@@ -188,6 +197,15 @@ class PreviewCreator {
       this.setStatus(lang.transl('_loadFailed'))
       return
     }
+    this.loadedPosts = posts
+    if (this.currentWatchKey && watchStore.isWatched(this.currentWatchKey)) {
+      const snapKey = this.currentWatchKey
+      void snapshots
+        .set(snapshotFromPosts(snapKey, posts))
+        .catch((err) =>
+          console.warn('[PawchivePro] save watch snapshot failed', err)
+        )
+    }
     if (this.countEl) {
       this.countEl.textContent = lang.transl(
         '_creatorPreviewPosts',
@@ -239,13 +257,79 @@ class PreviewCreator {
     head.className = 'pwpCP-head'
     const name = document.createElement('span')
     name.className = 'pwpCP-name'
-    name.textContent =
+    const creatorName =
       t.anchor.querySelector('.user-card__name')?.textContent?.trim() ||
       t.anchor.textContent?.trim() ||
       t.ref.creatorId
+    name.textContent = creatorName
     const count = document.createElement('span')
     count.className = 'pwpCP-count'
     head.append(name, count)
+
+    const site = siteOfHost(location.host)
+    if (site) {
+      const watchKey = makeCreatorKey(site, t.ref.service, t.ref.creatorId)
+      this.currentWatchKey = watchKey
+      const star = document.createElement('button')
+      star.type = 'button'
+      star.className = 'pwpCP-star'
+      const syncStar = () => {
+        const watched = watchStore.isWatched(watchKey)
+        star.textContent = watched ? '★' : '☆'
+        star.classList.toggle('is-active', watched)
+        const label = lang.transl(
+          watched ? '_ws_removeFromWatch' : '_ws_addToWatch'
+        )
+        star.title = label
+        star.setAttribute('aria-label', label)
+        star.setAttribute('aria-pressed', String(watched))
+      }
+      syncStar()
+      this.unsubWatch = watchStore.onChange(syncStar)
+      star.addEventListener('auxclick', (ev) => {
+        ev.stopPropagation()
+        ev.preventDefault()
+      })
+      star.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        ev.preventDefault()
+        void (async () => {
+          try {
+            if (watchStore.isWatched(watchKey)) {
+              await watchStore.removeCreators([watchKey])
+              await snapshots.remove([watchKey]).catch(() => {})
+              toast.success(lang.transl('_ws_removed'))
+            } else {
+              await watchStore.addCreator(
+                {
+                  site,
+                  service: t.ref.service,
+                  creatorId: t.ref.creatorId,
+                  name: creatorName,
+                },
+                UNSORTED_FOLDER_ID
+              )
+              toast.success(
+                lang.transl('_ws_added', lang.transl('_w_unsorted'))
+              )
+              if (this.currentWatchKey === watchKey && this.loadedPosts) {
+                void snapshots
+                  .set(snapshotFromPosts(watchKey, this.loadedPosts))
+                  .catch((err) =>
+                    console.warn(
+                      '[PawchivePro] save watch snapshot failed',
+                      err
+                    )
+                  )
+              }
+            }
+          } catch (err) {
+            toast.error(lang.transl('_ws_saveFailed', String(err)))
+          }
+        })()
+      })
+      head.appendChild(star)
+    }
     const grid = document.createElement('div')
     grid.className = 'pwpCP-grid'
     const status = document.createElement('div')
@@ -344,6 +428,10 @@ class PreviewCreator {
     this.loadToken++
     this.abort?.abort()
     this.abort = null
+    this.unsubWatch?.()
+    this.unsubWatch = null
+    this.loadedPosts = null
+    this.currentWatchKey = null
     this.trigger = null
     this.wrap?.remove()
     this.wrap = null

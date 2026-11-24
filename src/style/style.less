@@ -753,6 +753,7 @@
 
 #pwpCreatorPreview .pwpCP-head {
   display: flex;
+  align-items: center;
   gap: 8px;
   justify-content: space-between;
   padding: 6px 10px;
@@ -762,6 +763,7 @@
 
 #pwpCreatorPreview .pwpCP-name {
   // min-width: 0 lets the name shrink below its text so the ellipsis applies
+  flex: 1;
   min-width: 0;
   font-weight: bold;
   overflow: hidden;
@@ -772,6 +774,26 @@
 #pwpCreatorPreview .pwpCP-count {
   flex-shrink: 0;
   color: #777;
+}
+
+#pwpCreatorPreview .pwpCP-star {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 0.75;
+  }
+
+  &.is-active {
+    color: #f5b301;
+  }
 }
 
 #pwpCreatorPreview .pwpCP-grid {
@@ -981,3 +1003,290 @@ a[href][data-pwp-picked]::after {
 }
 
 // 快捷鍵表已併入設定中心（樣式見 #pwpSettingsCenter .pwp-hotkeys-*）
+
+// Row holding the watch and track buttons, below the site's action row
+.pwpWatchRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+
+  .pwpTrackBtn {
+    margin-left: 0;
+  }
+}
+
+// Watchlist button on creator pages
+.pwpWatchBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  cursor: pointer;
+  line-height: 1.4;
+  vertical-align: middle;
+
+  &:hover {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0a84ff;
+    outline-offset: 2px;
+  }
+}
+
+// Track button on creator pages (next to .pwpWatchBtn)
+.pwpTrackBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font: inherit;
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  cursor: pointer;
+  line-height: 1.4;
+  vertical-align: middle;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+
+  &.is-tracking {
+    background: #0a84ff;
+    border-color: #0a84ff;
+    color: #fff;
+
+    &:hover:not(:disabled) {
+      filter: brightness(1.08);
+      background: #0a84ff;
+    }
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0a84ff;
+    outline-offset: 2px;
+  }
+}
+
+// Watchlist folder popover (matches settings center dark palette, just below it)
+.pwpWatchMenu {
+  position: fixed;
+  z-index: 2147483645;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 6px;
+  border: 1px solid #33404f;
+  border-radius: 8px;
+  background: #1d2733;
+  color: #d7e0ea;
+  font:
+    13px/1.5 system-ui,
+    'Microsoft JhengHei',
+    'PingFang TC',
+    'Noto Sans CJK TC',
+    'Hiragino Sans',
+    sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.pwpWatchMenu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #d7e0ea;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: #243344;
+    color: #fff;
+    outline: none;
+  }
+
+  &.is-active {
+    color: #7fb8ff;
+    font-weight: bold;
+  }
+
+  &.is-danger {
+    color: #ff6b6b;
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(244, 67, 54, 0.16);
+      color: #ff8a80;
+    }
+  }
+}
+
+.pwpWatchMenu-mark {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  color: #0a84ff;
+}
+
+.pwpWatchMenu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pwpWatchMenu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: #2c3947;
+}
+
+.pwpWatchMenu-newSlot {
+  width: 100%;
+}
+
+.pwpWatchMenu-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #3a4a5d;
+  border-radius: 6px;
+  background: #0f1720;
+  color: #e6edf3;
+  font: inherit;
+  outline: none;
+
+  &:focus {
+    border-color: #0a84ff;
+  }
+}
+
+// In-page auto-scan notice (bottom-left, matches settings center dark palette)
+#pwpWatchNotice {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483645;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px 14px;
+  border: 1px solid #33404f;
+  border-radius: 8px;
+  background: #1d2733;
+  color: #d7e0ea;
+  font:
+    13px/1.45 system-ui,
+    'Microsoft JhengHei',
+    'PingFang TC',
+    'Noto Sans CJK TC',
+    'Hiragino Sans',
+    sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+
+  &[hidden] {
+    display: none;
+  }
+
+  .pwpWN-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .pwpWN-title {
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .pwpWN-close {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #9aa7b5;
+    font: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: #243344;
+      color: #fff;
+      outline: none;
+    }
+  }
+
+  .pwpWN-summary {
+    color: #d7e0ea;
+    margin-bottom: 6px;
+  }
+
+  .pwpWN-list {
+    margin: 0 0 10px;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pwpWN-item {
+    font-size: 12px;
+    color: #9fb3c8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pwpWN-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .pwpWN-view {
+    padding: 5px 12px;
+    border: none;
+    border-radius: 6px;
+    background: #0a84ff;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      filter: brightness(1.08);
+      outline: none;
+    }
+  }
+}

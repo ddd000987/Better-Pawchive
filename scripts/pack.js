@@ -1,6 +1,6 @@
 /* PawchivePro 打包輔助：把 webpack 管線外的靜態檔案複製到 dist/。
  * 用法：npm run pack（npm run build 已包含）。
- * 複製：src/manifest.json、src/declarative_net_request_rules.json、src/folder.html、src/viewer.html、src/lib/、src/icons/、src/_locales/
+ * 複製：src/manifest.json、src/declarative_net_request_rules.json、src/folder.html、src/viewer.html、src/watch.html、src/watch.css、src/lib/、src/icons/、src/_locales/
  * 複製後 dist/ 可直接用「載入未封裝項目」載入 Chrome。
  */
 const fs = require('fs')
@@ -31,6 +31,10 @@ copyFile(path.join(root, 'src', 'folder.html'), path.join(dist, 'folder.html'))
 
 // Image window opened from the preview (script: dist/js/viewer.js)
 copyFile(path.join(root, 'src', 'viewer.html'), path.join(dist, 'viewer.html'))
+
+// Watchlist page (script: dist/js/watch.js)
+copyFile(path.join(root, 'src', 'watch.html'), path.join(dist, 'watch.html'))
+copyFile(path.join(root, 'src', 'watch.css'), path.join(dist, 'watch.css'))
 
 function copyDir(src, dest) {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {

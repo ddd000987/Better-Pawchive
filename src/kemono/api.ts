@@ -199,31 +199,35 @@ export interface PostsQuery {
   index?: number
   /** 關鍵字（有才帶；Pawchive 要求 length >= 3） */
   query?: string
+  /** Optional host override (defaults to location.host) */
+  host?: string
 }
 
 export interface ProfileQuery {
   service: KemonoService
   creatorId: string
+  /** Optional host override (defaults to location.host) */
+  host?: string
 }
 
 const api = {
   async profile(
-    { service, creatorId }: ProfileQuery,
+    { service, creatorId, host }: ProfileQuery,
     signal?: AbortSignal
   ): Promise<ProfileApiResponse | APIErrorResponse> {
-    const url = `https://${location.host}/api/v1/${service}/user/${creatorId}/profile`
+    const url = `https://${host ?? location.host}/api/v1/${service}/user/${creatorId}/profile`
     return fetchJson<ProfileApiResponse>(url, TTL_PROFILE, signal)
   },
 
   async posts(
-    { service, creatorId, index, query }: PostsQuery,
+    { service, creatorId, index, query, host }: PostsQuery,
     signal?: AbortSignal
   ): Promise<PostsApiResponse | APIErrorResponse> {
     if (index !== undefined && (!Number.isInteger(index) || index < 0)) {
       throw new Error('invalid offset: ' + index)
     }
     const url = new URL(
-      `https://${location.host}/api/v1/${service}/user/${creatorId}/posts`
+      `https://${host ?? location.host}/api/v1/${service}/user/${creatorId}/posts`
     )
     if (typeof index === 'number') url.searchParams.set('o', index.toString())
     if (typeof query === 'string' && query) url.searchParams.set('q', query)
@@ -239,9 +243,9 @@ const api = {
   async post(
     info: PostInfo,
     signal?: AbortSignal,
-    opts: { cache?: boolean } = {}
+    opts: { cache?: boolean; host?: string } = {}
   ): Promise<PostApiResponse | APIErrorResponse> {
-    const url = `https://${location.host}/api/v1/${info.service}/user/${info.creatorId}/post/${info.postId}`
+    const url = `https://${opts.host ?? location.host}/api/v1/${info.service}/user/${info.creatorId}/post/${info.postId}`
     const data = await fetchJson<unknown>(
       url,
       opts.cache === false ? 0 : TTL_POST,
