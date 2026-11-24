@@ -1,17 +1,26 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* Pure list, routing, and image sizing helpers for the watch page. */
 
+import { matchesLabels } from '../watch/labels'
 import type { CreatorSnapshot, WatchedCreator } from '../watch/watchTypes'
 
-export type SortMode = 'name' | 'added' | 'latest' | 'unread'
+export type SortMode = 'name' | 'added' | 'latest' | 'unread' | 'rating'
+
+export interface LabelFilter {
+  tags: string[]
+  minRating?: number
+}
 
 export type WatchRoute =
   | { view: 'all' }
   | { view: 'updates' }
   | { view: 'tracking' }
   | { view: 'feed' }
+  | { view: 'tags' }
   | { view: 'folder'; folderId: string }
   | { view: 'creator'; key: string }
+  | { view: 'posts'; folderId?: string }
+  | { view: 'images'; folderId?: string }
 
 /** Preferred display name for a creator (custom alias first, else site name). */
 export function displayName(c: WatchedCreator): string {
@@ -19,14 +28,33 @@ export function displayName(c: WatchedCreator): string {
   return alias || c.name
 }
 
-/** Filter creators by case-insensitive substring match on alias, name, note, and creatorId. */
+/** Return true if any tag or minimum rating filter is active. */
+export function hasActiveLabelFilter(filter: LabelFilter): boolean {
+  return filter.tags.length > 0 || (filter.minRating ?? 0) > 0
+}
+
+/** Filter creators by tags (AND) and minimum rating using matchesLabels. */
+export function filterCreatorsByLabels(
+  list: WatchedCreator[],
+  filter: LabelFilter
+): WatchedCreator[] {
+  if (!hasActiveLabelFilter(filter)) return [...list]
+  return list.filter((c) => matchesLabels(c, filter))
+}
+
+/** Filter creators by case-insensitive substring match on alias, name, note, and creatorId, plus optional label filter. */
 export function filterCreators(
   list: WatchedCreator[],
-  query: string
+  query: string,
+  labelFilter?: LabelFilter
 ): WatchedCreator[] {
   const q = query.trim().toLowerCase()
-  if (!q) return [...list]
-  return list.filter((c) => {
+  const base =
+    labelFilter && hasActiveLabelFilter(labelFilter)
+      ? filterCreatorsByLabels(list, labelFilter)
+      : list
+  if (!q) return [...base]
+  return base.filter((c) => {
     if (c.alias && c.alias.toLowerCase().includes(q)) return true
     if (c.name.toLowerCase().includes(q)) return true
     if (c.note && c.note.toLowerCase().includes(q)) return true
@@ -72,6 +100,12 @@ export function sortCreators(
       if (ua !== ub) return ub - ua
       return compareName(a, b)
     }
+    if (mode === 'rating') {
+      const ra = a.rating ?? 0
+      const rb = b.rating ?? 0
+      if (ra !== rb) return rb - ra
+      return compareName(a, b)
+    }
     const la = latestPublished(snaps.get(a.key))
     const lb = latestPublished(snaps.get(b.key))
     if (la && !lb) return -1
@@ -97,12 +131,24 @@ export function parseRoute(hash: string): WatchRoute {
   if (trimmed === 'updates') return { view: 'updates' }
   if (trimmed === 'tracking') return { view: 'tracking' }
   if (trimmed === 'feed') return { view: 'feed' }
+  if (trimmed === 'tags') return { view: 'tags' }
+  if (trimmed === 'posts') return { view: 'posts' }
+  if (trimmed === 'images') return { view: 'images' }
 
   const slash = trimmed.indexOf('/')
   if (slash === -1) return { view: 'all' }
 
   const head = trimmed.slice(0, slash)
   const rest = trimmed.slice(slash + 1)
+
+  if (head === 'posts') {
+    const folderId = rest ? safeDecode(rest) : ''
+    return folderId ? { view: 'posts', folderId } : { view: 'posts' }
+  }
+  if (head === 'images') {
+    const folderId = rest ? safeDecode(rest) : ''
+    return folderId ? { view: 'images', folderId } : { view: 'images' }
+  }
   if (!rest) return { view: 'all' }
 
   if (head === 'folder') {

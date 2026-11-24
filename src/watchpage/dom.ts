@@ -15,6 +15,10 @@ import { displayName } from './listModel'
 
 export const MIME_CREATOR = 'application/x-pawchive-creator'
 export const MIME_FOLDER = 'application/x-pawchive-folder'
+export const MIME_FAV_POST = 'application/x-pwp-favpost'
+export const MIME_FAV_IMAGE = 'application/x-pwp-favimage'
+export const MIME_FAV_POST_FOLDER = 'application/x-pwp-favpost-folder'
+export const MIME_FAV_IMAGE_FOLDER = 'application/x-pwp-favimage-folder'
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,

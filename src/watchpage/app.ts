@@ -4,8 +4,12 @@
 import { EVT } from '../EVT'
 import { api } from '../kemono/api'
 import { lang } from '../Language'
+import { favImages, favPosts } from '../watch/collectStore'
+import type { FavImage, FavPost } from '../watch/collectTypes'
+import { normalizeTags, sanitizeRating } from '../watch/labels'
 import { runScan, type ScanResult } from '../watch/scanner'
 import { snapshotFromPosts, snapshots } from '../watch/snapshot'
+import { deleteTag, renameTag } from '../watch/tagOps'
 import { creatorsInFolder } from '../watch/watchData'
 import { watchStore } from '../watch/watchStore'
 import {
@@ -16,19 +20,68 @@ import {
 import { renderCreatorList } from './creatorList'
 import { mountDetailView, type DetailController } from './detail'
 import { el, folderLabel } from './dom'
+import { renderFavImagesView } from './favImagesView'
+import {
+  filterFavImages,
+  filterFavPosts,
+  sortFavImages,
+  sortFavPosts,
+  type FavSortMode,
+} from './favModel'
+import {
+  openFavPostEditorModal,
+  renderFavPostsView,
+  type PostEditorModalHandle,
+} from './favPostsView'
 import { renderFeedToolbar, renderFeedView, type FeedCallbacks } from './feed'
+import { openFavImageLightbox, type LightboxHandle } from './lightbox'
 import {
   filterCreators,
+  hasActiveLabelFilter,
   parseRoute,
   sortCreators,
+  type LabelFilter,
   type SortMode,
   type WatchRoute,
 } from './listModel'
 import { renderSidebar } from './sidebar'
-import { renderToolbar, type RefreshState, type ViewMode } from './toolbar'
+import { renderTagsToolbar, renderTagsView } from './tagsView'
+import {
+  renderFavToolbar,
+  renderToolbar,
+  type RefreshState,
+  type ToolbarPopover,
+  type ViewMode,
+} from './toolbar'
 import { exportWatchlist, importWatchlist } from './transfer'
 
 const VIEW_MODE_KEY = 'pawchiveProWatchView'
+const FILTER_KEY = 'pawchiveProWatchFilter'
+
+function loadLabelFilter(): LabelFilter {
+  try {
+    const raw = window.localStorage.getItem(FILTER_KEY)
+    if (!raw) return { tags: [] }
+    const parsed = JSON.parse(raw) as { tags?: unknown; minRating?: unknown }
+    const tags = normalizeTags(parsed?.tags) ?? []
+    const minRating = sanitizeRating(parsed?.minRating)
+    return minRating ? { tags, minRating } : { tags }
+  } catch {
+    return { tags: [] }
+  }
+}
+
+function saveLabelFilter(filter: LabelFilter): void {
+  try {
+    if (!hasActiveLabelFilter(filter)) {
+      window.localStorage.removeItem(FILTER_KEY)
+    } else {
+      window.localStorage.setItem(FILTER_KEY, JSON.stringify(filter))
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 function loadViewMode(): ViewMode {
   try {
@@ -59,7 +112,11 @@ export class WatchApp {
   private route: WatchRoute = parseRoute(location.hash)
   private snaps = new Map<string, CreatorSnapshot>()
   private query = ''
+  private labelFilter: LabelFilter = loadLabelFilter()
+  private openPopover: ToolbarPopover = null
   private sort: SortMode = 'name'
+  private favPostSort: FavSortMode = 'added'
+  private favImageSort: FavSortMode = 'added'
   private view: ViewMode = loadViewMode()
   private selectMode = false
   private selected = new Set<string>()
@@ -72,6 +129,8 @@ export class WatchApp {
 
   private noticeTimer: number | null = null
   private detailController: DetailController | null = null
+  private postEditorModal: PostEditorModalHandle | null = null
+  private lightbox: LightboxHandle | null = null
 
   constructor(root: HTMLElement) {
     this.root = root
@@ -92,7 +151,7 @@ export class WatchApp {
   }
 
   async start(): Promise<void> {
-    await watchStore.ready()
+    await Promise.all([watchStore.ready(), favPosts.ready(), favImages.ready()])
     await this.loadSnapshots()
     this.updateTitle()
 
@@ -101,8 +160,33 @@ export class WatchApp {
       this.onRouteChange()
     })
 
+    document.addEventListener('click', (ev) => {
+      if (this.openPopover === null) return
+      const target = ev.target as Node | null
+      if (target instanceof Element && target.closest('.w-popover-anchor')) {
+        return
+      }
+      this.openPopover = null
+      this.renderToolbarOnly()
+    })
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && this.openPopover !== null) {
+        this.openPopover = null
+        this.renderToolbarOnly()
+      }
+    })
+
     watchStore.onChange(() => {
       this.onStoreChange()
+    })
+
+    favPosts.onChange(() => {
+      this.onFavPostsChange()
+    })
+
+    favImages.onChange(() => {
+      this.onFavImagesChange()
     })
 
     EVT.on(EVT.list.langChange, () => {
@@ -151,19 +235,38 @@ export class WatchApp {
     location.hash = hash
   }
 
+  private closeOverlays(): void {
+    if (this.postEditorModal) {
+      this.postEditorModal.destroy()
+      this.postEditorModal = null
+    }
+    if (this.lightbox) {
+      this.lightbox.destroy()
+      this.lightbox = null
+    }
+  }
+
   private onRouteChange(): void {
     const next = parseRoute(location.hash)
     const prev = this.route
     this.route = next
     this.mobileMenuOpen = false
+    this.openPopover = null
+    this.closeOverlays()
 
-    // Clear selection when changing views
-    if (
-      prev.view !== next.view ||
+    // Clear selection when changing views or folders
+    const sameFolder =
       (prev.view === 'folder' &&
         next.view === 'folder' &&
-        prev.folderId !== next.folderId)
-    ) {
+        prev.folderId === next.folderId) ||
+      (prev.view === 'posts' &&
+        next.view === 'posts' &&
+        prev.folderId === next.folderId) ||
+      (prev.view === 'images' &&
+        next.view === 'images' &&
+        prev.folderId === next.folderId)
+
+    if (prev.view !== next.view || !sameFolder) {
       this.selected.clear()
       this.lastSelectedKey = null
       this.selectMode = false
@@ -174,10 +277,12 @@ export class WatchApp {
   }
 
   private onStoreChange(): void {
-    // Prune selection to existing creators
     const creators = watchStore.data.creators
-    for (const k of Array.from(this.selected)) {
-      if (!Object.hasOwn(creators, k)) this.selected.delete(k)
+    // Prune selection to existing creators only when viewing creators
+    if (this.route.view !== 'posts' && this.route.view !== 'images') {
+      for (const k of Array.from(this.selected)) {
+        if (!Object.hasOwn(creators, k)) this.selected.delete(k)
+      }
     }
 
     // Load snapshots for any newly added creators
@@ -186,7 +291,11 @@ export class WatchApp {
       void snapshots.getMany(missing).then((loaded) => {
         if (loaded.size === 0) return
         for (const [k, v] of loaded) this.snaps.set(k, v)
-        if (this.route.view !== 'creator') {
+        if (
+          this.route.view !== 'creator' &&
+          this.route.view !== 'posts' &&
+          this.route.view !== 'images'
+        ) {
           this.renderListContent()
         }
       })
@@ -208,12 +317,126 @@ export class WatchApp {
         watchStore.getCreator(this.route.key),
         watchStore.data
       )
+    } else if (this.route.view === 'posts' || this.route.view === 'images') {
+      if (this.openPopover === 'filter') {
+        this.renderToolbarOnly()
+      }
     } else {
       const scrollY = window.scrollY
       this.renderToolbarOnly()
       this.renderListContent()
       window.scrollTo({ top: scrollY })
     }
+  }
+
+  private onFavPostsChange(): void {
+    const currentRoute = this.route
+    if (currentRoute.view === 'posts') {
+      for (const k of Array.from(this.selected)) {
+        if (!favPosts.has(k)) this.selected.delete(k)
+      }
+      if (
+        currentRoute.folderId &&
+        !favPosts.data.folders.some((f) => f.id === currentRoute.folderId)
+      ) {
+        this.navigate('#/posts')
+        return
+      }
+    }
+
+    this.renderSidebarOnly()
+    if (currentRoute.view === 'posts') {
+      const scrollY = window.scrollY
+      this.renderToolbarOnly()
+      this.renderListContent()
+      window.scrollTo({ top: scrollY })
+      this.postEditorModal?.sync()
+    } else if (currentRoute.view === 'tags') {
+      this.renderListContent()
+    } else if (this.openPopover === 'filter') {
+      this.renderToolbarOnly()
+    }
+  }
+
+  private onFavImagesChange(): void {
+    const currentRoute = this.route
+    if (currentRoute.view === 'images') {
+      for (const k of Array.from(this.selected)) {
+        if (!favImages.has(k)) this.selected.delete(k)
+      }
+      if (
+        currentRoute.folderId &&
+        !favImages.data.folders.some((f) => f.id === currentRoute.folderId)
+      ) {
+        this.navigate('#/images')
+        return
+      }
+    }
+
+    this.renderSidebarOnly()
+    if (currentRoute.view === 'images') {
+      const scrollY = window.scrollY
+      this.renderToolbarOnly()
+      this.renderListContent()
+      window.scrollTo({ top: scrollY })
+      this.lightbox?.sync(this.visibleFavImages())
+    } else if (currentRoute.view === 'tags') {
+      this.renderListContent()
+    } else if (this.openPopover === 'filter') {
+      this.renderToolbarOnly()
+    }
+  }
+
+  private setLabelFilter(next: LabelFilter): void {
+    this.labelFilter = next
+    saveLabelFilter(next)
+    this.renderToolbarOnly()
+    this.renderListContent()
+  }
+
+  private applyTagFilter(tag: string): void {
+    const lower = tag.toLowerCase()
+    if (this.labelFilter.tags.some((t) => t.toLowerCase() === lower)) return
+    this.setLabelFilter({
+      tags: [...this.labelFilter.tags, tag],
+      minRating: this.labelFilter.minRating,
+    })
+  }
+
+  private selectedItemTags(): string[] {
+    const seen = new Map<string, string>()
+    for (const key of this.selected) {
+      const tags =
+        this.route.view === 'posts'
+          ? favPosts.get(key)?.tags
+          : this.route.view === 'images'
+            ? favImages.get(key)?.tags
+            : watchStore.getCreator(key)?.tags
+      if (!tags) continue
+      for (const tag of tags) {
+        const lower = tag.toLowerCase()
+        if (!seen.has(lower)) seen.set(lower, tag)
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+  }
+
+  private visibleFavPosts(): FavPost[] {
+    const base =
+      this.route.view === 'posts' && this.route.folderId
+        ? favPosts.itemsInFolder(this.route.folderId)
+        : Object.values(favPosts.data.items)
+    const filtered = filterFavPosts(base, this.query, this.labelFilter)
+    return sortFavPosts(filtered, this.favPostSort)
+  }
+
+  private visibleFavImages(): FavImage[] {
+    const base =
+      this.route.view === 'images' && this.route.folderId
+        ? favImages.itemsInFolder(this.route.folderId)
+        : Object.values(favImages.data.items)
+    const filtered = filterFavImages(base, this.query, this.labelFilter)
+    return sortFavImages(filtered, this.favImageSort)
   }
 
   private visibleCreators(): WatchedCreator[] {
@@ -230,7 +453,7 @@ export class WatchApp {
     } else {
       base = Object.values(data.creators)
     }
-    const filtered = filterCreators(base, this.query)
+    const filtered = filterCreators(base, this.query, this.labelFilter)
     return sortCreators(filtered, this.sort, this.snaps)
   }
 
@@ -244,6 +467,24 @@ export class WatchApp {
         (f) => f.id === route.folderId
       )
       if (folder) return folderLabel(folder)
+    }
+    if (route.view === 'posts') {
+      if (route.folderId) {
+        const folder = favPosts.data.folders.find(
+          (f) => f.id === route.folderId
+        )
+        if (folder) return folderLabel(folder)
+      }
+      return lang.transl('_fv_allPosts')
+    }
+    if (route.view === 'images') {
+      if (route.folderId) {
+        const folder = favImages.data.folders.find(
+          (f) => f.id === route.folderId
+        )
+        if (folder) return folderLabel(folder)
+      }
+      return lang.transl('_fv_allImages')
     }
     return lang.transl('_w_allCreators')
   }
@@ -267,37 +508,109 @@ export class WatchApp {
   private renderSidebarOnly(): void {
     renderSidebar(this.sidebarEl, {
       data: watchStore.data,
+      favPostsData: favPosts.data,
+      favImagesData: favImages.data,
       route: this.route,
       mobileOpen: this.mobileMenuOpen,
       callbacks: {
         onNavigate: (hash) => this.navigate(hash),
-        onCreateFolder: async (name) => {
-          await watchStore.addFolder(name)
+        creators: {
+          onCreateFolder: async (name) => {
+            await watchStore.addFolder(name)
+          },
+          onRenameFolder: async (id, name) => {
+            await watchStore.renameFolder(id, name)
+          },
+          onDeleteFolder: async (folder) => {
+            const viewingDeleted =
+              this.route.view === 'folder' && this.route.folderId === folder.id
+            await watchStore.deleteFolder(folder.id)
+            if (viewingDeleted) {
+              this.navigate('#/all')
+            }
+          },
+          onReorderFolders: async (ids) => {
+            await watchStore.reorderFolders(ids)
+          },
+          onDropItems: async (draggedKey, folderId) => {
+            const inCreators =
+              this.route.view !== 'posts' && this.route.view !== 'images'
+            const keys =
+              inCreators &&
+              this.selected.size > 0 &&
+              this.selected.has(draggedKey)
+                ? Array.from(this.selected)
+                : [draggedKey]
+            await watchStore.moveCreators(keys, folderId)
+            if (inCreators && this.selected.has(draggedKey)) {
+              this.selected.clear()
+              this.lastSelectedKey = null
+            }
+          },
         },
-        onRenameFolder: async (id, name) => {
-          await watchStore.renameFolder(id, name)
+        favPosts: {
+          onCreateFolder: async (name) => {
+            await favPosts.addFolder(name)
+          },
+          onRenameFolder: async (id, name) => {
+            await favPosts.renameFolder(id, name)
+          },
+          onDeleteFolder: async (folder) => {
+            const viewingDeleted =
+              this.route.view === 'posts' && this.route.folderId === folder.id
+            await favPosts.deleteFolder(folder.id)
+            if (viewingDeleted) {
+              this.navigate('#/posts')
+            }
+          },
+          onReorderFolders: async (ids) => {
+            await favPosts.reorderFolders(ids)
+          },
+          onDropItems: async (draggedKey, folderId) => {
+            const inPosts = this.route.view === 'posts'
+            const keys =
+              inPosts && this.selected.size > 0 && this.selected.has(draggedKey)
+                ? Array.from(this.selected)
+                : [draggedKey]
+            await favPosts.move(keys, folderId)
+            if (inPosts && this.selected.has(draggedKey)) {
+              this.selected.clear()
+              this.lastSelectedKey = null
+            }
+          },
         },
-        onDeleteFolder: async (folder) => {
-          const viewingDeleted =
-            this.route.view === 'folder' && this.route.folderId === folder.id
-          await watchStore.deleteFolder(folder.id)
-          if (viewingDeleted) {
-            this.navigate('#/all')
-          }
-        },
-        onReorderFolders: async (ids) => {
-          await watchStore.reorderFolders(ids)
-        },
-        onDropCreators: async (draggedKey, folderId) => {
-          const keys =
-            this.selected.size > 0 && this.selected.has(draggedKey)
-              ? Array.from(this.selected)
-              : [draggedKey]
-          await watchStore.moveCreators(keys, folderId)
-          if (this.selected.has(draggedKey)) {
-            this.selected.clear()
-            this.lastSelectedKey = null
-          }
+        favImages: {
+          onCreateFolder: async (name) => {
+            await favImages.addFolder(name)
+          },
+          onRenameFolder: async (id, name) => {
+            await favImages.renameFolder(id, name)
+          },
+          onDeleteFolder: async (folder) => {
+            const viewingDeleted =
+              this.route.view === 'images' && this.route.folderId === folder.id
+            await favImages.deleteFolder(folder.id)
+            if (viewingDeleted) {
+              this.navigate('#/images')
+            }
+          },
+          onReorderFolders: async (ids) => {
+            await favImages.reorderFolders(ids)
+          },
+          onDropItems: async (draggedKey, folderId) => {
+            const inImages = this.route.view === 'images'
+            const keys =
+              inImages &&
+              this.selected.size > 0 &&
+              this.selected.has(draggedKey)
+                ? Array.from(this.selected)
+                : [draggedKey]
+            await favImages.move(keys, folderId)
+            if (inImages && this.selected.has(draggedKey)) {
+              this.selected.clear()
+              this.lastSelectedKey = null
+            }
+          },
         },
         onExport: () => {
           void exportWatchlist().then(() => {
@@ -326,21 +639,125 @@ export class WatchApp {
       renderFeedToolbar(this.toolbarEl, watchStore.data, this.feedCallbacks())
       return
     }
+    if (this.route.view === 'tags') {
+      renderTagsToolbar(this.toolbarEl)
+      return
+    }
+    if (this.route.view === 'posts' || this.route.view === 'images') {
+      const isPosts = this.route.view === 'posts'
+      const store = isPosts ? favPosts : favImages
+      renderFavToolbar(this.toolbarEl, {
+        kind: this.route.view,
+        folders: store.data.folders,
+        title: this.currentListTitle(),
+        query: this.query,
+        labelFilter: this.labelFilter,
+        openPopover: this.openPopover,
+        sort: isPosts ? this.favPostSort : this.favImageSort,
+        selectMode: this.selectMode,
+        selectedCount: this.selected.size,
+        selectedTags: this.selectedItemTags(),
+        callbacks: {
+          onSearchChange: (q) => {
+            this.query = q
+            this.renderListContent()
+          },
+          onFilterChange: (next) => {
+            this.setLabelFilter(next)
+          },
+          onOpenPopoverChange: (next) => {
+            this.openPopover = next
+            this.renderToolbarOnly()
+          },
+          onSortChange: (mode) => {
+            if (isPosts) this.favPostSort = mode
+            else this.favImageSort = mode
+            this.renderListContent()
+          },
+          onToggleSelect: () => {
+            this.selectMode = !this.selectMode
+            if (!this.selectMode) {
+              this.selected.clear()
+              this.lastSelectedKey = null
+              if (
+                this.openPopover === 'bulkTags' ||
+                this.openPopover === 'bulkRating'
+              ) {
+                this.openPopover = null
+              }
+            }
+            this.renderToolbarOnly()
+            this.renderListContent()
+          },
+          onBulkMove: async (folderId) => {
+            const keys = Array.from(this.selected)
+            this.selected.clear()
+            this.lastSelectedKey = null
+            this.openPopover = null
+            await store.move(keys, folderId)
+          },
+          onBulkAddTags: async (tags) => {
+            const keys = Array.from(this.selected)
+            this.openPopover = null
+            await store.updateMany(keys, { addTags: tags })
+          },
+          onBulkRemoveTag: async (tag) => {
+            const keys = Array.from(this.selected)
+            await store.updateMany(keys, { removeTags: [tag] })
+          },
+          onBulkRating: async (rating) => {
+            const keys = Array.from(this.selected)
+            this.openPopover = null
+            await store.updateMany(keys, { rating })
+          },
+          onBulkRemove: async () => {
+            const keys = Array.from(this.selected)
+            this.selected.clear()
+            this.lastSelectedKey = null
+            this.openPopover = null
+            await store.remove(keys)
+          },
+          onClearSelection: () => {
+            this.selected.clear()
+            this.lastSelectedKey = null
+            if (
+              this.openPopover === 'bulkTags' ||
+              this.openPopover === 'bulkRating'
+            ) {
+              this.openPopover = null
+            }
+            this.renderToolbarOnly()
+            this.renderListContent()
+          },
+        },
+      })
+      return
+    }
     const visible = this.visibleCreators()
     renderToolbar(this.toolbarEl, {
       data: watchStore.data,
       title: this.currentListTitle(),
       query: this.query,
+      labelFilter: this.labelFilter,
+      openPopover: this.openPopover,
       sort: this.sort,
       view: this.view,
       selectMode: this.selectMode,
       selectedCount: this.selected.size,
+      selectedTags: this.selectedItemTags(),
       visibleCount: visible.length,
       refresh: this.refreshState,
       callbacks: {
         onSearchChange: (q) => {
           this.query = q
           this.renderListContent()
+        },
+        onFilterChange: (next) => {
+          this.setLabelFilter(next)
+        },
+        onOpenPopoverChange: (next) => {
+          this.openPopover = next
+          this.renderToolbarOnly()
         },
         onSortChange: (mode) => {
           this.sort = mode
@@ -357,6 +774,12 @@ export class WatchApp {
           if (!this.selectMode) {
             this.selected.clear()
             this.lastSelectedKey = null
+            if (
+              this.openPopover === 'bulkTags' ||
+              this.openPopover === 'bulkRating'
+            ) {
+              this.openPopover = null
+            }
           }
           this.renderToolbarOnly()
           this.renderListContent()
@@ -371,17 +794,39 @@ export class WatchApp {
           const keys = Array.from(this.selected)
           this.selected.clear()
           this.lastSelectedKey = null
+          this.openPopover = null
           await watchStore.moveCreators(keys, folderId)
+        },
+        onBulkAddTags: async (tags) => {
+          const keys = Array.from(this.selected)
+          this.openPopover = null
+          await watchStore.updateCreatorsLabels(keys, { addTags: tags })
+        },
+        onBulkRemoveTag: async (tag) => {
+          const keys = Array.from(this.selected)
+          await watchStore.updateCreatorsLabels(keys, { removeTags: [tag] })
+        },
+        onBulkRating: async (rating) => {
+          const keys = Array.from(this.selected)
+          this.openPopover = null
+          await watchStore.updateCreatorsLabels(keys, { rating })
         },
         onBulkRemove: async () => {
           const keys = Array.from(this.selected)
           this.selected.clear()
           this.lastSelectedKey = null
+          this.openPopover = null
           await watchStore.removeCreators(keys)
         },
         onClearSelection: () => {
           this.selected.clear()
           this.lastSelectedKey = null
+          if (
+            this.openPopover === 'bulkTags' ||
+            this.openPopover === 'bulkRating'
+          ) {
+            this.openPopover = null
+          }
           this.renderToolbarOnly()
           this.renderListContent()
         },
@@ -389,16 +834,147 @@ export class WatchApp {
     })
   }
 
+  private toggleSelection(
+    visibleKeys: string[],
+    key: string,
+    shiftKey: boolean
+  ): void {
+    if (shiftKey && this.lastSelectedKey) {
+      const start = visibleKeys.indexOf(this.lastSelectedKey)
+      const end = visibleKeys.indexOf(key)
+      if (start !== -1 && end !== -1) {
+        const [lo, hi] = start < end ? [start, end] : [end, start]
+        for (let i = lo; i <= hi; i++) {
+          this.selected.add(visibleKeys[i])
+        }
+        this.lastSelectedKey = key
+        this.renderToolbarOnly()
+        this.renderListContent()
+        return
+      }
+    }
+    if (this.selected.has(key)) {
+      this.selected.delete(key)
+    } else {
+      this.selected.add(key)
+    }
+    this.lastSelectedKey = key
+    this.renderToolbarOnly()
+    this.renderListContent()
+  }
+
   private renderListContent(): void {
     if (this.route.view === 'feed') {
       renderFeedView(this.contentEl, watchStore.data, this.feedCallbacks())
+      return
+    }
+    if (this.route.view === 'posts') {
+      const visible = this.visibleFavPosts()
+      renderFavPostsView(this.contentEl, {
+        posts: visible,
+        totalCount: Object.keys(favPosts.data.items).length,
+        hasQuery:
+          this.query.trim().length > 0 ||
+          hasActiveLabelFilter(this.labelFilter),
+        selectMode: this.selectMode,
+        selected: this.selected,
+        callbacks: {
+          onOpenEditor: (key) => {
+            this.postEditorModal?.destroy()
+            this.postEditorModal = openFavPostEditorModal(key, () => {
+              this.postEditorModal = null
+            })
+          },
+          onTagClick: (tag) => {
+            this.applyTagFilter(tag)
+          },
+          onToggleSelect: (key, shiftKey) => {
+            this.toggleSelection(
+              visible.map((p) => p.key),
+              key,
+              shiftKey
+            )
+          },
+        },
+      })
+      return
+    }
+    if (this.route.view === 'images') {
+      const visible = this.visibleFavImages()
+      renderFavImagesView(this.contentEl, {
+        images: visible,
+        totalCount: Object.keys(favImages.data.items).length,
+        hasQuery:
+          this.query.trim().length > 0 ||
+          hasActiveLabelFilter(this.labelFilter),
+        selectMode: this.selectMode,
+        selected: this.selected,
+        callbacks: {
+          onOpenLightbox: (key) => {
+            this.lightbox?.destroy()
+            this.lightbox = openFavImageLightbox(visible, key, () => {
+              this.lightbox = null
+            })
+          },
+          onToggleSelect: (key, shiftKey) => {
+            this.toggleSelection(
+              visible.map((img) => img.key),
+              key,
+              shiftKey
+            )
+          },
+        },
+      })
+      return
+    }
+    if (this.route.view === 'tags') {
+      renderTagsView(this.contentEl, {
+        onFilterByTag: (tag) => {
+          this.labelFilter = { tags: [tag] }
+          saveLabelFilter(this.labelFilter)
+          this.navigate('#/all')
+        },
+        onRenameTag: async (from, to) => {
+          await renameTag(from, to)
+          const fromLower = from.toLowerCase()
+          if (
+            this.labelFilter.tags.some((t) => t.toLowerCase() === fromLower)
+          ) {
+            const nextTags =
+              normalizeTags(
+                this.labelFilter.tags.map((t) =>
+                  t.toLowerCase() === fromLower ? to : t
+                )
+              ) ?? []
+            this.labelFilter = {
+              tags: nextTags,
+              minRating: this.labelFilter.minRating,
+            }
+            saveLabelFilter(this.labelFilter)
+          }
+        },
+        onDeleteTag: async (tag) => {
+          await deleteTag(tag)
+          const lower = tag.toLowerCase()
+          if (this.labelFilter.tags.some((t) => t.toLowerCase() === lower)) {
+            this.labelFilter = {
+              tags: this.labelFilter.tags.filter(
+                (t) => t.toLowerCase() !== lower
+              ),
+              minRating: this.labelFilter.minRating,
+            }
+            saveLabelFilter(this.labelFilter)
+          }
+        },
+      })
       return
     }
     const visible = this.visibleCreators()
     renderCreatorList(this.contentEl, {
       creators: visible,
       totalInWatchlist: Object.keys(watchStore.data.creators).length,
-      hasQuery: this.query.trim().length > 0,
+      hasQuery:
+        this.query.trim().length > 0 || hasActiveLabelFilter(this.labelFilter),
       emptyMessage: this.currentEmptyMessage(),
       snaps: this.snaps,
       view: this.view,
@@ -408,30 +984,15 @@ export class WatchApp {
         onOpenCreator: (key) => {
           this.navigate(`#/creator/${encodeURIComponent(key)}`)
         },
+        onTagClick: (tag) => {
+          this.applyTagFilter(tag)
+        },
         onToggleSelect: (key, shiftKey) => {
-          if (shiftKey && this.lastSelectedKey) {
-            const keys = visible.map((c) => c.key)
-            const start = keys.indexOf(this.lastSelectedKey)
-            const end = keys.indexOf(key)
-            if (start !== -1 && end !== -1) {
-              const [lo, hi] = start < end ? [start, end] : [end, start]
-              for (let i = lo; i <= hi; i++) {
-                this.selected.add(keys[i])
-              }
-              this.lastSelectedKey = key
-              this.renderToolbarOnly()
-              this.renderListContent()
-              return
-            }
-          }
-          if (this.selected.has(key)) {
-            this.selected.delete(key)
-          } else {
-            this.selected.add(key)
-          }
-          this.lastSelectedKey = key
-          this.renderToolbarOnly()
-          this.renderListContent()
+          this.toggleSelection(
+            visible.map((c) => c.key),
+            key,
+            shiftKey
+          )
         },
       },
     })
@@ -478,7 +1039,7 @@ export class WatchApp {
       this.detailController = null
     }
 
-    // If folder route refers to missing folder, redirect to all
+    // If folder route refers to missing folder, redirect to section's all
     const activeRoute = this.route
     if (
       activeRoute.view === 'folder' &&
@@ -487,6 +1048,24 @@ export class WatchApp {
     ) {
       this.route = { view: 'all' }
       history.replaceState(null, '', '#/all')
+      this.renderSidebarOnly()
+    } else if (
+      activeRoute.view === 'posts' &&
+      activeRoute.folderId &&
+      activeRoute.folderId !== UNSORTED_FOLDER_ID &&
+      !favPosts.data.folders.some((f) => f.id === activeRoute.folderId)
+    ) {
+      this.route = { view: 'posts' }
+      history.replaceState(null, '', '#/posts')
+      this.renderSidebarOnly()
+    } else if (
+      activeRoute.view === 'images' &&
+      activeRoute.folderId &&
+      activeRoute.folderId !== UNSORTED_FOLDER_ID &&
+      !favImages.data.folders.some((f) => f.id === activeRoute.folderId)
+    ) {
+      this.route = { view: 'images' }
+      history.replaceState(null, '', '#/images')
       this.renderSidebarOnly()
     }
 

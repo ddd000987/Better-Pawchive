@@ -134,6 +134,7 @@ function buildPreviewInfoFields(
 const KEY_HINTS: [PreviewHotkeyCommand, LangTextKey][] = [
   ['previewDownloadPost', '_pk_post'],
   ['previewDownloadImage', '_pk_image'],
+  ['previewFavoriteImage', '_pk_favorite'],
   ['previewOpenOriginal', '_pk_original'],
   ['previewOpenWindow', '_pk_window'],
 ]

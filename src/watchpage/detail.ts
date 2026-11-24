@@ -3,21 +3,40 @@
 
 import { api } from '../kemono/api'
 import { lang } from '../Language'
+import { favPosts } from '../watch/collectStore'
+import { MAX_PREVIEWS } from '../watch/labels'
 import {
   isSnapshotStale,
   snapshotFromPosts,
   snapshots,
 } from '../watch/snapshot'
 import { sortedFolders } from '../watch/watchData'
-import { creatorPageUrl, postPageUrl, thumbUrl } from '../watch/watchKey'
+import {
+  creatorPageUrl,
+  makeFavPostKey,
+  postPageUrl,
+  thumbUrl,
+} from '../watch/watchKey'
 import { watchStore } from '../watch/watchStore'
 import type {
   CreatorSnapshot,
   SnapshotPost,
+  WatchCover,
   WatchData,
   WatchedCreator,
 } from '../watch/watchTypes'
-import { openCoverPicker } from './coverPicker'
+import {
+  movePreview,
+  previewKey,
+  removePreview,
+  removedUploadIds,
+} from './cardPreview'
+import {
+  openCoverPicker,
+  openPreviewPicker,
+  type PostLoader,
+} from './coverPicker'
+import { coverStore } from './coverStore'
 import {
   createAvatar,
   el,
@@ -29,6 +48,8 @@ import {
 } from './dom'
 import { displayName } from './listModel'
 import { firstIdsOf, pageCache } from './pageCache'
+import { createStarInput, type StarInputHandle } from './stars'
+import { createTagInput, type TagInputHandle } from './tagInput'
 
 const SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000
 const PAGE_SIZE = 50
@@ -78,13 +99,210 @@ export function mountDetailView(
   let aliasInputEl: HTMLInputElement | null = null
   let noteTextareaEl: HTMLTextAreaElement | null = null
   let savedHintEl: HTMLElement | null = null
+  let starInputHandle: StarInputHandle | null = null
+  let tagInputHandle: TagInputHandle | null = null
+  let previewsSectionEl: HTMLElement | null = null
   let postsSectionEl: HTMLElement | null = null
   let trackBusy = false
   let lastUnreadKey = ''
+  let lastPreviewsKey = ''
+  let previewRenderToken = 0
 
   const unreadSignature = (creator: WatchedCreator | undefined): string => {
     if (!creator?.tracking?.enabled) return ''
     return creator.tracking.unread.map((p) => p.id).join(',')
+  }
+
+  const previewsSignature = (creator: WatchedCreator | undefined): string => {
+    if (!creator?.previews || creator.previews.length === 0) return ''
+    return creator.previews.map(previewKey).join('|')
+  }
+
+  const applyFavBtnState = (btn: HTMLButtonElement, isFav: boolean): void => {
+    btn.textContent = isFav ? '★' : '☆'
+    btn.classList.toggle('is-active', isFav)
+    btn.setAttribute('aria-pressed', String(isFav))
+    const label = lang.transl(isFav ? '_pv_favPostRemove' : '_pv_favPostAdd')
+    btn.setAttribute('aria-label', label)
+    btn.title = label
+  }
+
+  const syncFavPostButtons = (): void => {
+    if (!postsSectionEl) return
+    const buttons =
+      postsSectionEl.querySelectorAll<HTMLButtonElement>('.w-post-fav-btn')
+    for (const btn of buttons) {
+      const favKey = btn.dataset.favKey
+      if (favKey) {
+        applyFavBtnState(btn, favPosts.has(favKey))
+      }
+    }
+  }
+
+  const unsubFavPosts = favPosts.onChange(() => {
+    if (!destroyed) syncFavPostButtons()
+  })
+
+  const savePreviews = async (next: WatchCover[]): Promise<void> => {
+    if (!currentCreator) return
+    const prev = currentCreator.previews
+    const activeCover = currentCreator.cover
+    const toDelete = removedUploadIds(prev, next, activeCover)
+    await watchStore.updateCreator(key, {
+      previews: next.length > 0 ? next : null,
+    })
+    for (const id of toDelete) {
+      await coverStore.delete(id)
+    }
+  }
+
+  const renderPreviewsSection = (creator: WatchedCreator): void => {
+    if (!previewsSectionEl) return
+    const host = watchStore.hostFor(creator.site)
+    const list = creator.previews ?? []
+    previewRenderToken += 1
+    const token = previewRenderToken
+
+    previewsSectionEl.replaceChildren()
+
+    const head = el('div', 'w-previews-head')
+    const titleWrap = el('div', 'w-previews-title-wrap')
+    titleWrap.appendChild(
+      el('h2', 'w-section-title', lang.transl('_pv_sectionTitle'))
+    )
+    titleWrap.appendChild(
+      el('span', 'w-muted w-previews-count', `${list.length} / ${MAX_PREVIEWS}`)
+    )
+    head.appendChild(titleWrap)
+
+    const editBtn = el(
+      'button',
+      'w-btn w-btn-secondary w-btn-sm',
+      lang.transl('_pv_editBtn')
+    )
+    editBtn.type = 'button'
+    editBtn.addEventListener('click', () => {
+      if (!currentCreator) return
+      openPreviewPicker({
+        creator: currentCreator,
+        posts,
+        host: watchStore.hostFor(currentCreator.site),
+        loader: postLoader,
+        triggerEl: editBtn,
+      })
+    })
+    head.appendChild(editBtn)
+    previewsSectionEl.appendChild(head)
+
+    if (list.length === 0) {
+      previewsSectionEl.appendChild(
+        el('p', 'w-muted', lang.transl('_pv_emptyHint'))
+      )
+      return
+    }
+
+    const grid = el('div', 'w-preview-manage-grid')
+    let dragIndex: number | null = null
+
+    list.forEach((item, idx) => {
+      const card = el('div', 'w-preview-manage-item')
+      card.draggable = true
+
+      card.addEventListener('dragstart', (ev) => {
+        dragIndex = idx
+        card.classList.add('is-dragging')
+        if (ev.dataTransfer) {
+          ev.dataTransfer.effectAllowed = 'move'
+          ev.dataTransfer.setData('text/plain', String(idx))
+        }
+      })
+      card.addEventListener('dragover', (ev) => {
+        if (dragIndex === null || dragIndex === idx) return
+        ev.preventDefault()
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+        card.classList.add('is-drop-target')
+      })
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('is-drop-target')
+      })
+      card.addEventListener('drop', (ev) => {
+        ev.preventDefault()
+        card.classList.remove('is-drop-target')
+        if (dragIndex === null || dragIndex === idx) return
+        const from = dragIndex
+        dragIndex = null
+        void savePreviews(movePreview(list, from, idx))
+      })
+      card.addEventListener('dragend', () => {
+        dragIndex = null
+        card.classList.remove('is-dragging')
+        card.classList.remove('is-drop-target')
+      })
+
+      const thumb = el('div', 'w-preview-manage-thumb')
+      const attachImg = (url: string): void => {
+        const img = el('img', 'w-preview-manage-img')
+        img.loading = 'lazy'
+        img.decoding = 'async'
+        img.alt = ''
+        img.addEventListener('error', () => {
+          img.remove()
+        })
+        img.src = url
+        thumb.appendChild(img)
+      }
+
+      if (item.kind === 'post') {
+        const url = thumbUrl(host, item.path)
+        if (url) attachImg(url)
+      } else {
+        void coverStore.objectUrl(item.id).then((url) => {
+          if (previewRenderToken !== token || !thumb.isConnected || !url) return
+          attachImg(url)
+        })
+      }
+
+      const orderBadge = el('span', 'w-preview-manage-order', String(idx + 1))
+      orderBadge.setAttribute('aria-hidden', 'true')
+      thumb.appendChild(orderBadge)
+      card.appendChild(thumb)
+
+      const actions = el('div', 'w-preview-manage-actions')
+      const leftBtn = el('button', 'w-icon-btn', '←')
+      leftBtn.type = 'button'
+      leftBtn.disabled = idx === 0
+      leftBtn.setAttribute('aria-label', lang.transl('_pv_moveLeft'))
+      leftBtn.title = lang.transl('_pv_moveLeft')
+      leftBtn.addEventListener('click', () => {
+        void savePreviews(movePreview(list, idx, idx - 1))
+      })
+
+      const rightBtn = el('button', 'w-icon-btn', '→')
+      rightBtn.type = 'button'
+      rightBtn.disabled = idx === list.length - 1
+      rightBtn.setAttribute('aria-label', lang.transl('_pv_moveRight'))
+      rightBtn.title = lang.transl('_pv_moveRight')
+      rightBtn.addEventListener('click', () => {
+        void savePreviews(movePreview(list, idx, idx + 1))
+      })
+
+      const removeBtn = el('button', 'w-icon-btn w-icon-btn-danger', '✕')
+      removeBtn.type = 'button'
+      removeBtn.setAttribute('aria-label', lang.transl('_pv_remove'))
+      removeBtn.title = lang.transl('_pv_remove')
+      removeBtn.addEventListener('click', () => {
+        void savePreviews(removePreview(list, idx))
+      })
+
+      actions.appendChild(leftBtn)
+      actions.appendChild(rightBtn)
+      actions.appendChild(removeBtn)
+      card.appendChild(actions)
+
+      grid.appendChild(card)
+    })
+
+    previewsSectionEl.appendChild(grid)
   }
 
   const renderNotFound = (): void => {
@@ -162,16 +380,14 @@ export function mountDetailView(
         : []
     )
     const grid = el('div', 'w-post-grid')
+    const creator = currentCreator
     for (const post of posts) {
-      const tile = el('a', 'w-post-tile')
-      tile.href = postPageUrl(
-        host,
-        currentCreator.service,
-        currentCreator.creatorId,
-        post.id
-      )
-      tile.target = '_blank'
-      tile.rel = 'noopener'
+      const tile = el('div', 'w-post-tile')
+
+      const link = el('a', 'w-post-link')
+      link.href = postPageUrl(host, creator.service, creator.creatorId, post.id)
+      link.target = '_blank'
+      link.rel = 'noopener'
 
       const thumb = el('div', 'w-post-thumb')
       const titleText = post.title || lang.transl('_w_untitledPost')
@@ -195,14 +411,45 @@ export function mountDetailView(
           el('span', 'w-new-ribbon', lang.transl('_wt_newRibbon'))
         )
       }
-      tile.appendChild(thumb)
+      link.appendChild(thumb)
 
       const info = el('div', 'w-post-info')
       info.appendChild(el('div', 'w-post-title', titleText))
       if (post.published) {
         info.appendChild(el('div', 'w-post-date', formatDate(post.published)))
       }
-      tile.appendChild(info)
+      link.appendChild(info)
+      tile.appendChild(link)
+
+      const favKey = makeFavPostKey(
+        creator.site,
+        creator.service,
+        creator.creatorId,
+        post.id
+      )
+      const favBtn = el('button', 'w-post-fav-btn')
+      favBtn.type = 'button'
+      favBtn.dataset.favKey = favKey
+      applyFavBtnState(favBtn, favPosts.has(favKey))
+      favBtn.addEventListener('click', () => {
+        if (!currentCreator) return
+        if (favPosts.has(favKey)) {
+          void favPosts.remove([favKey])
+        } else {
+          void favPosts.add({
+            key: favKey,
+            site: currentCreator.site,
+            service: currentCreator.service,
+            creatorId: currentCreator.creatorId,
+            postId: post.id,
+            title: post.title,
+            published: post.published || undefined,
+            coverPath: post.coverPath,
+            creatorName: currentCreator.name,
+          })
+        }
+      })
+      tile.appendChild(favBtn)
 
       grid.appendChild(tile)
     }
@@ -327,6 +574,16 @@ export function mountDetailView(
         renderPostsSection()
       }
     }
+  }
+
+  // Lets the cover and preview pickers page back through older posts
+  const postLoader: PostLoader = {
+    posts: () => posts,
+    hasMore: () => hasMore,
+    load: async () => {
+      await loadNextPage()
+      return loadError || null
+    },
   }
 
   const syncFolderOptions = (
@@ -478,6 +735,8 @@ export function mountDetailView(
     if (noteTextareaEl && document.activeElement !== noteTextareaEl) {
       noteTextareaEl.value = creator.note ?? ''
     }
+    starInputHandle?.setValue(creator.rating)
+    tagInputHandle?.setTags(creator.tags)
   }
 
   const buildShell = (creator: WatchedCreator, data: WatchData): void => {
@@ -515,6 +774,7 @@ export function mountDetailView(
         creator: currentCreator,
         posts,
         host: watchStore.hostFor(currentCreator.site),
+        loader: postLoader,
         triggerEl: changeCoverBtn,
       })
     })
@@ -597,8 +857,36 @@ export function mountDetailView(
 
     page.appendChild(header)
 
-    // Alias & Note fields
+    // Rating, Tags, Alias & Note fields
     const fields = el('section', 'w-detail-fields')
+
+    const ratingGroup = el('div', 'w-field')
+    ratingGroup.appendChild(
+      el('span', 'w-field-label', lang.transl('_lb_ratingLabel'))
+    )
+    starInputHandle = createStarInput({
+      value: creator.rating,
+      onChange: (rating) => {
+        void watchStore.updateCreator(key, { rating })
+      },
+    })
+    ratingGroup.appendChild(starInputHandle.element)
+    fields.appendChild(ratingGroup)
+
+    const tagsGroup = el('div', 'w-field')
+    tagsGroup.appendChild(
+      el('span', 'w-field-label', lang.transl('_lb_tagsLabel'))
+    )
+    tagInputHandle = createTagInput({
+      tags: creator.tags,
+      onChange: (tags) => {
+        void watchStore.updateCreator(key, {
+          tags: tags.length > 0 ? tags : null,
+        })
+      },
+    })
+    tagsGroup.appendChild(tagInputHandle.element)
+    fields.appendChild(tagsGroup)
 
     const aliasGroup = el('div', 'w-field')
     const aliasLabel = el(
@@ -653,13 +941,19 @@ export function mountDetailView(
 
     page.appendChild(fields)
 
+    // Card previews section
+    previewsSectionEl = el('section', 'w-detail-previews')
+    page.appendChild(previewsSectionEl)
+
     // Posts section
     postsSectionEl = el('section', 'w-posts-section')
     page.appendChild(postsSectionEl)
 
     root.appendChild(page)
     lastUnreadKey = unreadSignature(creator)
+    lastPreviewsKey = previewsSignature(creator)
     syncHeaderFields(creator, data)
+    renderPreviewsSection(creator)
     renderPostsSection()
   }
 
@@ -707,6 +1001,11 @@ export function mountDetailView(
         buildShell(creator, data)
       } else {
         syncHeaderFields(creator, data)
+        const nextPreviewsKey = previewsSignature(creator)
+        if (nextPreviewsKey !== lastPreviewsKey) {
+          lastPreviewsKey = nextPreviewsKey
+          renderPreviewsSection(creator)
+        }
         const nextUnreadKey = unreadSignature(creator)
         if (nextUnreadKey !== lastUnreadKey) {
           lastUnreadKey = nextUnreadKey
@@ -716,6 +1015,7 @@ export function mountDetailView(
     },
     destroy() {
       destroyed = true
+      unsubFavPosts()
       abortController.abort()
       if (noteTimer !== null) window.clearTimeout(noteTimer)
       if (savedHintTimer !== null) window.clearTimeout(savedHintTimer)

@@ -5,6 +5,7 @@
  * IndexedDB); nothing is sent anywhere. */
 
 import type { KemonoService } from '../kemono/apiTypes'
+import type { Rating } from './collectTypes'
 
 /** Site family. kemono.su / kemono.party / kemono.cr all count as 'kemono' */
 export type WatchSite = 'pawchive' | 'kemono'
@@ -77,6 +78,10 @@ export interface WatchedCreator {
   folderId: string
   addedAt: number
   tracking?: WatchTracking
+  rating?: Rating
+  tags?: string[]
+  /** Card hover previews (max 6) */
+  previews?: WatchCover[]
 }
 
 /** Everything stored under the watchlist storage key */

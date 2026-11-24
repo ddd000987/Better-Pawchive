@@ -1,6 +1,7 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* Pure validation, sanitization, and query helpers for WatchData. */
 
+import { MAX_PREVIEWS, normalizeTags, sanitizeRating } from './labels'
 import { parseCreatorKey, siteOfHost } from './watchKey'
 import {
   UNSORTED_FOLDER_ID,
@@ -39,7 +40,7 @@ export function emptyWatchData(): WatchData {
   }
 }
 
-function sanitizeCover(raw: unknown): WatchCover | undefined {
+export function sanitizeCover(raw: unknown): WatchCover | undefined {
   if (!isRecord(raw)) return undefined
   if (raw.kind === 'post') {
     if (typeof raw.path === 'string' && raw.path.startsWith('/')) {
@@ -54,6 +55,64 @@ function sanitizeCover(raw: unknown): WatchCover | undefined {
     return undefined
   }
   return undefined
+}
+
+export function sanitizePreviews(raw: unknown): WatchCover[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const out: WatchCover[] = []
+  for (const item of raw) {
+    if (out.length >= MAX_PREVIEWS) break
+    const cover = sanitizeCover(item)
+    if (!cover) continue
+    const dedupeKey =
+      cover.kind === 'post' ? `p:${cover.path}` : `u:${cover.id}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    out.push(cover)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+export function sanitizeFolders(raw: unknown): {
+  folders: WatchFolder[]
+  folderIds: Set<string>
+} {
+  const folders: WatchFolder[] = []
+  const folderIds = new Set<string>()
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!isRecord(item)) continue
+      const { id, name, order, createdAt } = item
+      if (
+        typeof id !== 'string' ||
+        !id ||
+        id.length > MAX_FOLDER_ID_LEN ||
+        folderIds.has(id)
+      ) {
+        continue
+      }
+      if (typeof name !== 'string') continue
+      if (!isFiniteNumber(order)) continue
+      folderIds.add(id)
+      folders.push({
+        id,
+        name: name.trim().slice(0, MAX_FOLDER_NAME_LEN),
+        order,
+        createdAt: isFiniteNumber(createdAt) ? createdAt : 0,
+      })
+    }
+  }
+  if (!folderIds.has(UNSORTED_FOLDER_ID)) {
+    folderIds.add(UNSORTED_FOLDER_ID)
+    folders.unshift({
+      id: UNSORTED_FOLDER_ID,
+      name: '',
+      order: 0,
+      createdAt: 0,
+    })
+  }
+  return { folders, folderIds }
 }
 
 function sanitizeUnread(raw: unknown): UnreadPost[] {
@@ -102,40 +161,7 @@ function sanitizeTracking(raw: unknown): WatchTracking | undefined {
 export function validateWatchData(raw: unknown): WatchData {
   if (!isRecord(raw)) return emptyWatchData()
 
-  const folders: WatchFolder[] = []
-  const folderIds = new Set<string>()
-  if (Array.isArray(raw.folders)) {
-    for (const item of raw.folders) {
-      if (!isRecord(item)) continue
-      const { id, name, order, createdAt } = item
-      if (
-        typeof id !== 'string' ||
-        !id ||
-        id.length > MAX_FOLDER_ID_LEN ||
-        folderIds.has(id)
-      ) {
-        continue
-      }
-      if (typeof name !== 'string') continue
-      if (!isFiniteNumber(order)) continue
-      folderIds.add(id)
-      folders.push({
-        id,
-        name: name.trim().slice(0, MAX_FOLDER_NAME_LEN),
-        order,
-        createdAt: isFiniteNumber(createdAt) ? createdAt : 0,
-      })
-    }
-  }
-  if (!folderIds.has(UNSORTED_FOLDER_ID)) {
-    folderIds.add(UNSORTED_FOLDER_ID)
-    folders.unshift({
-      id: UNSORTED_FOLDER_ID,
-      name: '',
-      order: 0,
-      createdAt: 0,
-    })
-  }
+  const { folders, folderIds } = sanitizeFolders(raw.folders)
 
   const creators: Record<string, WatchedCreator> = {}
   if (isRecord(raw.creators)) {
@@ -180,6 +206,12 @@ export function validateWatchData(raw: unknown): WatchData {
       if (cover) creator.cover = cover
       const tracking = sanitizeTracking(value.tracking)
       if (tracking) creator.tracking = tracking
+      const rating = sanitizeRating(value.rating)
+      if (rating !== undefined) creator.rating = rating
+      const tags = normalizeTags(value.tags)
+      if (tags) creator.tags = tags
+      const previews = sanitizePreviews(value.previews)
+      if (previews) creator.previews = previews
 
       creators[key] = creator
     }
@@ -203,7 +235,7 @@ export function validateWatchData(raw: unknown): WatchData {
   }
 }
 
-export function sortedFolders(data: WatchData): WatchFolder[] {
+export function sortedFolders(data: { folders: WatchFolder[] }): WatchFolder[] {
   return [...data.folders].sort((a, b) => {
     if (a.id === UNSORTED_FOLDER_ID && b.id !== UNSORTED_FOLDER_ID) return -1
     if (b.id === UNSORTED_FOLDER_ID && a.id !== UNSORTED_FOLDER_ID) return 1

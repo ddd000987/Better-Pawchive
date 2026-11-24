@@ -71,9 +71,16 @@ import { toast } from '../Toast'
 import { isTypingTarget, throttle } from '../Tools'
 import { downloadPost, downloadSingle } from '../download/quickDownload'
 import { api } from '../kemono/api'
-import { isPendingPost, type PostApiResponse } from '../kemono/apiTypes'
+import {
+  isPendingPost,
+  type FileItem,
+  type PostApiResponse,
+} from '../kemono/apiTypes'
 import { settings } from '../setting/Settings'
 import { states } from '../store/States'
+import { favImages } from '../watch/collectStore'
+import { resolvePostCreatorName } from '../watch/postMeta'
+import { IMAGE_PATH_RE, makeFavImageKey, siteOfHost } from '../watch/watchKey'
 import { fitPreview } from './previewLayout'
 import { imageFiles, imageUrl, parsePostKey } from './previewAssets'
 import { preloadIndices, stalePreloadUrls } from './previewPreload'
@@ -93,6 +100,8 @@ interface CurrentPreview {
   postKey: string
   service: string
   data: PostApiResponse
+  /** File items aligned 1:1 with urls/originUrls */
+  files: FileItem[]
   /** 浮層顯示用（依 previewOriginalImage 設定） */
   urls: string[]
   /** 與 urls 一一對應的原圖網址（V 鍵檢視器用，不看預覽設定） */
@@ -151,6 +160,9 @@ class PreviewWork {
   /** 換圖載入中蓋在舊圖上的提示（雙緩衝期間舊圖還在，不提示會像沒切換） */
   private badge: HTMLDivElement | null = null
   private badgeTimer = 0
+  /** Subtle star badge shown while the current image is saved in favImages */
+  private favMark: HTMLDivElement | null = null
+  private favBusy = false
   /** Images of the shown post loaded ahead of time, by URL. Cleared (and the
    * unfinished ones cancelled) when the preview moves to another post or closes. */
   private preloads = new Map<string, HTMLImageElement>()
@@ -215,6 +227,7 @@ class PreviewWork {
     EVT.on(EVT.list.settingInitialized, () => {
       this.refreshTipLayout()
     })
+    favImages.onChange(() => this.updateFavMark())
     this.switchWheel = throttle((dir: 1 | -1) => {
       this.switchImage(dir)
     }, 100)
@@ -344,6 +357,7 @@ class PreviewWork {
     // 空窗期滾輪／鍵盤會作用到舊帖的 urls（殘影）；舊圖也不管新卡有無封面
     // 都先清掉，摘要條先置載入中
     this.current = null
+    this.updateFavMark()
     this.wrap?.querySelector('img')?.remove()
     this.cancelPendingImage()
     this.cancelPreloads()
@@ -380,10 +394,12 @@ class PreviewWork {
       // 預覽網址與原圖網址同一次過濾，索引才對得上
       const pairs = imageFiles(data)
         .map((f) => ({
+          file: f,
           preview: imageUrl(f, data, original),
           origin: imageUrl(f, data, true),
         }))
         .filter((p) => p.preview)
+      const files = pairs.map((p) => p.file)
       const urls = pairs.map((p) => p.preview)
       const originUrls = pairs.map((p) => p.origin || p.preview)
       if (urls.length === 0) {
@@ -396,6 +412,7 @@ class PreviewWork {
         postKey,
         service: info.service,
         data,
+        files,
         urls,
         originUrls,
         index,
@@ -421,7 +438,11 @@ class PreviewWork {
     // 絕對定位，不佔版面、不影響 fitImage 量測
     const badge = document.createElement('div')
     badge.className = 'pwpPreviewBadge'
-    wrap.append(tipTop, tipBottom, badge)
+    const favMark = document.createElement('div')
+    favMark.className = 'pwpPreviewFavMark'
+    favMark.textContent = '★'
+    favMark.setAttribute('aria-hidden', 'true')
+    wrap.append(tipTop, tipBottom, badge, favMark)
     wrap.addEventListener('click', () => {
       // 手動關閉：同 Esc，游標不動時不再自動重開
       this.dismiss()
@@ -440,6 +461,7 @@ class PreviewWork {
     this.tipTop = tipTop
     this.tipBottom = tipBottom
     this.badge = badge
+    this.favMark = favMark
     this.applyTipEnabled()
   }
 
@@ -513,6 +535,63 @@ class PreviewWork {
     img.src = urls[index]
     this.preloadAround(urls, index)
     this.updateTip()
+    this.updateFavMark()
+  }
+
+  private currentFavImageKey(): string | null {
+    if (!this.current) return null
+    const site = siteOfHost(location.host)
+    const file = this.current.files[this.current.index]
+    if (!site || !file?.path || !IMAGE_PATH_RE.test(file.path)) return null
+    return makeFavImageKey(site, file.path)
+  }
+
+  private updateFavMark(): void {
+    if (!this.wrap) return
+    const key = this.currentFavImageKey()
+    this.wrap.classList.toggle('pwpPreviewFav', !!key && favImages.has(key))
+  }
+
+  private async toggleFavoriteCurrentImage(): Promise<void> {
+    if (this.favBusy || !this.current) return
+    const cur = this.current
+    const file = cur.files[cur.index]
+    const site = siteOfHost(location.host)
+    const info = parsePostKey(cur.postKey)
+    if (!site || !info || !file?.path || !IMAGE_PATH_RE.test(file.path)) return
+    const key = makeFavImageKey(site, file.path)
+
+    this.favBusy = true
+    try {
+      await favImages.ready()
+      if (favImages.has(key)) {
+        await favImages.remove([key])
+        toast.success(lang.transl('_fs_removed'))
+      } else {
+        const creatorName = await resolvePostCreatorName(
+          site,
+          info.service,
+          info.creatorId
+        )
+        await favImages.add({
+          key,
+          site,
+          path: file.path,
+          fileName: file.name || undefined,
+          service: info.service,
+          creatorId: info.creatorId,
+          postId: info.postId,
+          postTitle: cur.data.post.title?.trim() || undefined,
+          creatorName: creatorName || undefined,
+        })
+        toast.success(lang.transl('_fs_imageSaved'))
+      }
+    } catch (err) {
+      toast.error(lang.transl('_ws_saveFailed', String(err)))
+    } finally {
+      this.favBusy = false
+      this.updateFavMark()
+    }
   }
 
   /** Start loading the neighbours of the current image (counts from the
@@ -749,6 +828,8 @@ class PreviewWork {
     } else if (matchesHotkey(ev, keys.previewDownloadImage)) {
       if (!originViewerOpen)
         void downloadSingle(this.current.postKey, this.current.index)
+    } else if (matchesHotkey(ev, keys.previewFavoriteImage)) {
+      if (!originViewerOpen) void this.toggleFavoriteCurrentImage()
     } else if (matchesHotkey(ev, keys.previewOpenOriginal)) {
       // 一律開原圖（不看 previewOriginalImage）；先用浮層那張當佔位
       const { urls, originUrls, index } = this.current
@@ -844,6 +925,7 @@ class PreviewWork {
     this.tipBottom = null
     window.clearTimeout(this.badgeTimer)
     this.badge = null
+    this.favMark = null
     states.previewWorkIsShow = false
     this.bindWheel(false)
   }

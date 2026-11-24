@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format is based on 
 
 - Watchlist: follow creators with the extension's own list, separate from the site's favorites. Click ☆ on a creator page (or in the avatar preview) to add a creator to a folder. The new watch page (toolbar icon on any other tab, or "Open watch page" in the settings panel) shows the creators as cards or a list, with folders, search, sorting, multi-select and drag-to-folder. Each creator can have a custom name, a note and a cover picked from their posts or uploaded from your computer. The watchlist can be exported to a file and imported back.
 - Tracking: turn on 🔔 for a creator and the extension remembers their newest post. When you visit the site it checks the tracked creators of that site (at most every 6 hours by default) and shows a notice when there are new posts; the toolbar icon shows the number of unread posts, and the watch page lists them in "New posts". Visiting the creator's page marks them as read.
+- Favorites: save posts with the new "Favorite post" button under a post's actions, and single images with the ☆ on each image of a post page or the S key in the hover preview (changeable on the Preview page). The watch page has "Favorite posts" and "Favorite images" sections, each with its own folders; images open in a lightbox with previous/next.
+- Ratings and tags: give creators, favorite posts and favorite images a 1–5 star rating and tags (one shared tag list). Filter and sort by them, edit many at once in select mode, and rename, merge or delete tags on the "Tags" page.
+- Card previews: pick up to 6 preview images for a creator (from saved images, post covers or uploads); resting on the creator's card on the watch page for half a second shows them.
 - Naming: the new `{creator_alias}` tag uses the custom name from the watchlist, or the creator's name when there is none.
 
 ## [1.1.0] - 2026-11-18

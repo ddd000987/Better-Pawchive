@@ -34,7 +34,10 @@ import { engine } from './crawl/engine'
 import { manualPick } from './crawl/ManualPick'
 import { pickBar } from './crawl/PickBar'
 import { watchStore } from './watch/watchStore'
+import { favImages, favPosts } from './watch/collectStore'
 import { watchButton } from './watch/WatchButton'
+import { postFavButton } from './watch/PostFavButton'
+import { imageFavOverlay } from './watch/ImageFavOverlay'
 import { watchNotice } from './watch/WatchNotice'
 import { autoScan } from './watch/scanner'
 import { siteOfHost } from './watch/watchKey'
@@ -66,6 +69,8 @@ function checkModules() {
     thumbDownloadButton,
     hotkeyListener,
     watchButton,
+    postFavButton,
+    imageFavOverlay,
   }
   const missing = Object.entries(modules)
     .filter(([, value]) => !value)
@@ -148,7 +153,7 @@ async function bootstrap() {
   // 讀回設定（完成後發 settingInitialized，SettingsCenter 據此建 UI）
   await settings.restore()
   try {
-    await watchStore.ready()
+    await Promise.all([watchStore.ready(), favPosts.ready(), favImages.ready()])
     void watchStore
       .rememberHost(location.host)
       .catch((e) => console.error('[PawchivePro] rememberHost failed', e))

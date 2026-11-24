@@ -2,6 +2,7 @@
 /* Pure helpers for watchlist creator keys, site detection, and URLs. */
 
 import type { KemonoService } from '../kemono/apiTypes'
+import { fileserverFor } from '../kemono/assetsKemono'
 import { isKemonoService } from '../kemono/pages'
 import { isKemonoHost } from '../preview/previewAssets'
 import { WATCH_SITES, type WatchSite } from './watchTypes'
@@ -97,7 +98,65 @@ export function bannerUrl(
   return `${mediaOrigin(host)}/banners/${service}/${creatorId}`
 }
 
+export const IMAGE_PATH_RE = /^\/[^?#\s]+$/
+
+export function makeFavPostKey(
+  site: WatchSite,
+  service: KemonoService,
+  creatorId: string,
+  postId: string
+): string {
+  if (
+    !WATCH_SITES.includes(site) ||
+    !isKemonoService(service) ||
+    !creatorId ||
+    creatorId.includes('/') ||
+    !postId ||
+    postId.includes('/')
+  ) {
+    throw new Error('invalid fav post key parts')
+  }
+  return `${site}/${service}/${creatorId}/${postId}`
+}
+
+export function makeFavImageKey(site: WatchSite, path: string): string {
+  if (
+    !WATCH_SITES.includes(site) ||
+    typeof path !== 'string' ||
+    !IMAGE_PATH_RE.test(path)
+  ) {
+    throw new Error('invalid fav image key parts')
+  }
+  return `${site}${path}`
+}
+
+/** Extract the canonical `/xx/yy/<hash>.<ext>` data path from a thumbnail or data URL. */
+export function parseImagePathFromUrl(url: string): string | null {
+  if (typeof url !== 'string' || !url) return null
+  let pathname: string
+  try {
+    pathname = new URL(url).pathname
+  } catch {
+    if (!url.startsWith('/')) return null
+    pathname = url.split(/[?#]/, 1)[0]
+  }
+  const match = /\/(?:thumbnail\/)?data\/[^/]+\/[^/]+\/([^/]+)$/.exec(pathname)
+  if (!match) return null
+  const fileMatch = /^([0-9a-fA-F]{4,})\.([a-zA-Z0-9]+)$/.exec(match[1])
+  if (!fileMatch) return null
+  const [, hash, ext] = fileMatch
+  return `/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}.${ext}`
+}
+
 export function thumbUrl(host: string, path: string): string {
   if (!path) return ''
   return `https://img.${host}/thumbnail/data${path}`
+}
+
+export function fullImageUrl(host: string, path: string): string {
+  if (!path) return ''
+  if (siteOfHost(host) === 'pawchive') {
+    return `https://file.${host}/data${path}`
+  }
+  return `${fileserverFor(path)}/data${path}`
 }

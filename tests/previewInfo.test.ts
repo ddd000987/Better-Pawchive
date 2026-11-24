@@ -29,6 +29,8 @@ const t: Translate = (key, ...args) => {
       return '整帖'
     case '_pk_image':
       return '單張'
+    case '_pk_favorite':
+      return '收藏'
     case '_pk_original':
       return '原圖'
     case '_pk_window':
@@ -252,7 +254,7 @@ describe('Settings 接線（set／restore 逐欄清洗）', () => {
 describe('previewKeyHint', () => {
   it('lists the default keys, then Esc', () => {
     expect(previewKeyHint(defaultPreviewHotkeys, t, 'win')).toBe(
-      'D 整帖 C 單張 V 原圖 F 視窗 Esc 關閉'
+      'D 整帖 C 單張 S 收藏 V 原圖 F 視窗 Esc 關閉'
     )
   })
 

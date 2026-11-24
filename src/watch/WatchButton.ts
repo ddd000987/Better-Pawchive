@@ -8,6 +8,7 @@ import { toast } from '../Toast'
 import { api } from '../kemono/api'
 import type { KemonoService } from '../kemono/apiTypes'
 import { detectPage, MOUNT } from '../kemono/pages'
+import { openFolderMenu } from './folderMenu'
 import { isSnapshotStale, snapshotFromPosts, snapshots } from './snapshot'
 import { sortedFolders } from './watchData'
 import { makeCreatorKey, siteOfHost } from './watchKey'
@@ -60,11 +61,9 @@ class WatchButton {
   private trackBtn: HTMLButtonElement | null = null
   private row: HTMLElement | null = null
   private trackBusy = false
-  private menu: HTMLDivElement | null = null
+  private closeMenuFn: (() => void) | null = null
   private observer: MutationObserver | null = null
   private mountTimer = 0
-  private onDocPointerDown: ((ev: MouseEvent) => void) | null = null
-  private onWinKeyDown: ((ev: KeyboardEvent) => void) | null = null
 
   constructor() {
     if (typeof document === 'undefined') return
@@ -150,7 +149,7 @@ class WatchButton {
     btn.setAttribute('aria-expanded', 'false')
     btn.addEventListener('click', (ev) => {
       ev.stopPropagation()
-      if (this.menu) {
+      if (this.closeMenuFn) {
         this.closeMenu()
       } else {
         this.openMenu(target)
@@ -257,146 +256,37 @@ class WatchButton {
     if (!this.btn) return
     this.closeMenu()
 
-    const menu = document.createElement('div')
-    menu.className = 'pwpWatchMenu'
-    menu.setAttribute('role', 'menu')
-    menu.lang = lang.htmlLang()
-    markTransient(menu)
-
     const watched = watchStore.getCreator(target.key)
     const folders = sortedFolders(watchStore.data)
 
-    for (const folder of folders) {
-      const label = folderDisplayName(folder)
-      const isCurrent = watched?.folderId === folder.id
-      const item = document.createElement('button')
-      item.type = 'button'
-      item.className = 'pwpWatchMenu-item'
-      item.setAttribute('role', 'menuitem')
-      if (isCurrent) {
-        item.classList.add('is-active')
-        item.setAttribute('aria-current', 'true')
-      }
-      const mark = document.createElement('span')
-      mark.className = 'pwpWatchMenu-mark'
-      mark.textContent = isCurrent ? '✓' : ''
-      const text = document.createElement('span')
-      text.className = 'pwpWatchMenu-label'
-      text.textContent = label
-      item.append(mark, text)
-      item.addEventListener('click', () => {
-        void this.addToFolder(target, folder.id, label)
-      })
-      menu.appendChild(item)
-    }
-
-    const sep1 = document.createElement('div')
-    sep1.className = 'pwpWatchMenu-sep'
-    menu.appendChild(sep1)
-
-    const newFolderSlot = document.createElement('div')
-    newFolderSlot.className = 'pwpWatchMenu-newSlot'
-    const newFolderBtn = document.createElement('button')
-    newFolderBtn.type = 'button'
-    newFolderBtn.className = 'pwpWatchMenu-item'
-    newFolderBtn.setAttribute('role', 'menuitem')
-    newFolderBtn.textContent = lang.transl('_ws_newFolder')
-    newFolderBtn.addEventListener('click', () => {
-      const input = document.createElement('input')
-      input.type = 'text'
-      input.className = 'pwpWatchMenu-input'
-      input.placeholder = lang.transl('_w_folderNamePlaceholder')
-      input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') {
-          ev.preventDefault()
-          const name = input.value.trim()
-          if (!name) return
-          void this.createFolderAndAdd(target, name)
-        } else if (ev.key === 'Escape') {
-          ev.preventDefault()
-          ev.stopPropagation()
-          this.closeMenu()
-        }
-      })
-      newFolderSlot.replaceChildren(input)
-      input.focus()
+    this.closeMenuFn = openFolderMenu({
+      anchor: this.btn,
+      folders,
+      currentFolderId: watched?.folderId ?? null,
+      unsortedLabel: lang.transl('_w_unsorted'),
+      onPick: (folderId, label) => this.addToFolder(target, folderId, label),
+      onCreateFolder: async (name) => (await watchStore.addFolder(name)).id,
+      onRemove: watched ? () => this.removeFromWatch(target) : undefined,
+      extraItems: [
+        {
+          label: lang.transl('_ws_openWatchPage'),
+          onClick: () => {
+            void chrome.runtime.sendMessage({ msg: 'watch_open' })
+          },
+        },
+      ],
+      onError: (err) => {
+        toast.error(lang.transl('_ws_saveFailed', String(err)))
+      },
+      onClose: () => {
+        this.closeMenuFn = null
+      },
     })
-    newFolderSlot.appendChild(newFolderBtn)
-    menu.appendChild(newFolderSlot)
-
-    if (watched) {
-      const removeBtn = document.createElement('button')
-      removeBtn.type = 'button'
-      removeBtn.className = 'pwpWatchMenu-item is-danger'
-      removeBtn.setAttribute('role', 'menuitem')
-      removeBtn.textContent = lang.transl('_w_removeSelected')
-      removeBtn.addEventListener('click', () => {
-        void this.removeFromWatch(target)
-      })
-      menu.appendChild(removeBtn)
-    }
-
-    const sep2 = document.createElement('div')
-    sep2.className = 'pwpWatchMenu-sep'
-    menu.appendChild(sep2)
-
-    const openBtn = document.createElement('button')
-    openBtn.type = 'button'
-    openBtn.className = 'pwpWatchMenu-item'
-    openBtn.setAttribute('role', 'menuitem')
-    openBtn.textContent = lang.transl('_ws_openWatchPage')
-    openBtn.addEventListener('click', () => {
-      this.closeMenu()
-      void chrome.runtime.sendMessage({ msg: 'watch_open' })
-    })
-    menu.appendChild(openBtn)
-
-    document.body.appendChild(menu)
-    this.menu = menu
-    this.btn.setAttribute('aria-expanded', 'true')
-    this.positionMenu(menu, this.btn)
-
-    this.onDocPointerDown = (ev: MouseEvent) => {
-      const node = ev.target as Node | null
-      if (node && (menu.contains(node) || this.btn?.contains(node))) return
-      this.closeMenu()
-    }
-    this.onWinKeyDown = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') {
-        ev.preventDefault()
-        this.closeMenu()
-      }
-    }
-    document.addEventListener('mousedown', this.onDocPointerDown, true)
-    window.addEventListener('keydown', this.onWinKeyDown, true)
-  }
-
-  private positionMenu(menu: HTMLDivElement, btn: HTMLButtonElement): void {
-    const r = btn.getBoundingClientRect()
-    const w = menu.offsetWidth
-    const h = menu.offsetHeight
-    const pad = 8
-    const left = Math.max(pad, Math.min(r.left, window.innerWidth - w - pad))
-    let top = r.bottom + 4
-    if (top + h > window.innerHeight - pad && r.top - h - 4 >= pad) {
-      top = r.top - h - 4
-    }
-    menu.style.left = `${left}px`
-    menu.style.top = `${top}px`
   }
 
   private closeMenu(): void {
-    if (this.onDocPointerDown) {
-      document.removeEventListener('mousedown', this.onDocPointerDown, true)
-      this.onDocPointerDown = null
-    }
-    if (this.onWinKeyDown) {
-      window.removeEventListener('keydown', this.onWinKeyDown, true)
-      this.onWinKeyDown = null
-    }
-    this.menu?.remove()
-    this.menu = null
-    this.btn?.setAttribute('aria-expanded', 'false')
+    this.closeMenuFn?.()
+    this.closeMenuFn = null
   }
 
   private async addToFolder(
@@ -404,7 +294,6 @@ class WatchButton {
     folderId: string,
     folderLabel: string
   ): Promise<void> {
-    this.closeMenu()
     try {
       const name = await resolveCreatorName(target.service, target.creatorId)
       await watchStore.addCreator(
@@ -423,32 +312,7 @@ class WatchButton {
     }
   }
 
-  private async createFolderAndAdd(
-    target: PageCreator,
-    folderName: string
-  ): Promise<void> {
-    this.closeMenu()
-    try {
-      const folder = await watchStore.addFolder(folderName)
-      const name = await resolveCreatorName(target.service, target.creatorId)
-      await watchStore.addCreator(
-        {
-          site: target.site,
-          service: target.service,
-          creatorId: target.creatorId,
-          name,
-        },
-        folder.id
-      )
-      toast.success(lang.transl('_ws_added', folder.name))
-      void this.fetchAndSaveSnapshot(target)
-    } catch (err) {
-      toast.error(lang.transl('_ws_saveFailed', String(err)))
-    }
-  }
-
   private async removeFromWatch(target: PageCreator): Promise<void> {
-    this.closeMenu()
     try {
       await watchStore.removeCreators([target.key])
       await snapshots.remove([target.key]).catch(() => {})

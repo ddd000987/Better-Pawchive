@@ -4,12 +4,17 @@ import {
   avatarUrl,
   bannerUrl,
   creatorPageUrl,
+  fullImageUrl,
   makeCreatorKey,
+  makeFavImageKey,
+  makeFavPostKey,
   parseCreatorKey,
+  parseImagePathFromUrl,
   postPageUrl,
   siteOfHost,
   thumbUrl,
 } from '../src/watch/watchKey'
+import { fileserverFor } from '../src/kemono/assetsKemono'
 
 describe('watchKey', () => {
   it('siteOfHost identifies kemono and pawchive hosts and rejects others', () => {
@@ -87,5 +92,49 @@ describe('watchKey', () => {
       'https://img.kemono.cr/thumbnail/data/ab/cd/pic.jpg'
     )
     expect(thumbUrl('kemono.cr', '')).toBe('')
+    expect(fullImageUrl('pawchive.pw', '/ab/cd/pic.jpg')).toBe(
+      'https://file.pawchive.pw/data/ab/cd/pic.jpg'
+    )
+    expect(fullImageUrl('kemono.cr', '/ab/cd/pic.jpg')).toBe(
+      `${fileserverFor('/ab/cd/pic.jpg')}/data/ab/cd/pic.jpg`
+    )
+    expect(fullImageUrl('pawchive.pw', '')).toBe('')
+  })
+
+  it('makeFavPostKey and makeFavImageKey build keys and throw on invalid parts', () => {
+    expect(makeFavPostKey('pawchive', 'patreon', '12', '345')).toBe(
+      'pawchive/patreon/12/345'
+    )
+    expect(() =>
+      makeFavPostKey('other' as any, 'patreon', '12', '345')
+    ).toThrow('invalid fav post key parts')
+    expect(() => makeFavPostKey('kemono', 'bad' as any, '12', '345')).toThrow(
+      'invalid fav post key parts'
+    )
+    expect(() => makeFavPostKey('kemono', 'patreon', '', '345')).toThrow(
+      'invalid fav post key parts'
+    )
+    expect(() => makeFavPostKey('kemono', 'patreon', '12', '3/4')).toThrow(
+      'invalid fav post key parts'
+    )
+
+    expect(makeFavImageKey('pawchive', '/5a/48/5a48abcd.jpeg')).toBe(
+      'pawchive/5a/48/5a48abcd.jpeg'
+    )
+    expect(() => makeFavImageKey('other' as any, '/5a/48/a.jpeg')).toThrow(
+      'invalid fav image key parts'
+    )
+    expect(() => makeFavImageKey('pawchive', 'no-slash.jpeg')).toThrow(
+      'invalid fav image key parts'
+    )
+    expect(() => makeFavImageKey('pawchive', '/a/b.jpg?f=1')).toThrow(
+      'invalid fav image key parts'
+    )
+
+    expect(
+      parseImagePathFromUrl(
+        'https://n4.pawchive.pw/data/25a/48/5a48deadbeef.jpeg?f=orig.jpeg'
+      )
+    ).toBe('/5a/48/5a48deadbeef.jpeg')
   })
 })

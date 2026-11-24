@@ -2,6 +2,8 @@
 /* Left sidebar with folder navigation, inline CRUD, drag-and-drop, and export/import. */
 
 import { lang } from '../Language'
+import type { CollectData, FavImage, FavPost } from '../watch/collectTypes'
+import { allTagCounts } from '../watch/tagOps'
 import {
   creatorsInFolder,
   sortedFolders,
@@ -12,16 +14,60 @@ import {
   type WatchData,
   type WatchFolder,
 } from '../watch/watchTypes'
-import { MIME_CREATOR, MIME_FOLDER, el, folderLabel } from './dom'
+import {
+  MIME_CREATOR,
+  MIME_FAV_IMAGE,
+  MIME_FAV_IMAGE_FOLDER,
+  MIME_FAV_POST,
+  MIME_FAV_POST_FOLDER,
+  MIME_FOLDER,
+  el,
+  folderLabel,
+} from './dom'
 import type { WatchRoute } from './listModel'
 
-export interface SidebarCallbacks {
-  onNavigate: (hash: string) => void
+const SECTION_STATE_KEY = 'pawchiveProWatchSidebarSections'
+
+type CollapsibleSectionKey = 'creators' | 'posts' | 'images'
+
+interface SectionCollapsedState {
+  creators?: boolean
+  posts?: boolean
+  images?: boolean
+}
+
+function loadCollapsedState(): SectionCollapsedState {
+  try {
+    const raw = window.localStorage.getItem(SECTION_STATE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as SectionCollapsedState
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveCollapsedState(state: SectionCollapsedState): void {
+  try {
+    window.localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export interface FolderSectionCallbacks {
   onCreateFolder: (name: string) => Promise<void>
   onRenameFolder: (id: string, name: string) => Promise<void>
   onDeleteFolder: (folder: WatchFolder) => Promise<void>
   onReorderFolders: (ids: string[]) => Promise<void>
-  onDropCreators: (draggedKey: string, folderId: string) => Promise<void>
+  onDropItems: (draggedKey: string, folderId: string) => Promise<void>
+}
+
+export interface SidebarCallbacks {
+  onNavigate: (hash: string) => void
+  creators: FolderSectionCallbacks
+  favPosts: FolderSectionCallbacks
+  favImages: FolderSectionCallbacks
   onExport: () => void
   onImport: () => void
   onToggleMobileMenu: () => void
@@ -29,118 +75,53 @@ export interface SidebarCallbacks {
 
 export interface SidebarRenderParams {
   data: WatchData
+  favPostsData: CollectData<FavPost>
+  favImagesData: CollectData<FavImage>
   route: WatchRoute
   mobileOpen: boolean
   callbacks: SidebarCallbacks
 }
 
-export function renderSidebar(
-  root: HTMLElement,
-  params: SidebarRenderParams
-): void {
-  const { data, route, mobileOpen, callbacks } = params
-  const folders = sortedFolders(data)
-  const allCreators = Object.values(data.creators)
-  const totalCount = allCreators.length
-  const trackedCount = allCreators.filter((c) => c.tracking?.enabled).length
-  const updatesCount = allCreators.filter(
-    (c) => c.tracking?.enabled && c.tracking.unread.length > 0
-  ).length
-  const unreadTotal = totalUnread(data)
+interface FolderListConfig {
+  folders: WatchFolder[]
+  activeFolderId: string | null
+  countInFolder: (folderId: string) => number
+  routeForFolder: (folderId: string) => string
+  itemMime: string
+  folderMime: string
+  onNavigate: (hash: string) => void
+  callbacks: FolderSectionCallbacks
+}
 
-  root.replaceChildren()
-  root.className = mobileOpen ? 'w-sidebar is-open' : 'w-sidebar'
-
-  // Brand + mobile toggle
-  const header = el('div', 'w-sidebar-header')
-  const brand = el('div', 'w-brand')
-  brand.appendChild(el('div', 'w-brand-title', 'PawchivePro'))
-  brand.appendChild(el('div', 'w-brand-sub', lang.transl('_w_subtitle')))
-  header.appendChild(brand)
-
-  const toggleBtn = el('button', 'w-mobile-toggle')
-  toggleBtn.type = 'button'
-  toggleBtn.setAttribute('aria-expanded', String(mobileOpen))
-  toggleBtn.setAttribute('aria-label', lang.transl('_w_menuToggle'))
-  toggleBtn.textContent = mobileOpen ? '✕' : '☰'
-  toggleBtn.addEventListener('click', () => callbacks.onToggleMobileMenu())
-  header.appendChild(toggleBtn)
-  root.appendChild(header)
-
-  // Collapsible body
-  const body = el('div', 'w-sidebar-body')
-
-  const nav = el('nav', 'w-nav')
-  nav.setAttribute('aria-label', lang.transl('_w_subtitle'))
-
-  // All creators
-  const allBtn = el(
-    'button',
-    route.view === 'all' ? 'w-nav-item is-active' : 'w-nav-item'
-  )
-  allBtn.type = 'button'
-  allBtn.appendChild(el('span', 'w-nav-label', lang.transl('_w_allCreators')))
-  allBtn.appendChild(el('span', 'w-nav-count', String(totalCount)))
-  allBtn.addEventListener('click', () => callbacks.onNavigate('#/all'))
-  nav.appendChild(allBtn)
-
-  // Updates (creators with unread + total unread badge)
-  const updatesBtn = el(
-    'button',
-    route.view === 'updates' ? 'w-nav-item is-active' : 'w-nav-item'
-  )
-  updatesBtn.type = 'button'
-  updatesBtn.appendChild(el('span', 'w-nav-label', lang.transl('_wt_updates')))
-  const updatesRight = el('span', 'w-nav-right')
-  if (unreadTotal > 0) {
-    updatesRight.appendChild(
-      el(
-        'span',
-        'w-nav-badge',
-        unreadTotal > 999 ? '999+' : String(unreadTotal)
-      )
-    )
+function countCollectItemsByFolder<T extends { folderId: string }>(
+  items: Record<string, T>
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const item of Object.values(items)) {
+    counts.set(item.folderId, (counts.get(item.folderId) ?? 0) + 1)
   }
-  updatesRight.appendChild(el('span', 'w-nav-count', String(updatesCount)))
-  updatesBtn.appendChild(updatesRight)
-  updatesBtn.addEventListener('click', () => callbacks.onNavigate('#/updates'))
-  nav.appendChild(updatesBtn)
+  return counts
+}
 
-  // Tracking
-  const trackingBtn = el(
-    'button',
-    route.view === 'tracking' ? 'w-nav-item is-active' : 'w-nav-item'
-  )
-  trackingBtn.type = 'button'
-  trackingBtn.appendChild(
-    el('span', 'w-nav-label', lang.transl('_wt_trackingList'))
-  )
-  trackingBtn.appendChild(el('span', 'w-nav-count', String(trackedCount)))
-  trackingBtn.addEventListener('click', () =>
-    callbacks.onNavigate('#/tracking')
-  )
-  nav.appendChild(trackingBtn)
+function renderFolderList(container: HTMLElement, cfg: FolderListConfig): void {
+  const {
+    folders,
+    activeFolderId,
+    countInFolder,
+    routeForFolder,
+    itemMime,
+    folderMime,
+    onNavigate,
+    callbacks,
+  } = cfg
 
-  // New posts feed
-  const feedBtn = el(
-    'button',
-    route.view === 'feed' ? 'w-nav-item is-active' : 'w-nav-item'
-  )
-  feedBtn.type = 'button'
-  feedBtn.appendChild(el('span', 'w-nav-label', lang.transl('_wt_feed')))
-  feedBtn.addEventListener('click', () => callbacks.onNavigate('#/feed'))
-  nav.appendChild(feedBtn)
-
-  nav.appendChild(el('div', 'w-nav-sep'))
-
-  // Folder list
   const list = el('div', 'w-folder-list')
   let draggingFolderId: string | null = null
 
   for (const folder of folders) {
     const isUnsorted = folder.id === UNSORTED_FOLDER_ID
-    const isActive = route.view === 'folder' && route.folderId === folder.id
-    const count = creatorsInFolder(data, folder.id).length
+    const isActive = activeFolderId === folder.id
+    const count = countInFolder(folder.id)
 
     const row = el('div', isActive ? 'w-folder-row is-active' : 'w-folder-row')
     row.dataset.folderId = folder.id
@@ -152,7 +133,7 @@ export function renderSidebar(
         row.classList.add('is-dragging')
         if (ev.dataTransfer) {
           ev.dataTransfer.effectAllowed = 'move'
-          ev.dataTransfer.setData(MIME_FOLDER, folder.id)
+          ev.dataTransfer.setData(folderMime, folder.id)
         }
       })
       row.addEventListener('dragend', () => {
@@ -164,16 +145,16 @@ export function renderSidebar(
       })
     }
 
-    // Drag-over & drop: supports creator drop (all folders) and folder reorder (non-unsorted)
+    // Drag-over & drop: supports item drop (all folders) and folder reorder (non-unsorted)
     row.addEventListener('dragover', (ev) => {
       const types = ev.dataTransfer?.types
       if (!types) return
-      const isCreator = types.includes(MIME_CREATOR)
+      const isItem = types.includes(itemMime)
       const isFolder =
         !isUnsorted &&
-        types.includes(MIME_FOLDER) &&
+        types.includes(folderMime) &&
         draggingFolderId !== folder.id
-      if (isCreator || isFolder) {
+      if (isItem || isFolder) {
         ev.preventDefault()
         if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
         row.classList.add('drop-target')
@@ -189,12 +170,12 @@ export function renderSidebar(
     row.addEventListener('drop', (ev) => {
       ev.preventDefault()
       row.classList.remove('drop-target')
-      const creatorKey = ev.dataTransfer?.getData(MIME_CREATOR)
-      if (creatorKey) {
-        void callbacks.onDropCreators(creatorKey, folder.id)
+      const itemKey = ev.dataTransfer?.getData(itemMime)
+      if (itemKey) {
+        void callbacks.onDropItems(itemKey, folder.id)
         return
       }
-      const sourceFolderId = ev.dataTransfer?.getData(MIME_FOLDER)
+      const sourceFolderId = ev.dataTransfer?.getData(folderMime)
       if (sourceFolderId && !isUnsorted && sourceFolderId !== folder.id) {
         const ids = folders
           .filter((f) => f.id !== UNSORTED_FOLDER_ID)
@@ -214,7 +195,7 @@ export function renderSidebar(
     mainBtn.appendChild(el('span', 'w-nav-label', folderLabel(folder)))
     mainBtn.appendChild(el('span', 'w-nav-count', String(count)))
     mainBtn.addEventListener('click', () => {
-      callbacks.onNavigate(`#/folder/${encodeURIComponent(folder.id)}`)
+      onNavigate(routeForFolder(folder.id))
     })
     row.appendChild(mainBtn)
 
@@ -254,12 +235,281 @@ export function renderSidebar(
     list.appendChild(row)
   }
 
-  nav.appendChild(list)
+  container.appendChild(list)
 
-  // + New folder button -> inline input
   const newFolderWrap = el('div', 'w-new-folder-wrap')
   renderNewFolderButton(newFolderWrap, callbacks.onCreateFolder)
-  nav.appendChild(newFolderWrap)
+  container.appendChild(newFolderWrap)
+}
+
+interface NavSectionParams {
+  sectionKey: CollapsibleSectionKey
+  heading: string
+  totalCount: number
+  collapsedState: SectionCollapsedState
+  /** Adds the section's items to its body */
+  fill(body: HTMLElement): void
+}
+
+/** A titled, collapsible sidebar group (creators, favorite posts, images). */
+function renderNavSection(nav: HTMLElement, params: NavSectionParams): void {
+  const { sectionKey, heading, totalCount, collapsedState, fill } = params
+  let collapsed = Boolean(collapsedState[sectionKey])
+
+  const section = el('section', `w-nav-section w-nav-section-${sectionKey}`)
+
+  const headBtn = el('button', 'w-nav-section-head')
+  headBtn.type = 'button'
+  headBtn.setAttribute('aria-expanded', String(!collapsed))
+  const caret = el('span', 'w-nav-caret', collapsed ? '▸' : '▾')
+  caret.setAttribute('aria-hidden', 'true')
+  headBtn.appendChild(caret)
+  headBtn.appendChild(el('span', 'w-nav-section-title', heading))
+  headBtn.appendChild(el('span', 'w-nav-section-count', String(totalCount)))
+
+  const body = el('div', 'w-nav-section-body')
+  body.hidden = collapsed
+
+  headBtn.addEventListener('click', () => {
+    collapsed = !collapsed
+    body.hidden = collapsed
+    caret.textContent = collapsed ? '▸' : '▾'
+    headBtn.setAttribute('aria-expanded', String(!collapsed))
+    const next = loadCollapsedState()
+    next[sectionKey] = collapsed
+    saveCollapsedState(next)
+  })
+
+  fill(body)
+  section.appendChild(headBtn)
+  section.appendChild(body)
+  nav.appendChild(section)
+}
+
+/** Small label above a section's folder list */
+function folderSubLabel(): HTMLElement {
+  return el('div', 'w-nav-sub', lang.transl('_w_foldersHeading'))
+}
+
+/** The "All ..." entry at the top of a favorites section */
+function allItemButton(
+  label: string,
+  count: number,
+  active: boolean,
+  onClick: () => void
+): HTMLButtonElement {
+  const btn = el('button', active ? 'w-nav-item is-active' : 'w-nav-item')
+  btn.type = 'button'
+  btn.appendChild(el('span', 'w-nav-label', label))
+  btn.appendChild(el('span', 'w-nav-count', String(count)))
+  btn.addEventListener('click', onClick)
+  return btn
+}
+
+export function renderSidebar(
+  root: HTMLElement,
+  params: SidebarRenderParams
+): void {
+  const { data, favPostsData, favImagesData, route, mobileOpen, callbacks } =
+    params
+  const folders = sortedFolders(data)
+  const allCreators = Object.values(data.creators)
+  const totalCount = allCreators.length
+  const trackedCount = allCreators.filter((c) => c.tracking?.enabled).length
+  const updatesCount = allCreators.filter(
+    (c) => c.tracking?.enabled && c.tracking.unread.length > 0
+  ).length
+  const unreadTotal = totalUnread(data)
+  const collapsedState = loadCollapsedState()
+
+  root.replaceChildren()
+  root.className = mobileOpen ? 'w-sidebar is-open' : 'w-sidebar'
+
+  // Brand + mobile toggle
+  const header = el('div', 'w-sidebar-header')
+  const brand = el('div', 'w-brand')
+  brand.appendChild(el('div', 'w-brand-title', 'PawchivePro'))
+  brand.appendChild(el('div', 'w-brand-sub', lang.transl('_w_subtitle')))
+  header.appendChild(brand)
+
+  const toggleBtn = el('button', 'w-mobile-toggle')
+  toggleBtn.type = 'button'
+  toggleBtn.setAttribute('aria-expanded', String(mobileOpen))
+  toggleBtn.setAttribute('aria-label', lang.transl('_w_menuToggle'))
+  toggleBtn.textContent = mobileOpen ? '✕' : '☰'
+  toggleBtn.addEventListener('click', () => callbacks.onToggleMobileMenu())
+  header.appendChild(toggleBtn)
+  root.appendChild(header)
+
+  // Collapsible body
+  const body = el('div', 'w-sidebar-body')
+
+  const nav = el('nav', 'w-nav')
+  nav.setAttribute('aria-label', lang.transl('_w_subtitle'))
+
+  // Tags
+  const tagsBtn = el(
+    'button',
+    route.view === 'tags' ? 'w-nav-item is-active' : 'w-nav-item'
+  )
+  tagsBtn.type = 'button'
+  tagsBtn.appendChild(el('span', 'w-nav-label', lang.transl('_lb_tagsNav')))
+  tagsBtn.appendChild(el('span', 'w-nav-count', String(allTagCounts().length)))
+  tagsBtn.addEventListener('click', () => callbacks.onNavigate('#/tags'))
+  nav.appendChild(tagsBtn)
+
+  nav.appendChild(el('div', 'w-nav-sep'))
+
+  renderNavSection(nav, {
+    sectionKey: 'creators',
+    heading: lang.transl('_w_sectionCreators'),
+    totalCount,
+    collapsedState,
+    fill: (body) => {
+      // All creators
+      const allBtn = el(
+        'button',
+        route.view === 'all' ? 'w-nav-item is-active' : 'w-nav-item'
+      )
+      allBtn.type = 'button'
+      allBtn.appendChild(
+        el('span', 'w-nav-label', lang.transl('_w_allCreators'))
+      )
+      allBtn.appendChild(el('span', 'w-nav-count', String(totalCount)))
+      allBtn.addEventListener('click', () => callbacks.onNavigate('#/all'))
+      body.appendChild(allBtn)
+
+      // Updates (creators with unread + total unread badge)
+      const updatesBtn = el(
+        'button',
+        route.view === 'updates' ? 'w-nav-item is-active' : 'w-nav-item'
+      )
+      updatesBtn.type = 'button'
+      updatesBtn.appendChild(
+        el('span', 'w-nav-label', lang.transl('_wt_updates'))
+      )
+      const updatesRight = el('span', 'w-nav-right')
+      if (unreadTotal > 0) {
+        updatesRight.appendChild(
+          el(
+            'span',
+            'w-nav-badge',
+            unreadTotal > 999 ? '999+' : String(unreadTotal)
+          )
+        )
+      }
+      updatesRight.appendChild(el('span', 'w-nav-count', String(updatesCount)))
+      updatesBtn.appendChild(updatesRight)
+      updatesBtn.addEventListener('click', () =>
+        callbacks.onNavigate('#/updates')
+      )
+      body.appendChild(updatesBtn)
+
+      // Tracking
+      const trackingBtn = el(
+        'button',
+        route.view === 'tracking' ? 'w-nav-item is-active' : 'w-nav-item'
+      )
+      trackingBtn.type = 'button'
+      trackingBtn.appendChild(
+        el('span', 'w-nav-label', lang.transl('_wt_trackingList'))
+      )
+      trackingBtn.appendChild(el('span', 'w-nav-count', String(trackedCount)))
+      trackingBtn.addEventListener('click', () =>
+        callbacks.onNavigate('#/tracking')
+      )
+      body.appendChild(trackingBtn)
+
+      // New posts feed
+      const feedBtn = el(
+        'button',
+        route.view === 'feed' ? 'w-nav-item is-active' : 'w-nav-item'
+      )
+      feedBtn.type = 'button'
+      feedBtn.appendChild(el('span', 'w-nav-label', lang.transl('_wt_feed')))
+      feedBtn.addEventListener('click', () => callbacks.onNavigate('#/feed'))
+      body.appendChild(feedBtn)
+
+      // Creator folders
+      body.appendChild(folderSubLabel())
+      renderFolderList(body, {
+        folders,
+        activeFolderId: route.view === 'folder' ? route.folderId : null,
+        countInFolder: (folderId) => creatorsInFolder(data, folderId).length,
+        routeForFolder: (folderId) =>
+          `#/folder/${encodeURIComponent(folderId)}`,
+        itemMime: MIME_CREATOR,
+        folderMime: MIME_FOLDER,
+        onNavigate: callbacks.onNavigate,
+        callbacks: callbacks.creators,
+      })
+    },
+  })
+
+  // Favorite posts section
+  const postTotal = Object.keys(favPostsData.items).length
+  const postFolderCounts = countCollectItemsByFolder(favPostsData.items)
+  renderNavSection(nav, {
+    sectionKey: 'posts',
+    heading: lang.transl('_fv_favPosts'),
+    totalCount: postTotal,
+    collapsedState,
+    fill: (body) => {
+      body.appendChild(
+        allItemButton(
+          lang.transl('_fv_allPosts'),
+          postTotal,
+          route.view === 'posts' && !route.folderId,
+          () => callbacks.onNavigate('#/posts')
+        )
+      )
+      body.appendChild(folderSubLabel())
+      renderFolderList(body, {
+        folders: sortedFolders(favPostsData),
+        activeFolderId:
+          route.view === 'posts' ? (route.folderId ?? null) : null,
+        countInFolder: (folderId) => postFolderCounts.get(folderId) ?? 0,
+        routeForFolder: (folderId) => `#/posts/${encodeURIComponent(folderId)}`,
+        itemMime: MIME_FAV_POST,
+        folderMime: MIME_FAV_POST_FOLDER,
+        onNavigate: callbacks.onNavigate,
+        callbacks: callbacks.favPosts,
+      })
+    },
+  })
+
+  // Favorite images section
+  const imageTotal = Object.keys(favImagesData.items).length
+  const imageFolderCounts = countCollectItemsByFolder(favImagesData.items)
+  renderNavSection(nav, {
+    sectionKey: 'images',
+    heading: lang.transl('_fv_favImages'),
+    totalCount: imageTotal,
+    collapsedState,
+    fill: (body) => {
+      body.appendChild(
+        allItemButton(
+          lang.transl('_fv_allImages'),
+          imageTotal,
+          route.view === 'images' && !route.folderId,
+          () => callbacks.onNavigate('#/images')
+        )
+      )
+      body.appendChild(folderSubLabel())
+      renderFolderList(body, {
+        folders: sortedFolders(favImagesData),
+        activeFolderId:
+          route.view === 'images' ? (route.folderId ?? null) : null,
+        countInFolder: (folderId) => imageFolderCounts.get(folderId) ?? 0,
+        routeForFolder: (folderId) =>
+          `#/images/${encodeURIComponent(folderId)}`,
+        itemMime: MIME_FAV_IMAGE,
+        folderMime: MIME_FAV_IMAGE_FOLDER,
+        onNavigate: callbacks.onNavigate,
+        callbacks: callbacks.favImages,
+      })
+    },
+  })
 
   body.appendChild(nav)
 

@@ -4,6 +4,7 @@
 import { lang } from '../Language'
 import { watchStore } from '../watch/watchStore'
 import type { CreatorSnapshot, WatchedCreator } from '../watch/watchTypes'
+import { attachCardPreview, hideCardPreview } from './cardPreview'
 import {
   MIME_CREATOR,
   createAvatar,
@@ -13,11 +14,14 @@ import {
   siteLabel,
 } from './dom'
 import { displayName, latestPublished } from './listModel'
+import { renderStars } from './stars'
+import { renderTagChips } from './tagInput'
 import type { ViewMode } from './toolbar'
 
 export interface CreatorListCallbacks {
   onOpenCreator: (key: string) => void
   onToggleSelect: (key: string, shiftKey: boolean) => void
+  onTagClick: (tag: string) => void
 }
 
 export interface CreatorListRenderParams {
@@ -48,6 +52,7 @@ export function renderCreatorList(
     callbacks,
   } = params
 
+  hideCardPreview()
   root.replaceChildren()
 
   if (creators.length === 0) {
@@ -181,6 +186,25 @@ export function renderCreatorList(
     meta.appendChild(el('span', 'w-card-date', dateText))
     body.appendChild(meta)
 
+    if (
+      creator.rating !== undefined ||
+      (creator.tags && creator.tags.length > 0)
+    ) {
+      const labelsRow = el('div', 'w-card-labels')
+      if (creator.rating !== undefined) {
+        labelsRow.appendChild(renderStars(creator.rating, { size: 'sm' }))
+      }
+      if (creator.tags && creator.tags.length > 0) {
+        labelsRow.appendChild(
+          renderTagChips(creator.tags, {
+            max: 3,
+            onClick: callbacks.onTagClick,
+          })
+        )
+      }
+      body.appendChild(labelsRow)
+    }
+
     const note = creator.note?.trim()
     if (note && view === 'grid') {
       const noteEl = el('div', 'w-card-note', note)
@@ -194,6 +218,7 @@ export function renderCreatorList(
     }
 
     card.appendChild(body)
+    attachCardPreview(card, creator, host, selectMode)
     container.appendChild(card)
   }
 

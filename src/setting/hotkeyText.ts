@@ -83,6 +83,7 @@ const texts: Partial<Record<LangTextKey, () => string>> = {
     const parts = pieces(settings.get('previewHotkeys'), [
       ['previewDownloadPost', '_hkHelp_downloadPost'],
       ['previewDownloadImage', '_hkHelp_downloadImage'],
+      ['previewFavoriteImage', '_hkHelp_favoriteImage'],
       ['previewOpenOriginal', '_hkHelp_openOriginal'],
       ['previewOpenWindow', '_hkHelp_openWindow'],
     ])

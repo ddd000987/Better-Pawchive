@@ -9,7 +9,7 @@ Everything is stored locally in the extension's own storage (`chrome.storage.loc
 - Your settings (preview options, naming rules, hotkeys, interface language).
 - Download history (post IDs and file names you have downloaded), used to skip duplicates.
 - Crawl cache (post lists from recent crawls, up to 20 entries).
-- Watchlist: the creators you follow, your folders, custom names, notes and covers (uploaded covers are kept in IndexedDB), tracking state, and a short list of each followed creator's newest posts.
+- Watchlist: the creators you follow, your folders, custom names, notes and covers (uploaded covers and preview images are kept in IndexedDB), tracking state, a short list of each followed creator's newest posts, your favorite posts and images (their titles, file paths, folders and notes), and the ratings and tags you give.
 - Optional: if you choose a download folder for the "skip files that already exist" check, a handle to that folder. You pick it in the extension's own window, and read access is granted to the extension, not to any website. The extension only lists file names and sizes in that folder to decide what to skip; it never reads file contents. Websites cannot see the handle or the folder.
 
 You can export, import or clear the download history and crawl cache from the settings panel, and export or import the watchlist from the watch page. Removing the extension deletes all of it.

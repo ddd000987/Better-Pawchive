@@ -3,12 +3,19 @@
  * and cross-tab sync via chrome.storage.onChanged. */
 
 import type { KemonoService, PostsApiResponse } from '../kemono/apiTypes'
+import type { Rating } from './collectTypes'
+import { applyBulkLabelsPatch, applyLabelsPatch } from './labels'
 import {
   diffTracking,
   markRead as trackerMarkRead,
   startTracking,
 } from './tracker'
-import { emptyWatchData, sortedFolders, validateWatchData } from './watchData'
+import {
+  emptyWatchData,
+  sanitizePreviews,
+  sortedFolders,
+  validateWatchData,
+} from './watchData'
 import { DEFAULT_HOSTS, makeCreatorKey, siteOfHost } from './watchKey'
 import {
   STORE_KEY,
@@ -158,6 +165,9 @@ export class WatchStore {
       alias?: string | null
       note?: string | null
       cover?: WatchCover | null
+      rating?: Rating | null
+      tags?: string[] | null
+      previews?: WatchCover[] | null
     }
   ): Promise<void> {
     await this.mutate((draft) => {
@@ -170,6 +180,27 @@ export class WatchStore {
       else if (patch.note !== undefined) creator.note = patch.note
       if (patch.cover === null) delete creator.cover
       else if (patch.cover !== undefined) creator.cover = patch.cover
+      applyLabelsPatch(creator, patch)
+      if (patch.previews === null) {
+        delete creator.previews
+      } else if (patch.previews !== undefined) {
+        const sanitized = sanitizePreviews(patch.previews)
+        if (sanitized) creator.previews = sanitized
+        else delete creator.previews
+      }
+    })
+  }
+
+  async updateCreatorsLabels(
+    keys: string[],
+    patch: { addTags?: string[]; removeTags?: string[]; rating?: Rating | null }
+  ): Promise<void> {
+    if (keys.length === 0) return
+    await this.mutate((draft) => {
+      for (const key of keys) {
+        const creator = draft.creators[key]
+        if (creator) applyBulkLabelsPatch(creator, patch)
+      }
     })
   }
 

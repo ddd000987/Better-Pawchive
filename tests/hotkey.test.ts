@@ -304,10 +304,11 @@ describe('preview keys', () => {
     metaKey: false,
   })
 
-  it('defaults are plain D / C / V / F and pass the validator', () => {
+  it('defaults are plain D / C / S / V / F and pass the validator', () => {
     expect(defaultPreviewHotkeys).toEqual({
       previewDownloadPost: plain('KeyD'),
       previewDownloadImage: plain('KeyC'),
+      previewFavoriteImage: plain('KeyS'),
       previewOpenOriginal: plain('KeyV'),
       previewOpenWindow: plain('KeyF'),
     })

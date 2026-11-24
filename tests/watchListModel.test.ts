@@ -10,7 +10,9 @@ import {
 import {
   displayName,
   filterCreators,
+  filterCreatorsByLabels,
   fitWithin,
+  hasActiveLabelFilter,
   latestPublished,
   parseRoute,
   sortCreators,
@@ -99,6 +101,50 @@ describe('watchpage/listModel', () => {
         '303',
       ])
       expect(filterCreators(list, 'nonexistent')).toEqual([])
+    })
+
+    it('filters by tags (AND), minRating, and combines with search query', () => {
+      const labeled: WatchedCreator[] = [
+        makeCreator({
+          key: 'kemono/patreon/1',
+          creatorId: '1',
+          name: 'Alice',
+          rating: 5,
+          tags: ['anime', 'color'],
+        }),
+        makeCreator({
+          key: 'kemono/patreon/2',
+          creatorId: '2',
+          name: 'Alex',
+          rating: 3,
+          tags: ['anime'],
+        }),
+        makeCreator({
+          key: 'kemono/patreon/3',
+          creatorId: '3',
+          name: 'Bob',
+          tags: ['3d', 'color'],
+        }),
+      ]
+      expect(hasActiveLabelFilter({ tags: [] })).toBe(false)
+      expect(hasActiveLabelFilter({ tags: ['anime'] })).toBe(true)
+      expect(hasActiveLabelFilter({ tags: [], minRating: 3 })).toBe(true)
+
+      expect(
+        filterCreatorsByLabels(labeled, { tags: ['ANIME', 'color'] }).map(
+          (c) => c.creatorId
+        )
+      ).toEqual(['1'])
+      expect(
+        filterCreatorsByLabels(labeled, { tags: [], minRating: 3 }).map(
+          (c) => c.creatorId
+        )
+      ).toEqual(['1', '2'])
+      expect(
+        filterCreators(labeled, 'al', { tags: ['anime'], minRating: 4 }).map(
+          (c) => c.creatorId
+        )
+      ).toEqual(['1'])
     })
   })
 
@@ -228,6 +274,34 @@ describe('watchpage/listModel', () => {
       expect(res.map((x) => x.creatorId)).toEqual(['12', '11', '10', '2'])
     })
 
+    it('sorts by rating descending with unrated last and name tie-breaker', () => {
+      const r1 = makeCreator({
+        key: 'kemono/patreon/20',
+        creatorId: '20',
+        name: 'Beta',
+        rating: 4,
+      })
+      const r2 = makeCreator({
+        key: 'kemono/patreon/21',
+        creatorId: '21',
+        name: 'Alpha',
+        rating: 4,
+      })
+      const r3 = makeCreator({
+        key: 'kemono/patreon/22',
+        creatorId: '22',
+        name: 'Gamma',
+        rating: 5,
+      })
+      const r4 = makeCreator({
+        key: 'kemono/patreon/23',
+        creatorId: '23',
+        name: 'Aardvark',
+      })
+      const res = sortCreators([r4, r1, r2, r3], 'rating', snaps)
+      expect(res.map((x) => x.creatorId)).toEqual(['22', '21', '20', '23'])
+    })
+
     it('does not mutate the input array', () => {
       const input = [c, b, a]
       sortCreators(input, 'name', snaps)
@@ -243,6 +317,7 @@ describe('watchpage/listModel', () => {
       expect(parseRoute('#/updates')).toEqual({ view: 'updates' })
       expect(parseRoute('#/tracking')).toEqual({ view: 'tracking' })
       expect(parseRoute('#/feed')).toEqual({ view: 'feed' })
+      expect(parseRoute('#/tags')).toEqual({ view: 'tags' })
       expect(parseRoute('#/folder/unsorted')).toEqual({
         view: 'folder',
         folderId: 'unsorted',

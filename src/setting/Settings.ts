@@ -198,6 +198,7 @@ function isHotkeyCombo(v: unknown): v is HotkeyCombo {
 type PreviewHotkeyCommand =
   | 'previewDownloadPost'
   | 'previewDownloadImage'
+  | 'previewFavoriteImage'
   | 'previewOpenOriginal'
   | 'previewOpenWindow'
 
@@ -213,10 +214,11 @@ const plainKey = (key: string): HotkeyCombo => ({
   meta: false,
 })
 
-/** Default preview keys (D / C / V as before they could be changed, plus F) */
+/** Default preview keys (D / C / V as before they could be changed, plus S and F) */
 const defaultPreviewHotkeys: PreviewHotkeyMap = {
   previewDownloadPost: plainKey('KeyD'),
   previewDownloadImage: plainKey('KeyC'),
+  previewFavoriteImage: plainKey('KeyS'),
   previewOpenOriginal: plainKey('KeyV'),
   previewOpenWindow: plainKey('KeyF'),
 }

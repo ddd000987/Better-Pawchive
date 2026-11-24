@@ -16,7 +16,7 @@ License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 - **Reliable downloads**: pause, adjust concurrency, and retry failures automatically; files already downloaded or already in your folder are skipped.
 - **Custom file names**: build download paths from tags such as `{creator}`, `{post_id}` and `{title}`.
 - **Cache and history**: crawl results are saved for later downloads, and several caches can be queued to download one after another; caches and download history can be exported to a file and imported again.
-- **Watchlist**: follow creators with the extension's own list, sorted into folders, with your own name, note and cover for each. Turn on tracking for a creator and the extension checks for new posts when you visit the site, shows a notice and counts unread posts on the toolbar icon. Everything is managed on a full-page watch page.
+- **Watchlist**: follow creators with the extension's own list, sorted into folders, with your own name, note and cover for each. Turn on tracking for a creator and the extension checks for new posts when you visit the site, shows a notice and counts unread posts on the toolbar icon. Save posts and single images to favorites with their own folders, and give creators, posts and images a 1–5 star rating and tags to filter by. Everything is managed on a full-page watch page, where resting on a creator card shows preview images you picked.
 - **Hotkeys** and **four UI languages** (简体中文, 繁體中文, English, 日本語).
 
 <p align="center">
