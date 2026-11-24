@@ -10,6 +10,7 @@
 
 import { Config } from '../Config'
 import { EVT } from '../EVT'
+import { langCodes, LangCode } from '../locales'
 import {
   defaultPreviewInfoPlacement,
   sanitizePreviewInfoPlacement,
@@ -109,7 +110,7 @@ interface FilterSettings {
 /** 通用設定：語言＋去重＋命名規則 */
 interface MetaSettings {
   /** UI language (auto follows the browser language, then the page html lang) */
-  userSetLang: 'auto' | 'zh-tw' | 'zh-cn' | 'en' | 'ja'
+  userSetLang: 'auto' | LangCode
   /** 跳過已下載的檔案：none 不跳過 / record 按下載記錄 / folder 按已授權資料夾
    * 中同路徑已有的檔案 / both 兩者都用 */
   skipDownloaded: 'none' | 'record' | 'folder' | 'both'
@@ -437,7 +438,7 @@ const numberRules: Partial<
 /** 枚舉鍵的白名單（不在名單內回預設） */
 const enumWhitelists: Partial<Record<SettingKey, readonly string[]>> = {
   textContent: ['none', 'txt', 'html'],
-  userSetLang: ['auto', 'zh-tw', 'zh-cn', 'en', 'ja'],
+  userSetLang: ['auto', ...langCodes],
   skipDownloaded: ['none', 'record', 'folder', 'both'],
 }
 

@@ -68,7 +68,7 @@ PawchivePro 不收集任何資料，沒有分析追蹤，也沒有遠端伺服�
 - `src/crawl/`：抓取引擎；`src/download/`：下載流程、快取、記錄、比對
 - `src/kemono/`：站點 API 與網址規則；`src/preview/`：懸停預覽
 - `src/folder/`＋`src/folder.ts`：本機資料夾比對。資料夾在擴充功能頁（`folder.html`）選擇，由 service worker 比對；內容腳本只負責傳訊息
-- `src/setting/`：設定與設定面板（`pages/` 每個面板頁一個模組）；`src/langText.ts`：介面文字（四種語言）
+- `src/setting/`：設定與設定面板（`pages/` 每個面板頁一個模組）；`src/locales/`：介面文字，每種語言一個檔（新增語言只要加 `src/locales/<code>.ts` 再執行 `npm run locales`）
 - `src/EVT.ts`：內部事件匯流排，使用私有 `EventTarget`，網頁腳本看不到也無法偽造
 
 ### 依賴網站結構的地方

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { lang } from '../src/Language'
+import { langCodes, locales } from '../src/locales'
+import type { LocaleTexts } from '../src/localeTypes'
 
 describe('lang', () => {
   it('預設跟頁面（測試 stub html lang=en）', () => {
@@ -48,11 +50,43 @@ describe('lang', () => {
     expect(toType('ja-JP')).toBe('ja')
     expect(toType('fr-FR')).toBe('en')
     expect(toType('')).toBe('en')
+    // Same as before the per-locale match lists: a Chinese tag with a
+    // traditional script or region anywhere is Traditional Chinese
+    expect(toType('zh-Hans-HK')).toBe('zh-tw')
+    expect(toType('zh-yue-HK')).toBe('zh-tw')
+    expect(toType('zh-Hans-CN')).toBe('zh-cn')
+    expect(toType('zh_TW')).toBe('zh-tw')
+    expect(toType('jav')).toBe('en')
+    expect(toType('EN-gb')).toBe('en')
+  })
+
+  it('takes the html lang and the menu name from the locale file', () => {
+    lang.applyUserLang('zh-tw')
+    expect(lang.htmlLang()).toBe('zh-TW')
+    lang.applyUserLang('zh-cn')
+    expect(lang.htmlLang()).toBe('zh-CN')
+    lang.applyUserLang('en')
+    expect(lang.htmlLang()).toBe('en')
+    expect(lang.langName('ja')).toBe('日本語')
+    expect([...lang.langTypes].sort()).toEqual(['en', 'ja', 'zh-cn', 'zh-tw'])
   })
 
   it('非法語言值回退頁面語言（不炸）', () => {
     lang.applyUserLang('ru')
     expect(lang.type).toBe('en')
     expect(lang.transl('_startCrawl')).toBe('Start crawling')
+  })
+
+  it('every locale has the same {} placeholders as English', () => {
+    const en: LocaleTexts = locales.en.texts
+    const count = (t: string) => t.split('{}').length - 1
+    for (const code of langCodes) {
+      const texts: LocaleTexts = locales[code].texts
+      for (const [key, text] of Object.entries(texts)) {
+        expect(count(text!), `${code} ${key}`).toBe(
+          count(en[key as keyof LocaleTexts]!)
+        )
+      }
+    }
   })
 })

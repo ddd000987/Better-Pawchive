@@ -1,21 +1,25 @@
 /*
  * license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
  * derived from: PixivBatchDownloader src/ts/Language.ts (xuejianxianzun)
- * changes: 4 language slots (zh-cn/zh-tw/en/ja); page
+ * changes: one locale file per language (src/locales/); page
  *          auto language from navigator.languages, then <html lang>; settingChange
  *          payload is {key, value} (not PBD's {name, value}). Missing
  *          translations fall back to English, then to the key itself.
  */
 
-import { langText, LangTextKey } from './langText'
 import { EVT } from './EVT'
+import type { LangTextKey, LocaleTexts } from './localeTypes'
+import { langCodes, locales, LangCode } from './locales'
 import { settings } from './setting/Settings'
 
 /** 下載器可用的顯示語言 */
-type LangTypes = 'zh-cn' | 'zh-tw' | 'en' | 'ja'
+type LangTypes = LangCode
 
 /** 頁面語言標記（Kemono/Pawchive 的 html lang，多為 en） */
-type PageLangTypes = 'zh-cn' | 'zh-tw' | 'en' | 'ja'
+type PageLangTypes = LangCode
+
+/** Language used when nothing else matches, and for missing translations */
+const fallbackLang: LangCode = 'en'
 
 // i18n
 class Lang {
@@ -31,14 +35,12 @@ class Lang {
   /** auto 對應的語言（瀏覽器語言優先，其次網頁 lang）。不會動態變化 */
   public pageLangType: PageLangTypes = 'en'
 
-  public readonly langTypes = ['zh-cn', 'zh-tw', 'en', 'ja'] as const
+  public readonly langTypes: readonly LangTypes[] = langCodes
 
-  private readonly flagIndex: Map<LangTypes, number> = new Map([
-    ['zh-cn', 0],
-    ['zh-tw', 1],
-    ['en', 2],
-    ['ja', 3],
-  ])
+  /** The language's name in itself, for the language menu */
+  public langName(code: LangTypes): string {
+    return locales[code].meta.name
+  }
 
   /** 將頁面語言轉為下載器支援的語言 */
   private pageLangTypeToLangType(): LangTypes {
@@ -98,39 +100,41 @@ class Lang {
     return this.langTagToType(document.documentElement.lang)
   }
 
-  /** BCP 47 語言標記 → 介面語言（繁中含台灣、香港、澳門與 Hant） */
+  /** BCP 47 語言標記 → 介面語言（each locale's meta.match; see LocaleMeta） */
   private langTagToType(tag: string): PageLangTypes {
-    const t = tag.toLowerCase()
-    if (t.startsWith('zh')) {
-      return /hant|-tw|-hk|-mo/.test(t) ? 'zh-tw' : 'zh-cn'
+    const subtags = tag.toLowerCase().split(/[-_]/)
+    let best: LangTypes = fallbackLang
+    let bestScore = 0
+    for (const code of this.langTypes) {
+      for (const pattern of locales[code].meta.match) {
+        const [primary, ...rest] = pattern.split('-')
+        const hit =
+          subtags[0] === primary && rest.every((p) => subtags.includes(p))
+        if (hit && rest.length + 1 > bestScore) {
+          best = code
+          bestScore = rest.length + 1
+        }
+      }
     }
-    if (t.startsWith('ja')) {
-      return 'ja'
-    }
-    return 'en'
+    return best
   }
 
   /** BCP 47 tag of the current UI language, for the `lang` attribute of the
    * extension's own pages (screen readers pick the voice and fonts by it) */
   public htmlLang(): string {
-    const tags: Record<LangTypes, string> = {
-      'zh-cn': 'zh-CN',
-      'zh-tw': 'zh-TW',
-      en: 'en',
-      ja: 'ja',
-    }
-    return tags[this.type]
+    return locales[this.type].meta.htmlLang
   }
 
   // translate
   public transl(name: LangTextKey, ...args: string[]) {
-    if (name in langText === false) {
+    const fallback: LocaleTexts = locales[fallbackLang].texts
+    if (name in fallback === false) {
       console.warn(`LangText not found: ${name}`)
       return name
     }
-    const texts = langText[name]
+    const texts: LocaleTexts = locales[this.type].texts
     // 缺翻譯回退英文，再回退 key 本身
-    const content = texts[this.flagIndex.get(this.type)!] || texts[2] || name
+    const content = texts[name] || fallback[name] || name
     // One pass with a replacer function: "$" sequences in an argument stay
     // literal, and a "{}" inside an argument is not taken by the next one.
     let i = 0

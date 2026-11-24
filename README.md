@@ -68,7 +68,7 @@ Debug output is off in production builds. To turn it on, run `localStorage.setIt
 - `src/crawl/`: crawl engine. `src/download/`: download pipeline, cache, history, local file check.
 - `src/kemono/`: site API and URL rules. `src/preview/`: hover preview.
 - `src/folder/` + `src/folder.ts`: the local-folder check. The folder is picked in an extension page (`folder.html`) and checked by the service worker; the content script only sends messages.
-- `src/setting/`: settings and the settings panel (`pages/` has one module per panel page). `src/langText.ts`: UI strings in four languages.
+- `src/setting/`: settings and the settings panel (`pages/` has one module per panel page). `src/locales/`: UI strings, one file per language (to add a language, add `src/locales/<code>.ts` and run `npm run locales`).
 - `src/EVT.ts`: internal event bus. It uses a private `EventTarget`, so page scripts cannot see or fire its events.
 
 ### Where site changes are most likely to break things

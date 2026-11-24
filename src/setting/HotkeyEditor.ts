@@ -15,7 +15,7 @@
 import { Config } from '../Config'
 import { EVT } from '../EVT'
 import { lang } from '../Language'
-import { LangTextKey } from '../langText'
+import { LangTextKey } from '../localeTypes'
 import { toast } from '../Toast'
 import { setHotkeyRecording } from '../HotkeyListener'
 import {

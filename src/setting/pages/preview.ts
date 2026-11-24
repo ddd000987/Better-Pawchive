@@ -2,7 +2,7 @@
 /* 設定中心：預覽設定分頁（開關、懸停延遲、資訊列欄位位置） */
 
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import {
   PREVIEW_INFO_FIELDS,
   PREVIEW_INFO_PLACES,

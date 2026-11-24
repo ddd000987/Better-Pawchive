@@ -3,7 +3,7 @@
 
 import { EVT } from '../../EVT'
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import { settings, SettingKey } from '../Settings'
 
 /** 可折疊分區：回傳內容容器（head 點擊收合） */

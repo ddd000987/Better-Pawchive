@@ -3,7 +3,7 @@
 
 import { crawlCache } from '../../download/CrawlCache'
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import { store } from '../../store/Store'
 import { states } from '../../store/States'
 

@@ -15,7 +15,7 @@
 import { Config } from '../Config'
 import { EVT } from '../EVT'
 import { lang } from '../Language'
-import { LangTextKey } from '../langText'
+import { LangTextKey } from '../localeTypes'
 import type { PreviewInfoField } from '../preview/previewInfo'
 import { settings, SettingKey } from './Settings'
 import { store } from '../store/Store'
@@ -32,6 +32,7 @@ import { buildDownload } from './pages/download'
 import { DownloadControls } from './pages/downloadControls'
 import { FolderStatusView } from './pages/folderStatus'
 import { buildHelp } from './pages/help'
+import { hotkeyText } from './hotkeyText'
 import { buildHome } from './pages/home'
 import { LogView } from './pages/log'
 import { MountInfoView } from './pages/mountInfo'
@@ -358,7 +359,7 @@ class SettingsCenter {
   /** 在該列下方（空間不足改上方）顯示介紹，夾在視窗內 */
   private showDesc(row: HTMLElement, descKey: LangTextKey): void {
     if (!this.isOpen) return
-    this.descTip.textContent = lang.transl(descKey)
+    this.descTip.textContent = hotkeyText(descKey) ?? lang.transl(descKey)
     this.descTip.style.visibility = 'hidden'
     this.descTip.style.display = 'block'
     const r = row.getBoundingClientRect()

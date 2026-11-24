@@ -6,7 +6,7 @@
 import { manualPick } from '../../crawl/ManualPick'
 import { EVT } from '../../EVT'
 import { lang } from '../../Language'
-import type { LangTextKey } from '../../langText'
+import type { LangTextKey } from '../../localeTypes'
 
 export function buildManualPick(host: HTMLDivElement): void {
   // Mode switch

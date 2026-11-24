@@ -6,6 +6,7 @@
  *          同時顯示的多個 toast 會錯開堆疊（見 toastLayout.ts），不再疊在同一處。
  */
 
+import { lang } from './Language'
 import { markTransient } from './PageRoots'
 import { avoidOverlap } from './toastLayout'
 
@@ -58,6 +59,8 @@ class Toast {
     const span = document.createElement('span')
     span.textContent = msg
     span.className = 'pwpToast'
+    // The message was translated just now, so it keeps this language
+    span.lang = lang.htmlLang()
     span.style.backgroundColor = bg
     document.body.appendChild(span)
     markTransient(span)

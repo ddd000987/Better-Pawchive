@@ -7,7 +7,7 @@
 
 import { EVT } from '../EVT'
 import { lang } from '../Language'
-import { LangTextKey } from '../langText'
+import { LangTextKey } from '../localeTypes'
 
 /** 抓取階段 */
 export type CrawlPhase =

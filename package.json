@@ -13,19 +13,24 @@
     "url": "https://github.com/ddd000987/PawchivePro/issues"
   },
   "scripts": {
+    "locales": "node ./scripts/gen-locales.js",
+    "prets": "npm run locales",
     "ts": "webpack --config ./webpack.conf.js",
+    "prets:prod": "npm run locales",
     "ts:prod": "webpack --config ./webpack.conf.js --mode production",
     "less": "lessc ./src/style/style.less ./dist/style/style.css",
     "pack": "node ./scripts/pack.js",
     "make-icons": "node ./scripts/make-icons.js",
     "build": "npm run ts:prod && npm run less && npm run pack",
     "build:dev": "npm run ts && npm run less && npm run pack",
+    "pretest": "npm run locales",
     "test": "vitest run",
+    "pretypecheck": "npm run locales",
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint src tests scripts --max-warnings 0",
     "format": "prettier --write src tests scripts",
     "format:check": "prettier --check src tests scripts",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+    "check": "node ./scripts/gen-locales.js --check && npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

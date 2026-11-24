@@ -3,7 +3,7 @@
 
 import { fileName } from '../../filename/FileName'
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import { settings } from '../Settings'
 import { store } from '../../store/Store'
 import { toast } from '../../Toast'

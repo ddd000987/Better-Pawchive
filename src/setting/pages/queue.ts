@@ -3,7 +3,7 @@
 
 import { downloadQueue } from '../../download/DownloadQueue'
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import { section, tipCard } from './controls'
 import type { CenterContext } from './context'
 

@@ -4,7 +4,7 @@
 import { crawlCache } from '../../download/CrawlCache'
 import { downloadQueue } from '../../download/DownloadQueue'
 import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { LangTextKey } from '../../localeTypes'
 import { states } from '../../store/States'
 import { toast } from '../../Toast'
 import { checkRow, section, tipCard } from './controls'

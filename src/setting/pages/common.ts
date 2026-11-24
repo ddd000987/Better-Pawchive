@@ -2,8 +2,8 @@
 /* 設定中心：通用分頁（語言、跳過已下載、本地資料夾、浮動按鈕、快捷鍵、設定匯出入／恢復預設、下載記錄匯出入） */
 
 import { EVT } from '../../EVT'
-import { lang } from '../../Language'
-import { LangTextKey } from '../../langText'
+import { lang, LangTypes } from '../../Language'
+import { LangTextKey } from '../../localeTypes'
 import { toast } from '../../Toast'
 import { HotkeyEditor } from '../HotkeyEditor'
 import { settings } from '../Settings'
@@ -18,20 +18,15 @@ export function buildCommon(
 ): void {
   const onChange = () => ctx.refreshNamingPreview()
   const body = section(host, '_secSettings')
-  // 語言用自己的名字顯示（不翻譯），看不懂目前語言的人也找得到自己的
-  const langNames: Record<string, string> = {
-    'zh-cn': '简体中文',
-    'zh-tw': '繁體中文',
-    en: 'English',
-    ja: '日本語',
-  }
   selectRow(
     body,
     'userSetLang',
     '_f_userSetLang',
     ['auto', ...lang.langTypes],
     onChange,
-    (v) => (v === 'auto' ? lang.transl('_langAuto') : (langNames[v] ?? v))
+    // 語言用自己的名字顯示（不翻譯），看不懂目前語言的人也找得到自己的
+    (v) =>
+      v === 'auto' ? lang.transl('_langAuto') : lang.langName(v as LangTypes)
   )
   selectRow(
     body,

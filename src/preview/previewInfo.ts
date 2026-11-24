@@ -7,7 +7,7 @@
  * 純函數模組（不碰 DOM／不 import lang 實例）：翻譯以 t 參數注入，可單測。
  */
 
-import type { LangTextKey } from '../langText'
+import type { LangTextKey } from '../localeTypes'
 import type {
   PreviewHotkeyCommand,
   PreviewHotkeyMap,
