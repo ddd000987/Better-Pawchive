@@ -2,10 +2,12 @@
 /* Right-click menu for favorite images: download, move to a folder, open in
  * its own window, open the post, copy the image URL, remove. With several
  * images selected, the menu acts on all of them (the single-image actions
- * are left out). */
+ * are left out). Only Pawchive images can be downloaded: Kemono has only
+ * thumbnails left. */
 
 import { lang } from '../Language'
 import { openImageWindow } from '../preview/openImageWindow'
+import { hasOriginalFiles } from '../preview/previewAssets'
 import { replaceUnsafeStr } from '../Tools'
 import { favImages } from '../watch/collectStore'
 import type { FavImage } from '../watch/collectTypes'
@@ -153,15 +155,22 @@ export function openImageMenu(opts: ImageMenuOptions): void {
     menu.appendChild(el('div', 'w-ctx-sep'))
   }
 
+  // Kemono images are left out of downloads (no original files there)
+  const downloadable = images.filter((i) =>
+    hasOriginalFiles(watchStore.hostFor(i.site))
+  )
+
   const showMain = (): void => {
     menu.replaceChildren()
     const count = String(images.length)
-    addItem(
-      single
-        ? lang.transl('_ctx_download')
-        : lang.transl('_ctx_downloadN', count),
-      () => downloadImages(images, notify)
-    )
+    if (downloadable.length > 0) {
+      addItem(
+        single
+          ? lang.transl('_ctx_download')
+          : lang.transl('_ctx_downloadN', String(downloadable.length)),
+        () => downloadImages(downloadable, notify)
+      )
+    }
     // Moving keeps the menu open: it turns into the folder list
     const moveBtn = el(
       'button',

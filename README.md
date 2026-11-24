@@ -5,7 +5,7 @@ English | [繁體中文](README.zh-TW.md)
 A Chrome / Edge (Manifest V3) extension for previewing and batch-downloading post attachments on Kemono-family sites:
 
 - **Pawchive**: `pawchive.pw` (and subdomains) — the main, tested target.
-- **Kemono**: `kemono.cr` (and subdomains, plus the legacy `kemono.su` / `kemono.party`) — **best effort, not verified**. Since October 2026 the original-file servers `n1`–`n4.kemono.cr` have been unreachable, so original-image downloads may fail.
+- **Kemono**: `kemono.cr` (and subdomains) — **previews and the watchlist only**. Since October 2026 its original-file servers `n1`–`n4.kemono.cr` have been gone, so only thumbnails are left: previews show thumbnails, and crawling and downloading are turned off there. The old domains `kemono.su` and `kemono.party` no longer exist.
 
 License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 
@@ -43,7 +43,7 @@ There is no store listing. Build it yourself, or download the zip from [Releases
    ```
 
 2. Open `chrome://extensions` (or `edge://extensions`), turn on **Developer mode**, click **Load unpacked**, and select the `dist/` folder.
-3. Open a creator page on Kemono or Pawchive and click the button in the bottom-right corner (or press Alt+X).
+3. Open a creator page on Pawchive and click the button in the bottom-right corner (or press Alt+X). On Kemono the same panel has the preview and watchlist settings only.
 
 After changing the code, run `npm run build` again and click reload on the extension card.
 
@@ -77,7 +77,6 @@ Debug output is off in production builds. To turn it on, run `localStorage.setIt
 Each of these is kept in a single constant:
 
 - Button mount points `.user-header__actions` and `.post__actions`: `MOUNT` in `src/kemono/pages.ts`.
-- Kemono file servers `n1`–`n4.kemono.cr` and the hash routing: `FILESERVERS` in `src/kemono/assetsKemono.ts`.
 - CORS / Referer header rules: `src/declarative_net_request_rules.json`.
 
 ## Disclaimer

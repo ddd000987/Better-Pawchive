@@ -170,7 +170,7 @@ function expandPost(
       return
     }
     const name = baseName(file)
-    const url = downloadUrl(file, data, original, host)
+    const url = downloadUrl(file, original, host)
     if (!url) {
       return
     }

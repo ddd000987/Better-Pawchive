@@ -14,7 +14,6 @@ import {
   siteOfHost,
   thumbUrl,
 } from '../src/watch/watchKey'
-import { fileserverFor } from '../src/kemono/assetsKemono'
 
 describe('watchKey', () => {
   it('siteOfHost identifies kemono and pawchive hosts and rejects others', () => {
@@ -95,8 +94,9 @@ describe('watchKey', () => {
     expect(fullImageUrl('pawchive.pw', '/ab/cd/pic.jpg')).toBe(
       'https://file.pawchive.pw/data/ab/cd/pic.jpg'
     )
+    // Kemono's original-file servers are gone: the thumbnail is all there is
     expect(fullImageUrl('kemono.cr', '/ab/cd/pic.jpg')).toBe(
-      `${fileserverFor('/ab/cd/pic.jpg')}/data/ab/cd/pic.jpg`
+      'https://img.kemono.cr/thumbnail/data/ab/cd/pic.jpg'
     )
     expect(fullImageUrl('pawchive.pw', '')).toBe('')
   })

@@ -3,19 +3,22 @@
  * derived from: Kemono-Downloader src/sites/kemono.ts (fullFile) +
  *               src/sites/pawchive.ts (fullFile) (Kemono-Downloader authors)
  * changes: merged the two families' URL rules into one helper behind
- *          `host.includes('kemono')`. Kemono rule: non-image → murmur
- *          fileserver; image + original → previews.server ?? n1.{host};
- *          image +縮圖 → img.{host} thumbnail. Pawchive rule: preview_only
+ *          isKemonoHost(). Kemono rule: images → img.{host} thumbnail
+ *          (the original-file servers n1–n4.kemono.cr have been gone since
+ *          October 2026), other files → none. Pawchive rule: preview_only
  *          → always thumbnail; non-image → file.; image → file./img. by
  *          the original-image switch. Callers pass their own flag:
  *          preview uses `previewOriginalImage`, downloads use
  *          `downloadOriginalImage` (see kemono/expand.ts). Also
  *          resolveDownloadUrl() upgrades stored thumbnail URLs at
- *          download time.
+ *          download time, and hasOriginalFiles() keeps crawling and
+ *          downloading to Pawchive.
  */
 
-import { fileserverFor } from '../kemono/assetsKemono'
-import { fullFile as pawchiveFullFile } from '../kemono/assetsPawchive'
+import {
+  fullFile as pawchiveFullFile,
+  thumbnail,
+} from '../kemono/assetsPawchive'
 import { isImageFile } from '../kemono/fileType'
 import { isKemonoService, postRegPath } from '../kemono/pages'
 import type {
@@ -41,13 +44,36 @@ function parsePostKey(postKey: string): {
   }
 }
 
-/** Kemono 系網域（精確匹配，避免 kemono.su.evil.com 之類誤判） */
-const KEMONO_HOSTS = ['kemono.su', 'kemono.party', 'kemono.cr']
+/** The Kemono domain still online */
+const KEMONO_HOST = 'kemono.cr'
+/** Former Kemono domains. They no longer resolve, but old caches, download
+ * records and saved hosts still name them */
+const RETIRED_KEMONO_HOSTS = ['kemono.su', 'kemono.party']
 
-/** 該 host 是否 Kemono 站（否則按 Pawchive 規則） */
-function isKemonoHost(host = location.host): boolean {
+/** Exact match on the domain or a subdomain (so kemono.su.evil.com fails) */
+function matchesDomain(host: string, domain: string): boolean {
   const h = host.toLowerCase().split(':')[0]
-  return KEMONO_HOSTS.some((k) => h === k || h.endsWith(`.${k}`))
+  return h === domain || h.endsWith(`.${domain}`)
+}
+
+/** 該 host 是否 Kemono 站（含已停用的舊網域；否則按 Pawchive 規則） */
+function isKemonoHost(host = location.host): boolean {
+  return [KEMONO_HOST, ...RETIRED_KEMONO_HOSTS].some((d) =>
+    matchesDomain(host, d)
+  )
+}
+
+/** A former Kemono domain that no longer resolves */
+function isRetiredKemonoHost(host: string): boolean {
+  return RETIRED_KEMONO_HOSTS.some((d) => matchesDomain(host, d))
+}
+
+/** Whether the site still serves original files. Kemono's original-file
+ * servers (n1–n4.kemono.cr) have been unreachable since October 2026; only
+ * its thumbnails, API and creator images still load. Crawling and
+ * downloading need the originals, so they are Pawchive only */
+function hasOriginalFiles(host = location.host): boolean {
+  return !isKemonoHost(host)
 }
 
 /** 從卡片連結 href 解析 postKey（`patreon/12345/67890`）；非帖子連結回 null */
@@ -92,24 +118,15 @@ function imageFiles(data: PostApiResponse): FileItem[] {
   return allFiles(data).filter((f) => isImageFile(f))
 }
 
-/** 單張圖片的顯示 URL（'' 表示無法顯示，如 Kemono 非圖片附件） */
+/** 單張圖片的顯示 URL（'' 表示無法顯示，如 Kemono 非圖片附件）。
+ * Kemono only has thumbnails left, so `original` is ignored there */
 function imageUrl(
   file: FileItem,
-  data: PostApiResponse,
   original: boolean,
   host = location.host
 ): string {
   if (isKemonoHost(host)) {
-    if (!isImageFile(file)) return ''
-    if (original) {
-      // 與非圖片附件共用 fileserverFor 分流，避免原圖固定 n1.{host}
-      // 而附件卻走 n1–n4.kemono.cr 的跨域不一致
-      const server =
-        data.previews?.find((p) => p.path === file.path)?.server ??
-        fileserverFor(file.path)
-      return `${server}/data${file.path}`
-    }
-    return `https://img.${host}/thumbnail/data${file.path}`
+    return isImageFile(file) ? thumbnail(file.path, host) : ''
   }
   return pawchiveFullFile(file, original, host)
 }
@@ -119,19 +136,13 @@ function downloadableFiles(data: PostApiResponse): FileItem[] {
   return allFiles(data)
 }
 
-/** 單個附件的下載 URL */
+/** 單個附件的下載 URL（Kemono 同 imageUrl：只剩縮圖，非圖片為 ''） */
 function downloadUrl(
   file: FileItem,
-  data: PostApiResponse,
   original: boolean,
   host = location.host
 ): string {
-  if (isKemonoHost(host)) {
-    if (!isImageFile(file))
-      return `${fileserverFor(file.path)}/data${file.path}`
-    return imageUrl(file, data, original, host)
-  }
-  return pawchiveFullFile(file, original, host)
+  return imageUrl(file, original, host)
 }
 
 /** 縮圖網址：`https://img.{host}/thumbnail/data{path}` */
@@ -139,7 +150,8 @@ const THUMB_RE = /^https:\/\/img\.([^/]+)\/thumbnail\/data(\/.*)$/
 
 /** 把已存的縮圖網址換回原圖網址。
  * 舊抓取結果／快取是在「預設縮圖」時算好的，下載時才依設定補救；
- * previewOnly 的檔案站方只給縮圖，不能換；非縮圖網址原樣返回。
+ * previewOnly 的檔案站方只給縮圖，不能換；非縮圖網址原樣返回；
+ * Kemono 的原檔伺服器已停用，縮圖照舊。
  * 站點從網址本身取，不看目前分頁：在 Kemono 分頁下載 Pawchive 的快取
  * （下載佇列常見）也要換成 Pawchive 的原圖網址。 */
 function resolveDownloadUrl(
@@ -151,12 +163,14 @@ function resolveDownloadUrl(
   const m = url.match(THUMB_RE)
   if (!m) return url
   const [, host, path] = m
-  if (isKemonoHost(host)) return `${fileserverFor(path)}/data${path}`
+  if (isKemonoHost(host)) return url
   return `https://file.${host}/data${path}`
 }
 
 export {
   isKemonoHost,
+  isRetiredKemonoHost,
+  hasOriginalFiles,
   parsePostKey,
   parsePostKeyFromHref,
   coverUrl,

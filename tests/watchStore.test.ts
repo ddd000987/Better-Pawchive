@@ -206,12 +206,12 @@ describe('watchStore', () => {
     await store.rememberHost('example.com')
     expect(set).not.toHaveBeenCalled()
 
-    await store.rememberHost('kemono.su')
-    expect(store.hostFor('kemono')).toBe('kemono.su')
+    await store.rememberHost('www.kemono.cr')
+    expect(store.hostFor('kemono')).toBe('www.kemono.cr')
     expect(set).toHaveBeenCalledTimes(1)
 
     // Unchanged host skips write
-    await store.rememberHost('kemono.su')
+    await store.rememberHost('www.kemono.cr')
     expect(set).toHaveBeenCalledTimes(1)
 
     const onChange = vi.fn()
@@ -223,7 +223,8 @@ describe('watchStore', () => {
       hosts: { kemono: 'kemono.party' },
     })
     expect(onChange).toHaveBeenCalledTimes(1)
-    expect(store.hostFor('kemono')).toBe('kemono.party')
+    // A retired Kemono domain no longer resolves: back to kemono.cr
+    expect(store.hostFor('kemono')).toBe('kemono.cr')
 
     unsub()
     await store.replaceAll({ hosts: { pawchive: 'www.pawchive.pw' } })

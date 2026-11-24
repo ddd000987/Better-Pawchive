@@ -21,7 +21,7 @@ const listeners = new Map<string, Listener[]>()
   setTimeout: (fn: (...args: any[]) => void, ms?: number, ...args: any[]) =>
     setTimeout(fn, ms, ...args),
   clearTimeout: (id: any) => clearTimeout(id),
-  location: { href: 'https://kemono.su/patreon/user/1' },
+  location: { href: 'https://pawchive.pw/patreon/user/1' },
 }
 
 ;(globalThis as any).document = {
@@ -33,7 +33,8 @@ const listeners = new Map<string, Listener[]>()
 }
 
 // 部分模組用 location.pathname 做預設參數
-;(globalThis as any).location = { pathname: '/', host: 'kemono.su' }
+// Pawchive: crawling and downloading are off on Kemono (no original files)
+;(globalThis as any).location = { pathname: '/', host: 'pawchive.pw' }
 
 // 介面語言「自動」跟瀏覽器語言；Node 的 navigator 會帶本機語系，固定成英文讓測試結果不隨機器變
 Object.defineProperty(globalThis, 'navigator', {

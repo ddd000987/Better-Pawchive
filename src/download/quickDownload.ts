@@ -29,7 +29,11 @@ import { downloadRecord } from './DownloadRecord'
 import { getDirectDownloadThreshold } from './DownloadPolicy'
 import { localFileCheck } from './LocalFileCheck'
 import { StallWatchdog } from './StallWatchdog'
-import { imageFiles, parsePostKey } from '../preview/previewAssets'
+import {
+  hasOriginalFiles,
+  imageFiles,
+  parsePostKey,
+} from '../preview/previewAssets'
 import type { PostApiResponse } from '../kemono/apiTypes'
 import type { Result } from '../store/StoreType'
 
@@ -108,6 +112,10 @@ interface QuickContext {
 }
 
 async function loadContext(postKey: string): Promise<QuickContext | null> {
+  if (!hasOriginalFiles()) {
+    toast.warning(lang.transl('_kemonoNoDownload'))
+    return null
+  }
   const info = parsePostKey(postKey)
   if (!info) {
     return null

@@ -18,6 +18,7 @@ import { states } from '../store/States'
 import { store } from '../store/Store'
 import type { IDData } from '../store/StoreType'
 import { toast } from '../Toast'
+import { hasOriginalFiles } from './previewAssets'
 import { workThumbnail, WorkThumbnail } from './WorkThumbnail'
 import { keepInBody } from '../PageRoots'
 
@@ -140,7 +141,12 @@ class ThumbDownloadButton {
   }
 
   private show(card: HTMLAnchorElement): void {
-    if (this.noShow || !settings.get('showDownloadBtnOnThumb')) {
+    // No downloads on Kemono (its original files are gone)
+    if (
+      this.noShow ||
+      !settings.get('showDownloadBtnOnThumb') ||
+      !hasOriginalFiles()
+    ) {
       return
     }
     this.card = card

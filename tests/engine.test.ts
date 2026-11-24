@@ -105,6 +105,30 @@ describe('engine 錯誤分級', () => {
   })
 })
 
+describe('engine on Kemono', () => {
+  it('does not crawl there (no original files) and says why', async () => {
+    const loc = (globalThis as any).location
+    const prev = loc.host
+    loc.host = 'kemono.cr'
+    try {
+      const { api, engine } = await load()
+      const { toast } = await import('../src/Toast')
+      ;(toast.warning as any).mockClear()
+      const started = countEvent('crawlStart')
+      await engine.start()
+      expect(
+        await engine.crawlIds([{ type: 'post', id: 'patreon/1/2' }])
+      ).toEqual([])
+      expect(api.posts).not.toHaveBeenCalled()
+      expect(api.post).not.toHaveBeenCalled()
+      expect(started()).toBe(0)
+      expect(toast.warning).toHaveBeenCalledTimes(2)
+    } finally {
+      loc.host = prev
+    }
+  })
+})
+
 describe('engine 可中斷', () => {
   it('429 退避中 stopCrawl：不必等 60 秒，start() 直接完成', async () => {
     vi.useFakeTimers()

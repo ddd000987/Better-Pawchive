@@ -9,6 +9,7 @@ import {
 } from '../../download/CrawlCache'
 import { downloadQueue } from '../../download/DownloadQueue'
 import { lang } from '../../Language'
+import { hasOriginalFiles } from '../../preview/previewAssets'
 import { log } from '../../Log'
 import { LangTextKey } from '../../localeTypes'
 import { states } from '../../store/States'
@@ -89,8 +90,13 @@ export class CacheView {
         mountedHere ? '_mountedLabel' : '_mount',
         () => void crawlCache.mount(e.id)
       )
+      // Kemono crawls point at original files that are gone
+      const usable = hasOriginalFiles(e.host)
       if (mountedHere) {
         mountBtn.disabled = true
+      } else if (!usable) {
+        mountBtn.disabled = true
+        mountBtn.title = lang.transl('_kemonoNoDownload')
       } else if (locked) {
         mountBtn.disabled = true
         mountBtn.title = lang.transl('_mountBusy')
@@ -121,6 +127,10 @@ export class CacheView {
         queueBtn.disabled = true
       } else {
         queueBtn = mkBtn('_queueAdd', () => void downloadQueue.add(e.id))
+        if (!usable) {
+          queueBtn.disabled = true
+          queueBtn.title = lang.transl('_kemonoNoDownload')
+        }
       }
       row.append(
         mkBtn('_cacheRename', () => this.promptRenameCache(e.id, e.title)),

@@ -15,6 +15,7 @@ import { crawlCache } from './CrawlCache'
 import { downloadControl } from './DownloadControl'
 import { EVT } from '../EVT'
 import { lang } from '../Language'
+import { hasOriginalFiles } from '../preview/previewAssets'
 import { log } from '../Log'
 import { states } from '../store/States'
 import { toast } from '../Toast'
@@ -215,6 +216,10 @@ class DownloadQueue {
     await this.ensureLoaded()
     const s = crawlCache.summary(cacheId)
     if (!s) return false
+    if (!hasOriginalFiles(s.host)) {
+      toast.warning(lang.transl('_kemonoNoDownload'))
+      return false
+    }
     const existing = this.items.find((i) => i.cacheId === cacheId)
     if (
       existing &&

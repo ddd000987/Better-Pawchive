@@ -2,12 +2,14 @@
 /* Settings center home page: a guide for new users. It says what the current
  * page can do, walks through the two steps (crawl, then download), offers to
  * watch the creator of this page, and keeps a few common switches. Detailed
- * settings stay on the other pages. */
+ * settings stay on the other pages. On Kemono, which has no original files
+ * left, it skips the steps and says only previews and the watchlist work. */
 
 import { EVT } from '../../EVT'
 import { detectPage } from '../../kemono/pages'
 import { lang } from '../../Language'
 import { LangTextKey } from '../../localeTypes'
+import { hasOriginalFiles } from '../../preview/previewAssets'
 import { states } from '../../store/States'
 import { store } from '../../store/Store'
 import { totalUnread } from '../../watch/watchData'
@@ -59,9 +61,10 @@ function step(
 }
 
 export class HomeView {
-  private context!: HTMLDivElement
-  private step1!: HTMLDivElement
-  private step2!: HTMLDivElement
+  /** Context card and steps; absent on Kemono */
+  private context?: HTMLDivElement
+  private step1?: HTMLDivElement
+  private step2?: HTMLDivElement
   private watchSection!: HTMLElement
   private watchStatus!: HTMLDivElement
   private watchBtn!: HTMLButtonElement
@@ -77,30 +80,39 @@ export class HomeView {
     }
   ): void {
     const body = section(host, '_sc_home')
+    const downloads = hasOriginalFiles()
 
     const intro = div('pwpSC-homeIntro')
     intro.append(
-      div('pwpSC-homeIntroTitle', '_hm_introTitle'),
-      div('pwpSC-homeIntroText', '_hm_introText')
+      div(
+        'pwpSC-homeIntroTitle',
+        downloads ? '_hm_introTitle' : '_hm_kemonoIntroTitle'
+      ),
+      div(
+        'pwpSC-homeIntroText',
+        downloads ? '_hm_introText' : '_hm_kemonoIntroText'
+      )
     )
     body.appendChild(intro)
 
-    this.context = div('pwpSC-homeContext')
-    body.appendChild(this.context)
+    if (downloads) {
+      this.context = div('pwpSC-homeContext')
+      body.appendChild(this.context)
 
-    const steps = div('pwpSC-steps')
-    body.appendChild(steps)
+      const steps = div('pwpSC-steps')
+      body.appendChild(steps)
 
-    const s1 = step(steps, '1', '_hm_step1Title', '_hm_step1Desc')
-    this.step1 = s1.root
-    s1.body.appendChild(views.status.createCrawl())
-    views.crawlControls.build(s1.body)
-    views.crawlProgress.build(s1.body)
+      const s1 = step(steps, '1', '_hm_step1Title', '_hm_step1Desc')
+      this.step1 = s1.root
+      s1.body.appendChild(views.status.createCrawl())
+      views.crawlControls.build(s1.body)
+      views.crawlProgress.build(s1.body)
 
-    const s2 = step(steps, '2', '_hm_step2Title', '_hm_step2Desc')
-    this.step2 = s2.root
-    s2.body.appendChild(views.status.createDownload())
-    views.dlControls.build(s2.body, { requireResult: true })
+      const s2 = step(steps, '2', '_hm_step2Title', '_hm_step2Desc')
+      this.step2 = s2.root
+      s2.body.appendChild(views.status.createDownload())
+      views.dlControls.build(s2.body, { requireResult: true })
+    }
 
     // Watch this page's creator (shown on creator pages only)
     const watchBody = section(host, '_hm_watchTitle')
@@ -129,7 +141,9 @@ export class HomeView {
     const quick = section(host, '_hm_quickTitle')
     checkRow(quick, 'PreviewWork', '_f_PreviewWork')
     checkRow(quick, 'PreviewCreator', '_f_PreviewCreator')
-    checkRow(quick, 'showDownloadBtnOnThumb', '_f_showDownloadBtnOnThumb')
+    if (downloads) {
+      checkRow(quick, 'showDownloadBtnOnThumb', '_f_showDownloadBtnOnThumb')
+    }
     quick.appendChild(div('pwpSC-homeHint', '_hm_moreHint'))
 
     EVT.on(EVT.list.pageSwitch, () => this.refresh())
@@ -152,7 +166,7 @@ export class HomeView {
   }
 
   public refresh(): void {
-    if (!this.context) return
+    if (!this.watchSection) return
     this.refreshContext()
     this.refreshSteps()
     this.refreshWatch()
@@ -160,6 +174,7 @@ export class HomeView {
 
   /** What this page is and what crawling it does */
   private refreshContext(): void {
+    if (!this.context) return
     const page = detectPage()
     const key: LangTextKey =
       page.kind === 'creator'
@@ -173,7 +188,7 @@ export class HomeView {
 
   /** Step 1 is current until something is crawled, then step 2 is */
   private refreshSteps(): void {
-    if (!this.step1) return
+    if (!this.step1 || !this.step2) return
     const crawled = store.result.length > 0
     const crawling = states.busy && !states.hasDownloadTask
     this.step1.classList.toggle('is-current', !crawled || crawling)

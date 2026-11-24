@@ -18,10 +18,6 @@
     "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
-    "*://kemono.party/*",
-    "*://*.kemono.party/*",
-    "*://kemono.su/*",
-    "*://*.kemono.su/*",
     "*://kemono.cr/*",
     "*://*.kemono.cr/*",
     "*://pawchive.pw/*",
@@ -30,10 +26,6 @@
   "content_scripts": [
     {
       "matches": [
-        "*://kemono.party/*",
-        "*://*.kemono.party/*",
-        "*://kemono.su/*",
-        "*://*.kemono.su/*",
         "*://kemono.cr/*",
         "*://*.kemono.cr/*",
         "*://pawchive.pw/*",
@@ -70,10 +62,6 @@
       "resources": ["lib/listen_history_change.js"],
       "use_dynamic_url": true,
       "matches": [
-        "*://kemono.party/*",
-        "*://*.kemono.party/*",
-        "*://kemono.su/*",
-        "*://*.kemono.su/*",
         "*://kemono.cr/*",
         "*://*.kemono.cr/*",
         "*://pawchive.pw/*",

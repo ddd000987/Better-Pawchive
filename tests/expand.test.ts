@@ -4,7 +4,7 @@ import { defaultSettings, settings } from '../src/setting/Settings'
 import { isPendingPost } from '../src/kemono/apiTypes'
 import type { Post, PostApiResponse } from '../src/kemono/apiTypes'
 
-const HOST = 'kemono.su'
+const HOST = 'pawchive.pw'
 
 function fixture(overrides: Partial<Post> = {}): PostApiResponse {
   return {

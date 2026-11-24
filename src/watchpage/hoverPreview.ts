@@ -7,7 +7,11 @@
 
 import { api } from '../kemono/api'
 import type { KemonoService } from '../kemono/apiTypes'
-import { imageFiles, imageUrl } from '../preview/previewAssets'
+import {
+  hasOriginalFiles,
+  imageFiles,
+  imageUrl,
+} from '../preview/previewAssets'
 import { settings } from '../setting/Settings'
 import { fullImageUrl, thumbUrl } from '../watch/watchKey'
 import type { Rect, Size } from './cardPreview'
@@ -323,9 +327,10 @@ export function attachImagePreview(
         [
           {
             thumb: thumbUrl(host, path),
-            full: settings.get('watchPreviewOriginal')
-              ? fullImageUrl(host, path)
-              : null,
+            full:
+              settings.get('watchPreviewOriginal') && hasOriginalFiles(host)
+                ? fullImageUrl(host, path)
+                : null,
           },
         ],
         false
@@ -349,7 +354,8 @@ export function attachPostPreview(tile: HTMLElement, post: PostRef): void {
     tile,
     () => settings.get('watchPreviewPosts'),
     () => {
-      const original = settings.get('watchPreviewOriginal')
+      const original =
+        settings.get('watchPreviewOriginal') && hasOriginalFiles(post.host)
       const cover: PreviewImage[] = post.coverPath
         ? [{ thumb: thumbUrl(post.host, post.coverPath), full: null }]
         : []
@@ -372,8 +378,8 @@ export function attachPostPreview(tile: HTMLElement, post: PostRef): void {
             return
           }
           const images = imageFiles(data).map((f) => ({
-            thumb: imageUrl(f, data, false, post.host),
-            full: original ? imageUrl(f, data, true, post.host) : null,
+            thumb: imageUrl(f, false, post.host),
+            full: original ? imageUrl(f, true, post.host) : null,
           }))
           if (images.length === 0) {
             updateCounter()

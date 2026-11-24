@@ -283,3 +283,24 @@ describe('快下串行佇列', () => {
     })
   })
 })
+
+describe('on Kemono', () => {
+  it('downloads nothing (no original files there) and says why', async () => {
+    const loc = (globalThis as any).location
+    const prev = loc.host
+    loc.host = 'kemono.cr'
+    try {
+      m.api.post.mockReset()
+      m.toast.warning.mockClear()
+      const { downloadPost, downloadSingle } =
+        await import('../src/download/quickDownload')
+      await downloadPost('patreon/u1/1')
+      await downloadSingle('patreon/u1/1', 0)
+      expect(m.api.post).not.toHaveBeenCalled()
+      expect(m.toast.warning).toHaveBeenCalledTimes(2)
+      expect(m.toast.warning).toHaveBeenCalledWith('_kemonoNoDownload')
+    } finally {
+      loc.host = prev
+    }
+  })
+})

@@ -30,23 +30,23 @@ const NAMING_TAGS: Array<{ token: string; descKey: LangTextKey }> = [
 /** 命名規則範例：規則字面值＋說明文案 key */
 const NAMING_EXAMPLES: Array<{ rule: string; descKey: LangTextKey }> = [
   {
-    rule: 'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}',
+    rule: 'pawchive/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}',
     descKey: '_namingEx1',
   },
   {
-    rule: 'kemono/{creator}/{year}-{month}/[{date}_]{post_id}/{index}.{ext}',
+    rule: 'pawchive/{creator}/{year}-{month}/[{date}_]{post_id}/{index}.{ext}',
     descKey: '_namingEx2',
   },
   {
-    rule: 'kemono/{creator}/{post_id}_{index}.{ext}',
+    rule: 'pawchive/{creator}/{post_id}_{index}.{ext}',
     descKey: '_namingEx3',
   },
   {
-    rule: 'kemono/{creator}/{kind}/{post_id}-{index}-{file_name}.{ext}',
+    rule: 'pawchive/{creator}/{kind}/{post_id}-{index}-{file_name}.{ext}',
     descKey: '_namingEx4',
   },
   {
-    rule: 'kemono/{creator}/[{date} ]{title}/{file_name}.{ext}',
+    rule: 'pawchive/{creator}/[{date} ]{title}/{file_name}.{ext}',
     descKey: '_namingEx5',
   },
 ]
@@ -59,13 +59,6 @@ export class NamingView {
     const onChange = () => this.refresh()
     const body = section(host, '_secNaming')
     inputRow(body, 'namingRule', '_f_namingRule', 'text', onChange)
-    inputRow(
-      body,
-      'namingRulePawchive',
-      '_f_namingRulePawchive',
-      'text',
-      onChange
-    )
     this.namingPreview = document.createElement('div')
     this.namingPreview.className = 'pwpSC-row pwpSC-status'
     body.appendChild(this.namingPreview)
@@ -148,16 +141,14 @@ export class NamingView {
   private refreshWarning(): void {
     if (!this.namingWarn) return
     const chars = new Set<string>()
-    for (const key of ['namingRule', 'namingRulePawchive'] as const) {
-      const rule = settings.get(key)
-      for (const ch of fileName.findUnsafeRuleChars(rule)) {
-        const code = ch.charCodeAt(0)
-        chars.add(
-          code < 0x20 || code === 0x7f
-            ? `U+${code.toString(16).toUpperCase().padStart(4, '0')}`
-            : ch
-        )
-      }
+    const rule = settings.get('namingRule')
+    for (const ch of fileName.findUnsafeRuleChars(rule)) {
+      const code = ch.charCodeAt(0)
+      chars.add(
+        code < 0x20 || code === 0x7f
+          ? `U+${code.toString(16).toUpperCase().padStart(4, '0')}`
+          : ch
+      )
     }
     this.namingWarn.hidden = chars.size === 0
     this.namingWarn.textContent =

@@ -1,6 +1,7 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* Pure validation, sanitization, and query helpers for WatchData. */
 
+import { isRetiredKemonoHost } from '../preview/previewAssets'
 import { MAX_PREVIEWS, normalizeTags, sanitizeRating } from './labels'
 import { parseCreatorKey, siteOfHost } from './watchKey'
 import {
@@ -221,7 +222,13 @@ export function validateWatchData(raw: unknown): WatchData {
   if (isRecord(raw.hosts)) {
     for (const site of WATCH_SITES) {
       const val = raw.hosts[site]
-      if (typeof val === 'string' && siteOfHost(val) === site) {
+      // A saved kemono.su / kemono.party host no longer resolves: drop it so
+      // links fall back to kemono.cr
+      if (
+        typeof val === 'string' &&
+        siteOfHost(val) === site &&
+        !isRetiredKemonoHost(val)
+      ) {
         hosts[site] = val
       }
     }

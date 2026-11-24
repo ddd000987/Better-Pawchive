@@ -121,8 +121,6 @@ interface MetaSettings {
   showFloatingButton: boolean
   /** 全域命名規則（含 {token} 與 [...] 可選片段） */
   namingRule: string
-  /** Pawchive 站專用規則（空 = 跟全域） */
-  namingRulePawchive: string
   /** 使用者自訂的一級快捷鍵。鍵為命令名，未設定的命令不出現 */
   hotkeys: HotkeyMap
   /** Keys used inside the hover preview; a cleared command is absent */
@@ -432,8 +430,7 @@ const defaultSettings: PawchiveSettings = {
   skipDownloaded: 'record',
   showFloatingButton: true,
   namingRule:
-    'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}',
-  namingRulePawchive: '',
+    'pawchive/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}',
   hotkeys: defaultHotkeys,
   previewHotkeys: defaultPreviewHotkeys,
   watchScanEnabled: true,
@@ -520,7 +517,7 @@ const stringRules: Partial<Record<SettingKey, (v: string) => string>> = {
 
 /** Version of the stored settings object. Bump it when a stored key changes
  * meaning and add the matching step to migrateSettingsObject. */
-const SETTINGS_SCHEMA_VERSION = 1
+const SETTINGS_SCHEMA_VERSION = 2
 
 /** 舊版存檔／匯入檔的相容轉換：舊的 deduplication／skipExistingFiles 合併成
  * skipDownloaded（新鍵已存在則以新鍵為準），並丟掉已移除的舊鍵
@@ -543,6 +540,21 @@ function migrateLegacySettings(
   delete out.dupliStrategy
   delete out.skipExistingFiles
   delete out.switchImageByKeyboard
+  return out
+}
+
+/** Schema 2: downloads are Pawchive only (Kemono's original files are gone),
+ * so the Pawchive naming rule, which took precedence there, becomes the one
+ * naming rule. Returns a new object. */
+function mergePawchiveNamingRule(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const out = { ...input }
+  const siteRule = out.namingRulePawchive
+  if (typeof siteRule === 'string' && siteRule.trim()) {
+    out.namingRule = siteRule
+  }
+  delete out.namingRulePawchive
   return out
 }
 
@@ -604,7 +616,8 @@ function migrateSettingsObject(
   input: Record<string, unknown>
 ): Record<string, unknown> {
   const version = readSchemaVersion(input)
-  const out = version === 0 ? migrateLegacySettings(input) : { ...input }
+  let out = version === 0 ? migrateLegacySettings(input) : { ...input }
+  if (version < 2) out = mergePawchiveNamingRule(out)
   out.schemaVersion = Math.max(version, SETTINGS_SCHEMA_VERSION)
   return out
 }

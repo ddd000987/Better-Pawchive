@@ -5,7 +5,8 @@ import { lang } from '../../Language'
 import { store } from '../../store/Store'
 
 export class StatusRows {
-  private crawlStatus!: HTMLDivElement
+  /** Absent on Kemono, where the home page has no crawl step */
+  private crawlStatus?: HTMLDivElement
   /** 首頁與下載頁各一個待下載狀態列（都要刷新） */
   private downloadStatuses: HTMLDivElement[] = []
 
@@ -25,11 +26,13 @@ export class StatusRows {
   }
 
   public refresh(): void {
-    this.crawlStatus.textContent = lang.transl(
-      '_statusCrawl',
-      String(store.resultMeta.length),
-      String(store.result.length)
-    )
+    if (this.crawlStatus) {
+      this.crawlStatus.textContent = lang.transl(
+        '_statusCrawl',
+        String(store.resultMeta.length),
+        String(store.result.length)
+      )
+    }
     const downloadText = lang.transl(
       '_statusDownload',
       String(store.remainingDownload)

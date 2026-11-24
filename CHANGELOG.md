@@ -14,8 +14,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Changed
 
+- Kemono: previews and the watchlist only. Its original-file servers `n1`–`n4.kemono.cr` are gone, so previews, the watch page and the image window use thumbnails there, and crawling, downloading, the thumbnail download button and the Crawl, Download and Naming pages are turned off on Kemono. Crawl caches from Kemono can no longer be mounted or queued, and Kemono images are left out of downloads on the watch page.
+- Naming: there is one naming rule again. A Pawchive rule you had set becomes the naming rule. The default rule now starts with a `pawchive/` folder instead of `kemono/`. If you never changed the rule, new downloads go into `Downloads/pawchive/`; when you skip files already in your folder, pick `pawchive` as that folder.
 - Settings panel: the Home page is now a guide for new users. It says what the current page can do, walks through the two steps (crawl, then download) and shows which one you are on, lets you watch the creator of the page, and keeps a few common switches. The panel opens on Home, and a crawl started there stays on Home when it finishes.
 - Settings panel: the tracking settings moved to the watch page's ⚙; the Watchlist page keeps the summary and the "Open watch page" button.
+
+### Removed
+
+- Support for the old Kemono domains `kemono.su` and `kemono.party`, which no longer exist. A saved link host on one of them falls back to `kemono.cr`.
 
 ## [1.2.0] - 2026-11-25
 

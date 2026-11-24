@@ -397,7 +397,7 @@ describe('cache files', () => {
       service: 'patreon',
       creatorId: 'u1',
       creator: 'artist',
-      host: 'kemono.su',
+      host: 'pawchive.pw',
       postCount: 1,
       fileCount: 2,
       createdAt: 5000,
@@ -739,7 +739,7 @@ describe('crawlCache across tabs', () => {
       service: 'patreon',
       creatorId: 'u1',
       creator: 'artist',
-      host: 'kemono.su',
+      host: 'pawchive.pw',
       postCount: 1,
       fileCount: 1,
       createdAt,
@@ -987,6 +987,15 @@ describe('crawlCache across tabs', () => {
     expect(sto.result).toHaveLength(0)
   })
 
+  it('a Kemono entry cannot be mounted (its original files are gone)', async () => {
+    seed([{ ...entry('K1', 1000), host: 'kemono.cr' }])
+    const { cache, sto } = await freshCache()
+    const { toast: tst } = await import('../src/Toast')
+    expect(await cache.mount('K1')).toBe(false)
+    expect(tst.warning).toHaveBeenCalled()
+    expect(sto.result).toHaveLength(0)
+  })
+
   describe('migration from the single key', () => {
     const LEGACY = 'pawchiveProCrawlCache'
     const bodyIn = (id: string) => mem[`pawchiveProCrawlCache:entry:${id}`]
@@ -1079,7 +1088,7 @@ describe('CacheView', () => {
       service: 'patreon',
       creatorId: 'u1',
       creator: 'artist',
-      host: 'kemono.su',
+      host: 'pawchive.pw',
       postCount: 1,
       fileCount: 1,
       createdAt: 1000,

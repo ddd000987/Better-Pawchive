@@ -16,6 +16,7 @@ import { Config } from '../Config'
 import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { LangTextKey } from '../localeTypes'
+import { hasOriginalFiles } from '../preview/previewAssets'
 import type { PreviewInfoField } from '../preview/previewInfo'
 import { settings, SettingKey } from './Settings'
 import { store } from '../store/Store'
@@ -64,6 +65,9 @@ const PAGES: Array<{ id: CenterPage; icon: string; label: LangTextKey }> = [
   { id: 'common', icon: '⚙', label: '_sc_common' },
   { id: 'help', icon: '?', label: '_sc_help' },
 ]
+
+/** Pages hidden on Kemono, which has no original files to download */
+const DOWNLOAD_PAGES: readonly CenterPage[] = ['crawl', 'download', 'naming']
 
 /** 深色設定中心：側欄分頁＋頂部搜尋＋可折疊分區（單一入口） */
 class SettingsCenter {
@@ -159,6 +163,7 @@ class SettingsCenter {
   /** 切換分頁（搜尋中時保留搜尋，只切換要顯示的命中頁） */
   public switchPage(id: CenterPage): void {
     if (!this.ensureBuilt()) return
+    if (this.pageEls.get(id)?.hidden) id = 'home'
     this.hideDesc()
     this.activePage = id
     if (this.searchInput && this.searchInput.value.trim() !== '') {
@@ -234,6 +239,7 @@ class SettingsCenter {
 
     const nav = this.center.querySelector('.pwpSC-nav') as HTMLElement
     const pages = this.center.querySelector('.pwpSC-pages') as HTMLDivElement
+    const downloads = hasOriginalFiles()
     for (const p of PAGES) {
       const btn = document.createElement('button')
       btn.type = 'button'
@@ -249,6 +255,12 @@ class SettingsCenter {
       page.style.display = 'none'
       pages.appendChild(page)
       this.pageEls.set(p.id, page)
+      // Built anyway (other views share their parts) but never shown;
+      // search skips rows inside [hidden]
+      if (!downloads && DOWNLOAD_PAGES.includes(p.id)) {
+        btn.hidden = true
+        page.hidden = true
+      }
     }
 
     this.searchInput = this.center.querySelector(

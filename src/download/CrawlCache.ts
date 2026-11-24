@@ -12,6 +12,7 @@ import { downloadStates } from './DownloadStates'
 import { progressBar } from './ProgressBar'
 import { EVT } from '../EVT'
 import { lang } from '../Language'
+import { hasOriginalFiles } from '../preview/previewAssets'
 import { log } from '../Log'
 import { settings } from '../setting/Settings'
 import { store } from '../store/Store'
@@ -653,6 +654,11 @@ class CrawlCache {
     await this.ensureLoaded()
     const summary = this.summary(id)
     if (!summary) {
+      return false
+    }
+    // A Kemono crawl points at original files that are gone
+    if (!hasOriginalFiles(summary.host)) {
+      if (!auto) toast.warning(lang.transl('_kemonoNoDownload'))
       return false
     }
     // Read before the checks below, so nothing awaits between them and the

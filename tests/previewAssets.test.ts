@@ -3,17 +3,18 @@ import {
   allFiles,
   coverUrl,
   downloadUrl,
+  hasOriginalFiles,
   imageFiles,
   imageUrl,
   isKemonoHost,
+  isRetiredKemonoHost,
   parsePostKey,
   parsePostKeyFromHref,
   resolveDownloadUrl,
 } from '../src/preview/previewAssets'
-import { fileserverFor } from '../src/kemono/assetsKemono'
 import type { PostApiResponse } from '../src/kemono/apiTypes'
 
-const K_HOST = 'kemono.su'
+const K_HOST = 'kemono.cr'
 const P_HOST = 'pawchive.pw'
 
 function fixture(): PostApiResponse {
@@ -35,14 +36,6 @@ function fixture(): PostApiResponse {
     attachments: [
       { name: 'a.png', path: '/a/a.png' },
       { name: 'b.zip', path: '/b/b.zip' },
-    ],
-    previews: [
-      {
-        name: 'a.png',
-        path: '/a/a.png',
-        server: 'https://n3.kemono.cr',
-        type: 'thumbnail',
-      },
     ],
   }
 }
@@ -88,7 +81,7 @@ describe('isKemonoHost / coverUrl', () => {
   })
   it('builds thumbnail or empty', () => {
     expect(coverUrl({ path: '/a/b.jpg' }, K_HOST)).toBe(
-      'https://img.kemono.su/thumbnail/data/a/b.jpg'
+      'https://img.kemono.cr/thumbnail/data/a/b.jpg'
     )
     expect(coverUrl(undefined, K_HOST)).toBe('')
     expect(coverUrl({}, K_HOST)).toBe('')
@@ -112,84 +105,69 @@ describe('file merging', () => {
 })
 
 describe('kemono URL rules', () => {
-  const data = fixture()
   const img = { name: 'a.png', path: '/a/a.png' }
   const zip = { name: 'b.zip', path: '/b/b.zip' }
-  it('original prefers previews.server, falls back to fileserverFor', () => {
-    expect(imageUrl(img, data, true, K_HOST)).toBe(
-      'https://n3.kemono.cr/data/a/a.png'
-    )
-    const noPreview: PostApiResponse = { ...data, previews: [] }
-    expect(imageUrl(img, noPreview, true, K_HOST)).toBe(
-      `${fileserverFor(img.path)}/data/a/a.png`
-    )
+  // The original-file servers n1–n4.kemono.cr are gone: thumbnails only
+  it('images are thumbnails, whatever the original switch says', () => {
+    for (const original of [true, false]) {
+      expect(imageUrl(img, original, K_HOST)).toBe(
+        'https://img.kemono.cr/thumbnail/data/a/a.png'
+      )
+      expect(downloadUrl(img, original, K_HOST)).toBe(
+        'https://img.kemono.cr/thumbnail/data/a/a.png'
+      )
+    }
   })
-  it('thumbnail mode + non-image guard', () => {
-    expect(imageUrl(img, data, false, K_HOST)).toBe(
-      'https://img.kemono.su/thumbnail/data/a/a.png'
-    )
-    expect(imageUrl(zip, data, true, K_HOST)).toBe('')
+  it('other files have no URL', () => {
+    expect(imageUrl(zip, true, K_HOST)).toBe('')
+    expect(downloadUrl(zip, true, K_HOST)).toBe('')
   })
-  it('non-image download goes to murmur fileserver', () => {
-    const url = downloadUrl(zip, data, true, K_HOST)
-    expect(url).toMatch(/^https:\/\/n[1-4]\.kemono\.cr\/data\/b\/b\.zip$/)
+})
+
+describe('hasOriginalFiles / isRetiredKemonoHost', () => {
+  it('only Pawchive still serves original files', () => {
+    expect(hasOriginalFiles('pawchive.pw')).toBe(true)
+    expect(hasOriginalFiles('www.pawchive.pw')).toBe(true)
+    expect(hasOriginalFiles('kemono.cr')).toBe(false)
+    expect(hasOriginalFiles('kemono.su')).toBe(false)
+  })
+  it('names the Kemono domains that no longer resolve', () => {
+    expect(isRetiredKemonoHost('kemono.su')).toBe(true)
+    expect(isRetiredKemonoHost('www.kemono.party')).toBe(true)
+    expect(isRetiredKemonoHost('kemono.cr')).toBe(false)
+    expect(isRetiredKemonoHost('kemono.su.evil.com')).toBe(false)
   })
 })
 
 describe('pawchive URL rules', () => {
-  const data = fixture()
   const img = { name: 'a.png', path: '/a/a.png' }
   const zip = { name: 'b.zip', path: '/b/b.zip' }
   it('image follows the original switch', () => {
-    expect(imageUrl(img, data, true, P_HOST)).toBe(
+    expect(imageUrl(img, true, P_HOST)).toBe(
       'https://file.pawchive.pw/data/a/a.png'
     )
-    expect(imageUrl(img, data, false, P_HOST)).toBe(
+    expect(imageUrl(img, false, P_HOST)).toBe(
       'https://img.pawchive.pw/thumbnail/data/a/a.png'
     )
   })
   it('preview_only ignores the switch; non-image uses file.', () => {
     const locked = { name: 'x.jpg', path: '/x/x.jpg', preview_only: true }
-    expect(imageUrl(locked, data, true, P_HOST)).toBe(
+    expect(imageUrl(locked, true, P_HOST)).toBe(
       'https://img.pawchive.pw/thumbnail/data/x/x.jpg'
     )
-    expect(downloadUrl(zip, data, false, P_HOST)).toBe(
+    expect(downloadUrl(zip, false, P_HOST)).toBe(
       'https://file.pawchive.pw/data/b/b.zip'
     )
   })
 })
 
-describe('fileserverFor', () => {
-  // 向量取自 kemono.cr 實際連結的檔案伺服器（雜湊輸入為 /data + path）
-  it.each([
-    [
-      '/3a/76/3a76ad3927d5f04fe5592b531dfc6da6f0cd402a774e74e92edfdb4713ce587e.bin',
-      'https://n4.kemono.cr',
-    ],
-    [
-      '/71/a0/71a0cf7404ee7c6766de5957825d88c4eea9015cdd448702093bea497fb796ac.bin',
-      'https://n4.kemono.cr',
-    ],
-    [
-      '/7d/14/7d141c8aa85eaa94c5ab48302e063e8eab35329af720acf6e36d22aa1de4b910.png',
-      'https://n1.kemono.cr',
-    ],
-    [
-      '/ba/26/ba26513ea5eb6aa9760398f2122ba272cbff8314286a18f3622c5aed23a27b7d.gif',
-      'https://n2.kemono.cr',
-    ],
-  ])('%s → %s', (path, server) => {
-    expect(fileserverFor(path)).toBe(server)
-  })
-})
-
 describe('resolveDownloadUrl', () => {
-  const kThumb = 'https://img.kemono.su/thumbnail/data/a/a.png'
+  const kThumb = 'https://img.kemono.cr/thumbnail/data/a/a.png'
   const pThumb = 'https://img.pawchive.pw/thumbnail/data/a/a.png'
-  it('kemono 縮圖網址換回 murmur fileserver 原圖', () => {
+  it('kemono 縮圖網址不換（原檔伺服器已停用）', () => {
     expect(
       resolveDownloadUrl({ fileUrl: kThumb, previewOnly: false }, true)
-    ).toBe(`${fileserverFor('/a/a.png')}/data/a/a.png`)
+    ).toBe(kThumb)
   })
   it('pawchive 縮圖網址換回 file. 原圖', () => {
     expect(
@@ -197,12 +175,10 @@ describe('resolveDownloadUrl', () => {
     ).toBe('https://file.pawchive.pw/data/a/a.png')
   })
   it('站點取自網址本身：不受目前分頁的站點影響', () => {
-    // 測試環境的 location.host 是 kemono.su：Pawchive 的縮圖也要換成 Pawchive 原圖
+    // 測試環境的 location.host 是 pawchive.pw：Kemono 的縮圖照樣不換
     const k = 'https://img.kemono.cr/thumbnail/data/c/c.jpg'
     const p = 'https://img.pawchive.pw/thumbnail/data/c/c.jpg'
-    expect(resolveDownloadUrl({ fileUrl: k, previewOnly: false }, true)).toBe(
-      `${fileserverFor('/c/c.jpg')}/data/c/c.jpg`
-    )
+    expect(resolveDownloadUrl({ fileUrl: k, previewOnly: false }, true)).toBe(k)
     expect(resolveDownloadUrl({ fileUrl: p, previewOnly: false }, true)).toBe(
       'https://file.pawchive.pw/data/c/c.jpg'
     )

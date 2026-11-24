@@ -39,8 +39,19 @@ describe('declarative_net_request_rules.json', () => {
     expect(cors.length).toBeGreaterThan(0)
     for (const rule of cors) {
       expect(rule.condition.initiatorDomains, `rule ${rule.id}`).toEqual(
-        expect.arrayContaining(['kemono.cr', 'kemono.su', 'pawchive.pw'])
+        expect.arrayContaining(['kemono.cr', 'pawchive.pw'])
       )
+    }
+  })
+
+  it('has no rules for hosts that are gone', () => {
+    // kemono.su / kemono.party no longer resolve; n1–n4 and file.kemono.cr
+    // were Kemono's original-file servers
+    const gone = /kemono\.(su|party)|(^|\|)(n\d|file)\.kemono\.cr/
+    for (const rule of rules) {
+      const { urlFilter = '', initiatorDomains = [] } = rule.condition
+      expect(urlFilter, `rule ${rule.id}`).not.toMatch(gone)
+      expect(initiatorDomains.join(' '), `rule ${rule.id}`).not.toMatch(gone)
     }
   })
 })

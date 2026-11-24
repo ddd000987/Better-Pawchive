@@ -2,6 +2,7 @@
 /* Full-image lightbox for favorite images with keyboard navigation, focus trap, and side editor panel. */
 
 import { lang } from '../Language'
+import { hasOriginalFiles } from '../preview/previewAssets'
 import { favImages } from '../watch/collectStore'
 import type { FavImage } from '../watch/collectTypes'
 import {
@@ -126,7 +127,8 @@ export function openFavImageLightbox(
     thumb.src = thumbUrl(host, img.path)
     mediaWrap.appendChild(thumb)
 
-    const fullSrc = fullImageUrl(host, img.path)
+    // Kemono has only thumbnails left: nothing larger to load
+    const fullSrc = hasOriginalFiles(host) ? fullImageUrl(host, img.path) : ''
     if (fullSrc) {
       const full = el('img', 'w-fv-lb-img is-full')
       full.alt = img.postTitle || img.fileName || ''

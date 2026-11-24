@@ -8,9 +8,8 @@
  *          ({service}/{creator}/{creator_id}/{post_id}/{title}/{date}/
  *          {year}/{month}/{day}/{index}/{file_name}/{ext}/{kind});
  *          Pixiv special tags (multi_image_folder/r18/tags/...) deleted;
- *          removeEmoji switch deleted; rule source = settings namingRule
- *          (+ namingRulePawchive override for Pawchive hosts).
- *          Default: kemono/{service}/{creator}-{creator_id}/
+ *          removeEmoji switch deleted; rule source = settings namingRule.
+ *          Default: pawchive/{service}/{creator}-{creator_id}/
  *                   {post_id}-{title}/{index}-{file_name}.{ext}
  */
 
@@ -18,7 +17,6 @@ import { Config } from '../Config'
 import { log } from '../Log'
 import { lang } from '../Language'
 import { isKemonoService } from '../kemono/pages'
-import { isKemonoHost } from '../preview/previewAssets'
 import { settings } from '../setting/Settings'
 import { Result } from '../store/StoreType'
 import { handleWindowsReservedName, replaceUnsafeStr } from '../Tools'
@@ -93,11 +91,11 @@ const RULE_LITERAL_KEEP = ['~'] as const
 class FileName {
   /** 內建預設規則（規則被清空時回退用，避免產出 `.png` 這種垃圾檔名） */
   public readonly defaultRule =
-    'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}'
+    'pawchive/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}'
 
   /** 為一條抓取結果生成檔名（含資料夾路徑） */
   public createFileName(result: Result, host = location.host): string {
-    const rule = this.getRule(host) || this.defaultRule
+    const rule = this.getRule()
     const schema = this.buildSchema(result, host)
     let name = this.generateFileName(rule, schema)
     // 規則沒寫 {ext} 時自動補副檔名（沿用 buildSchema 推回並清潔過的副檔名）
@@ -107,14 +105,8 @@ class FileName {
     return this.lengthLimit(name, result.postId)
   }
 
-  /** 取當前生效的規則（Pawchive 站專用規則優先；空白回退預設由呼叫端處理） */
-  public getRule(host = location.host): string {
-    if (!isKemonoHost(host)) {
-      const siteRule = settings.get('namingRulePawchive').trim()
-      if (siteRule) {
-        return siteRule
-      }
-    }
+  /** 取當前生效的規則（空白回退預設） */
+  public getRule(): string {
     return settings.get('namingRule').trim() || this.defaultRule
   }
 

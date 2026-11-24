@@ -580,7 +580,7 @@ describe('schemaVersion', () => {
   it('an object with no version is legacy: migrated, then stamped', () => {
     const out = migrateSettingsObject(legacy)
     expect(out.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
-    expect(SETTINGS_SCHEMA_VERSION).toBe(1)
+    expect(SETTINGS_SCHEMA_VERSION).toBe(2)
     expect(out.skipDownloaded).toBe('both')
     expect('deduplication' in out).toBe(false)
   })
@@ -588,13 +588,35 @@ describe('schemaVersion', () => {
   it('a versioned object skips the legacy migration', () => {
     const out = migrateSettingsObject({ ...legacy, schemaVersion: 1 })
     expect(out.skipDownloaded).toBeUndefined()
-    expect(out.schemaVersion).toBe(1)
+    expect(out.schemaVersion).toBe(2)
+  })
+
+  it('version 2 makes the Pawchive naming rule the one naming rule', () => {
+    expect(
+      migrateSettingsObject({
+        schemaVersion: 1,
+        namingRule: 'kemono/{post_id}.{ext}',
+        namingRulePawchive: 'pw/{post_id}.{ext}',
+      })
+    ).toEqual({ schemaVersion: 2, namingRule: 'pw/{post_id}.{ext}' })
+    // An empty Pawchive rule followed the global one
+    expect(
+      migrateSettingsObject({
+        schemaVersion: 1,
+        namingRule: 'a/{post_id}.{ext}',
+        namingRulePawchive: '  ',
+      })
+    ).toEqual({ schemaVersion: 2, namingRule: 'a/{post_id}.{ext}' })
+    // Already version 2: left alone
+    expect(
+      migrateSettingsObject({ schemaVersion: 2, namingRulePawchive: 'x' })
+    ).toEqual({ schemaVersion: 2, namingRulePawchive: 'x' })
   })
 
   it('an invalid version counts as missing; a newer one is kept', () => {
     expect(
       migrateSettingsObject({ ...legacy, schemaVersion: 'x' })
-    ).toMatchObject({ skipDownloaded: 'both', schemaVersion: 1 })
+    ).toMatchObject({ skipDownloaded: 'both', schemaVersion: 2 })
     expect(migrateSettingsObject({ schemaVersion: 7 }).schemaVersion).toBe(7)
   })
 
@@ -643,7 +665,7 @@ describe('saving settings', () => {
     const { fresh, mem } = await setup()
     fresh.set('filterTitle', 'x')
     await flush()
-    expect(stored(mem).schemaVersion).toBe(1)
+    expect(stored(mem).schemaVersion).toBe(2)
     expect(stored(mem).filterTitle).toBe('x')
   })
 
@@ -694,7 +716,7 @@ describe('saving settings', () => {
     fresh.set('filterTitle', 'x')
     await flush()
     expect(stored(mem)).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       skipDownloaded: 'folder',
       filterTitle: 'x',
     })

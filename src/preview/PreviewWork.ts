@@ -395,8 +395,8 @@ class PreviewWork {
       const pairs = imageFiles(data)
         .map((f) => ({
           file: f,
-          preview: imageUrl(f, data, original),
-          origin: imageUrl(f, data, true),
+          preview: imageUrl(f, original),
+          origin: imageUrl(f, true),
         }))
         .filter((p) => p.preview)
       const files = pairs.map((p) => p.file)

@@ -5,7 +5,7 @@
  * 資料夾 handle 與讀取授權由擴充功能自己保管（見 src/folder/）：
  * 選資料夾與重新授權都在擴充功能的彈出頁面進行，比對在 service worker 做，
  * 內容腳本只送訊息、拿結果，網站的腳本碰不到 handle，也讀不到資料夾。
- * Chrome 不允許選「下載」資料夾本身，只能選它底下的子資料夾（如 kemono）。
+ * Chrome 不允許選「下載」資料夾本身，只能選它底下的子資料夾（如 pawchive）。
  */
 
 import { lang } from '../Language'

@@ -1,15 +1,19 @@
 /*
  * license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
  * derived from: Kemono-Downloader src/sites/pawchive.ts (assets section)
- * changes: URL rules only (thumbnail() is shared with assetsKemono.ts); the
- *          original-image switch is a parameter, wired by callers (preview and
- *          download each pass their own setting). preview_only rule kept
- *          verbatim.
+ * changes: URL rules only; thumbnail() is shared with Kemono (both sites
+ *          serve img.{host}/thumbnail/data{path}). The original-image
+ *          switch is a parameter, wired by callers (preview and download
+ *          each pass their own setting). preview_only rule kept verbatim.
  */
 
 import { isImageFile } from './fileType'
-import { thumbnail } from './assetsKemono'
 import type { FileItem } from './apiTypes'
+
+/** Thumbnail (same on both sites): https://img.{host}/thumbnail/data{path} */
+function thumbnail(path: string, host = location.host): string {
+  return `https://img.${host}/thumbnail/data${path}`
+}
 
 /**
  * Pawchive 原檔規則：

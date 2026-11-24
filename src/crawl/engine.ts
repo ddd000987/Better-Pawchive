@@ -23,7 +23,7 @@ import { filter, isPostIdOutOfRange } from '../filter/Filter'
 import { lang } from '../Language'
 import { log } from '../Log'
 import { toast } from '../Toast'
-import { parsePostKey } from '../preview/previewAssets'
+import { hasOriginalFiles, parsePostKey } from '../preview/previewAssets'
 import { settings } from '../setting/Settings'
 import { store } from '../store/Store'
 import { states } from '../store/States'
@@ -240,6 +240,10 @@ class Engine {
 
   /** 面板「開始抓取」入口 */
   public async start(): Promise<void> {
+    if (!hasOriginalFiles()) {
+      toast.warning(lang.transl('_kemonoNoDownload'))
+      return
+    }
     // 等設定載入完成，否則會用預設值抓取（存檔的過濾條件被忽略）
     await states.waitSettingInitialized()
     if (states.busy || states.hasDownloadTask) {
@@ -311,6 +315,10 @@ class Engine {
     idList: IDData[],
     opts: { picked?: boolean } = {}
   ): Promise<string[]> {
+    if (!hasOriginalFiles()) {
+      toast.warning(lang.transl('_kemonoNoDownload'))
+      return []
+    }
     const picked = opts.picked === true
     const onBusy = () => {
       if (picked) {

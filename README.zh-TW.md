@@ -5,7 +5,7 @@
 Chrome / Edge（Manifest V3）擴充功能，用來預覽與批次下載 Kemono 系網站的貼文附件：
 
 - **Pawchive**：`pawchive.pw`（含子網域）——主要支援、已實測的網站。
-- **Kemono**：`kemono.cr`（含子網域與舊網域 `kemono.su`、`kemono.party`）——**盡力支援，未實測**。2026 年 10 月起原檔伺服器 `n1`～`n4.kemono.cr` 連不上，下載原圖可能會失敗。
+- **Kemono**：`kemono.cr`（含子網域）——**只支援預覽和關注清單**。2026 年 10 月起原檔伺服器 `n1`～`n4.kemono.cr` 已經停止服務，只剩縮圖：預覽顯示縮圖，抓取和下載在 Kemono 上關閉。舊網域 `kemono.su`、`kemono.party` 已經不存在。
 
 授權：**GPL-3.0-or-later**（見 [LICENSE](LICENSE)）。
 
@@ -43,7 +43,7 @@ Chrome / Edge（Manifest V3）擴充功能，用來預覽與批次下載 Kemono 
    ```
 
 2. 打開 `chrome://extensions`（或 `edge://extensions`），開啟「開發人員模式」，按「載入未封裝項目」，選擇 `dist/` 資料夾。
-3. 打開 Kemono 或 Pawchive 的創作者頁，按右下角的按鈕（或 Alt+X）開啟面板。
+3. 打開 Pawchive 的創作者頁，按右下角的按鈕（或 Alt+X）開啟面板。在 Kemono 上同一個面板只有預覽和關注清單的設定。
 
 之後改了程式碼，重新 `npm run build`，再到擴充功能頁按卡片上的重新載入即可。
 
@@ -77,7 +77,6 @@ Better Pawchive 不收集任何資料，沒有分析追蹤，也沒有遠端伺�
 網站改版時最可能失效的是這幾處，各自集中在一個常數：
 
 - 按鈕掛載點 `.user-header__actions`、`.post__actions`：`src/kemono/pages.ts` 的 `MOUNT`
-- Kemono 檔案伺服器 `n1`～`n4.kemono.cr` 與分流雜湊：`src/kemono/assetsKemono.ts` 的 `FILESERVERS`
 - CORS／Referer 標頭規則：`src/declarative_net_request_rules.json`
 
 ## 免責聲明

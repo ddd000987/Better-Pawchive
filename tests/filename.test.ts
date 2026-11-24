@@ -53,17 +53,16 @@ function result(overrides: Partial<Result> = {}): Result {
 }
 
 const DEFAULT_RULE =
-  'kemono/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}'
+  'pawchive/{service}/{creator}-{creator_id}/{post_id}-{title}/{index}-{file_name}.{ext}'
 
 describe('fileName.createFileName', () => {
   beforeEach(() => {
     settings.set('namingRule', DEFAULT_RULE)
-    settings.set('namingRulePawchive', '')
   })
 
   it('預設規則含服務/創作者/帖子/序號', () => {
     expect(fileName.createFileName(result())).toBe(
-      'kemono/patreon/some artist-u1/999-my title/0-a.png'
+      'pawchive/patreon/some artist-u1/999-my title/0-a.png'
     )
   })
 
@@ -71,7 +70,7 @@ describe('fileName.createFileName', () => {
     const name = fileName.createFileName(
       result({ title: 'a/b:c', fileName: 'x?.png' })
     )
-    expect(name).toBe('kemono/patreon/some artist-u1/999-a／b：c/0-x？.png')
+    expect(name).toBe('pawchive/patreon/some artist-u1/999-a／b：c/0-x？.png')
   })
 
   it('過長截斷且保留副檔名與 postId', () => {
@@ -105,15 +104,6 @@ describe('fileName.createFileName', () => {
   it('規則沒寫 {ext} 自動補副檔名', () => {
     settings.set('namingRule', '{post_id}/{index}-{file_name}')
     expect(fileName.createFileName(result())).toBe('999/0-a.png')
-  })
-
-  it('Pawchive 站專用規則覆寫', () => {
-    settings.set('namingRulePawchive', 'pw/{post_id}.{ext}')
-    expect(fileName.createFileName(result(), 'pawchive.pw')).toBe('pw/999.png')
-    // Kemono 站不受影響
-    expect(fileName.createFileName(result(), 'kemono.su')).toBe(
-      'kemono/patreon/some artist-u1/999-my title/0-a.png'
-    )
   })
 
   it('sanitizes the literal text of the rule, keeping "/" as the separator', () => {
@@ -151,7 +141,7 @@ describe('fileName.createFileName', () => {
   it('規則清空回退預設（不產出 .png 垃圾檔名）', () => {
     settings.set('namingRule', '   ')
     expect(fileName.createFileName(result())).toBe(
-      'kemono/patreon/some artist-u1/999-my title/0-a.png'
+      'pawchive/patreon/some artist-u1/999-my title/0-a.png'
     )
   })
 
@@ -220,7 +210,6 @@ describe('fileName.createFileName', () => {
 describe('fileName {creator_alias}', () => {
   beforeEach(() => {
     settings.set('namingRule', '{creator_alias}/{post_id}.{ext}')
-    settings.set('namingRulePawchive', '')
   })
 
   afterEach(() => {
@@ -293,7 +282,6 @@ describe('fileName {creator_alias}', () => {
 describe('fileName.lengthLimit（UTF-8 位元組）', () => {
   beforeEach(() => {
     settings.set('namingRule', DEFAULT_RULE)
-    settings.set('namingRulePawchive', '')
   })
 
   it('CJK 標題按位元組截斷且不切斷字元', () => {
@@ -375,9 +363,9 @@ describe('fileName.lengthLimit（UTF-8 位元組）', () => {
       result({ title: 'short', fileName: 'x'.repeat(300) + '.png' })
     )
     expect(byteLength(name)).toBe(LIMIT)
-    expect(name.startsWith('kemono/patreon/some artist-u1/999-short/0-x')).toBe(
-      true
-    )
+    expect(
+      name.startsWith('pawchive/patreon/some artist-u1/999-short/0-x')
+    ).toBe(true)
     expect(name.endsWith('.png')).toBe(true)
   })
 

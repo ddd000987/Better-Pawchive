@@ -2,7 +2,6 @@
 /* Pure helpers for watchlist creator keys, site detection, and URLs. */
 
 import type { KemonoService } from '../kemono/apiTypes'
-import { fileserverFor } from '../kemono/assetsKemono'
 import { isKemonoService } from '../kemono/pages'
 import { isKemonoHost } from '../preview/previewAssets'
 import { WATCH_SITES, type WatchSite } from './watchTypes'
@@ -153,10 +152,11 @@ export function thumbUrl(host: string, path: string): string {
   return `https://img.${host}/thumbnail/data${path}`
 }
 
+/** The original image; Kemono has only thumbnails left (see hasOriginalFiles) */
 export function fullImageUrl(host: string, path: string): string {
   if (!path) return ''
   if (siteOfHost(host) === 'pawchive') {
     return `https://file.${host}/data${path}`
   }
-  return `${fileserverFor(path)}/data${path}`
+  return thumbUrl(host, path)
 }
