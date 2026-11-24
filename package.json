@@ -1,6 +1,6 @@
 {
   "name": "better-pawchive",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Batch downloader for Kemono / Pawchive creator posts. Derived from PixivBatchDownloader and Kemono-Downloader.",
   "author": "Better Pawchive contributors",
   "license": "GPL-3.0-or-later",

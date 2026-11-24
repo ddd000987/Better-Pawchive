@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-25
+
 ### Added
 
 - Watchlist: follow creators with the extension's own list, separate from the site's favorites. Click ☆ on a creator page (or in the avatar preview) to add a creator to a folder. The new watch page (toolbar icon on any other tab, or "Open watch page" in the settings panel) shows the creators as cards or a list, with folders, search, sorting, multi-select and drag-to-folder. Each creator can have a custom name, a note and a cover picked from their posts or uploaded from your computer. The watchlist can be exported to a file and imported back.
@@ -14,10 +16,38 @@ All notable changes to this project are documented here. The format is based on 
 - Ratings and tags: give creators, favorite posts and favorite images a 1–5 star rating and tags (one shared tag list). Filter and sort by them, edit many at once in select mode, and rename, merge or delete tags on the "Tags" page.
 - Card previews: pick up to 6 preview images for a creator (from saved images, post covers or uploads); resting on the creator's card on the watch page for half a second shows them.
 - Naming: the new `{creator_alias}` tag uses the custom name from the watchlist, or the creator's name when there is none.
+- Crawl caches: export one cache or all of them to a file with the new buttons on the Crawl page, and import the file back. Entries that are already there, or past the 20-entry limit, are skipped.
+- Image window: the new "Middle-click opens the image in its own window" setting on the Preview page opens the previewed image in its own window with the middle mouse button. It works even when the browser window is not focused, where the key cannot. While it is on, middle-clicking a previewed card no longer opens the post in a new tab. Off by default.
 
 ### Changed
 
 - Renamed to Better Pawchive. The repository moved to https://github.com/ddd000987/Better-Pawchive (old links redirect). Settings, download history, the watchlist and favorites are kept.
+- Download history and crawl caches are saved in smaller pieces, so saving stays fast with a large history and other tabs only receive what changed. Existing data is moved over the first time it loads; the export format is unchanged.
+- Settings import checks dates, post ID ranges, services and file count ranges, and resolves conflicts between imported hotkeys.
+- Settings panel: dropdown options follow a language change, and the "Auto" language option says it follows the browser.
+- 繁體中文: wording uses Taiwan terms.
+
+### Fixed
+
+- Downloads: a short network failure paused the batch for good. It is now retried later; only a full disk or denied access pauses the download.
+- Downloads: after giving up on files that kept failing, the batch never ended, so queued downloads did not start.
+- Downloads: turning text content or the cover on or off made every file download again.
+- Downloads: when another extension renames downloads to random IDs, a warning is shown and those files are not recorded as downloaded.
+- Crawl: runs where posts failed, the list was malformed or an error stopped the crawl ended as complete. They now end as incomplete, and their caches are saved with an "(incomplete)" tag. Retry-After is honored, and the crawl stops after repeated rate limits.
+- Crawl: when the creator's profile could not be loaded, files were saved under the creator's ID without a word. The request is retried, then the previous name is used or a warning is shown.
+- Crawl: the quick check on the list page and the full filter could count a cover that repeats an attachment differently.
+- Crawl: posts picked by hand that failed to crawl were dropped from the picks.
+- Naming: characters not allowed in file names in the fixed text of the naming rule are replaced, with a warning.
+- Preview: switching images with the wheel kept loading the previous image and preloads that were no longer needed.
+- Preview: floats could slide under the page's scrollbar, and a long creator name could make the creator preview too wide.
+- Preview: the preview closed when the pointer moved onto the thumbnail's download button.
+- Image window: a notice says when the original image failed and the preview copy is shown.
+- Settings: a failed save was lost silently. It now shows a message and is saved again later, without overwriting changes made in another tab.
+- Accessibility: the thumbnail download button can be reached with the keyboard and has a label.
+
+### Security
+
+- The background script accepts messages only from this extension and checks download requests (http/https only, relative file names, no "..").
 
 ## [1.1.0] - 2026-11-18
 
