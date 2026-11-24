@@ -348,7 +348,7 @@ class WatchButton {
             ])
           }
         } catch (err) {
-          console.warn('[PawchivePro] refresh tracked creator failed', err)
+          console.warn('[Better Pawchive] refresh tracked creator failed', err)
         } finally {
           await watchStore.markRead([target.key]).catch(() => {})
         }
@@ -360,7 +360,7 @@ class WatchButton {
       if (!isSnapshotStale(existing, SNAPSHOT_MAX_AGE_MS)) return
       await this.fetchAndSaveSnapshot(target)
     } catch (err) {
-      console.warn('[PawchivePro] refresh watch snapshot failed', err)
+      console.warn('[Better Pawchive] refresh watch snapshot failed', err)
     }
   }
 
@@ -373,7 +373,7 @@ class WatchButton {
       if (api.isErrorResponse(posts) || !Array.isArray(posts)) return
       await snapshots.set(snapshotFromPosts(target.key, posts))
     } catch (err) {
-      console.warn('[PawchivePro] save watch snapshot failed', err)
+      console.warn('[Better Pawchive] save watch snapshot failed', err)
     }
   }
 }

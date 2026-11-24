@@ -164,7 +164,7 @@ class DownloadQueue {
           this.items = normalizeQueue(data[STORE_KEY])
           EVT.fire('queueChange')
         } catch (e) {
-          console.error('[PawchivePro] load download queue failed', e)
+          console.error('[Better Pawchive] load download queue failed', e)
         }
       })()
     }
@@ -187,7 +187,7 @@ class DownloadQueue {
       void chrome.storage.local
         .set({ [STORE_KEY]: this.items })
         .catch((e: unknown) =>
-          console.error('[PawchivePro] save download queue failed', e)
+          console.error('[Better Pawchive] save download queue failed', e)
         )
     }, 200)
   }

@@ -11,7 +11,7 @@ let dbPromise: Promise<IDBDatabase | null> | null = null
 export function openWatchDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise
   if (typeof indexedDB === 'undefined') {
-    console.warn('[PawchivePro] IndexedDB unavailable')
+    console.warn('[Better Pawchive] IndexedDB unavailable')
     dbPromise = Promise.resolve(null)
     return dbPromise
   }
@@ -30,15 +30,18 @@ export function openWatchDb(): Promise<IDBDatabase | null> {
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => {
-        console.warn('[PawchivePro] failed to open watch IndexedDB', req.error)
+        console.warn(
+          '[Better Pawchive] failed to open watch IndexedDB',
+          req.error
+        )
         resolve(null)
       }
       req.onblocked = () => {
-        console.warn('[PawchivePro] watch IndexedDB open blocked')
+        console.warn('[Better Pawchive] watch IndexedDB open blocked')
         resolve(null)
       }
     } catch (e) {
-      console.warn('[PawchivePro] failed to open watch IndexedDB', e)
+      console.warn('[Better Pawchive] failed to open watch IndexedDB', e)
       resolve(null)
     }
   })
@@ -58,11 +61,11 @@ export async function idbGet<T>(
       const req = tx.objectStore(storeName).get(key)
       req.onsuccess = () => resolve(req.result as T | undefined)
       req.onerror = () => {
-        console.warn(`[PawchivePro] idbGet(${storeName}) failed`, req.error)
+        console.warn(`[Better Pawchive] idbGet(${storeName}) failed`, req.error)
         resolve(undefined)
       }
     } catch (e) {
-      console.warn(`[PawchivePro] idbGet(${storeName}) failed`, e)
+      console.warn(`[Better Pawchive] idbGet(${storeName}) failed`, e)
       resolve(undefined)
     }
   })
@@ -81,15 +84,15 @@ export async function idbPut(
       tx.objectStore(storeName).put(value, key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => {
-        console.warn(`[PawchivePro] idbPut(${storeName}) failed`, tx.error)
+        console.warn(`[Better Pawchive] idbPut(${storeName}) failed`, tx.error)
         resolve()
       }
       tx.onabort = () => {
-        console.warn(`[PawchivePro] idbPut(${storeName}) aborted`, tx.error)
+        console.warn(`[Better Pawchive] idbPut(${storeName}) aborted`, tx.error)
         resolve()
       }
     } catch (e) {
-      console.warn(`[PawchivePro] idbPut(${storeName}) failed`, e)
+      console.warn(`[Better Pawchive] idbPut(${storeName}) failed`, e)
       resolve()
     }
   })
@@ -107,15 +110,21 @@ export async function idbDelete(
       tx.objectStore(storeName).delete(key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => {
-        console.warn(`[PawchivePro] idbDelete(${storeName}) failed`, tx.error)
+        console.warn(
+          `[Better Pawchive] idbDelete(${storeName}) failed`,
+          tx.error
+        )
         resolve()
       }
       tx.onabort = () => {
-        console.warn(`[PawchivePro] idbDelete(${storeName}) aborted`, tx.error)
+        console.warn(
+          `[Better Pawchive] idbDelete(${storeName}) aborted`,
+          tx.error
+        )
         resolve()
       }
     } catch (e) {
-      console.warn(`[PawchivePro] idbDelete(${storeName}) failed`, e)
+      console.warn(`[Better Pawchive] idbDelete(${storeName}) failed`, e)
       resolve()
     }
   })

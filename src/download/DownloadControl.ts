@@ -777,7 +777,7 @@ class DownloadControl {
         }
       } catch (error) {
         // 比對失敗不能擋住下載：當作沒有任何命中，照常下載
-        console.error('[PawchivePro] precheck failed', error)
+        console.error('[Better Pawchive] precheck failed', error)
         if (this.taskBatch !== batch || this.stop || this.pause) {
           return
         }

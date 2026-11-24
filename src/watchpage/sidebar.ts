@@ -328,7 +328,7 @@ export function renderSidebar(
   // Brand + mobile toggle
   const header = el('div', 'w-sidebar-header')
   const brand = el('div', 'w-brand')
-  brand.appendChild(el('div', 'w-brand-title', 'PawchivePro'))
+  brand.appendChild(el('div', 'w-brand-title', 'Better Pawchive'))
   brand.appendChild(el('div', 'w-brand-sub', lang.transl('_w_subtitle')))
   header.appendChild(brand)
 

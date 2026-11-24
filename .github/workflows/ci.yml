@@ -23,7 +23,7 @@ jobs:
       - run: npm run build
       - uses: actions/upload-artifact@v7
         with:
-          name: pawchive-pro-dist
+          name: better-pawchive-dist
           path: dist/
 
   release:
@@ -46,9 +46,9 @@ jobs:
       - name: Release notes from CHANGELOG.md and CHANGELOG.zh-TW.md
         run: node scripts/release-notes.js "$GITHUB_REF_NAME" > release-notes.md
       - run: npm run build
-      - run: cd dist && zip -r "../pawchive-pro-$GITHUB_REF_NAME.zip" .
+      - run: cd dist && zip -r "../better-pawchive-$GITHUB_REF_NAME.zip" .
       - uses: softprops/action-gh-release@v3
         with:
-          files: pawchive-pro-*.zip
+          files: better-pawchive-*.zip
           body_path: release-notes.md
           generate_release_notes: true

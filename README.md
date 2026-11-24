@@ -1,4 +1,4 @@
-# PawchivePro
+# Better Pawchive
 
 English | [繁體中文](README.zh-TW.md)
 
@@ -49,7 +49,7 @@ After changing the code, run `npm run build` again and click reload on the exten
 
 ## Privacy
 
-PawchivePro collects nothing. It has no analytics and no remote server; settings and history stay in your browser. Access to the download folder used for the existing-file check belongs to the extension; websites can't see it. See [PRIVACY.md](PRIVACY.md).
+Better Pawchive collects nothing. It has no analytics and no remote server; settings and history stay in your browser. Access to the download folder used for the existing-file check belongs to the extension; websites can't see it. See [PRIVACY.md](PRIVACY.md).
 
 ## Development
 
@@ -82,7 +82,7 @@ Each of these is kept in a single constant:
 
 ## Disclaimer
 
-PawchivePro is an independent project. It is not affiliated with Kemono, Pawchive, or any creator platform. Use it for personal archiving, and respect creators and the terms of the sites you use.
+Better Pawchive is an independent project. It is not affiliated with Kemono, Pawchive, or any creator platform. Use it for personal archiving, and respect creators and the terms of the sites you use.
 
 ## Credits (GPL compliance)
 

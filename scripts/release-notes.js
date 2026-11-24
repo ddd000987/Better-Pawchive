@@ -1,4 +1,4 @@
-/* PawchivePro 發佈說明：上面是英文區，下面是繁體中文區。
+/* Better Pawchive 發佈說明：上面是英文區，下面是繁體中文區。
  * 各區內容取自 CHANGELOG.md／CHANGELOG.zh-TW.md 裡該版本的段落，再附上安裝與更新說明。
  * 用法：node scripts/release-notes.js v1.0.1 > release-notes.md（CI 發佈時呼叫）。
  * 任一份 CHANGELOG 找不到該版本的段落就以錯誤結束，避免發出沒有更新內容的版本。
@@ -12,7 +12,7 @@ if (!tag) {
   process.exit(1)
 }
 const version = tag.replace(/^v/, '')
-const zip = `pawchive-pro-${tag}.zip`
+const zip = `better-pawchive-${tag}.zip`
 
 /** 取出指定版本的段落（不含版本標題），### 標題降成 ##，讓它和安裝說明同級 */
 function versionSection(file) {

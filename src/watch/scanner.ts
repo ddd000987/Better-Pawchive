@@ -117,7 +117,7 @@ export async function runScan(
       try {
         await deps.saveSnapshot(creator.key, items)
       } catch (e) {
-        console.warn('[PawchivePro] saveSnapshot failed', creator.key, e)
+        console.warn('[Better Pawchive] saveSnapshot failed', creator.key, e)
       }
       batch.push({ key: creator.key, items })
       checked++

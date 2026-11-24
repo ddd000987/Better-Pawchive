@@ -1,16 +1,16 @@
 {
-  "name": "pawchive-pro",
+  "name": "better-pawchive",
   "version": "1.1.0",
   "description": "Batch downloader for Kemono / Pawchive creator posts. Derived from PixivBatchDownloader and Kemono-Downloader.",
-  "author": "PawchivePro contributors",
+  "author": "Better Pawchive contributors",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ddd000987/PawchivePro.git"
+    "url": "git+https://github.com/ddd000987/Better-Pawchive.git"
   },
-  "homepage": "https://github.com/ddd000987/PawchivePro#readme",
+  "homepage": "https://github.com/ddd000987/Better-Pawchive#readme",
   "bugs": {
-    "url": "https://github.com/ddd000987/PawchivePro/issues"
+    "url": "https://github.com/ddd000987/Better-Pawchive/issues"
   },
   "scripts": {
     "locales": "node ./scripts/gen-locales.js",

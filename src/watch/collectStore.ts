@@ -62,7 +62,7 @@ export class CollectStore<
           this._data = this.validate(raw?.[this.storageKey])
           this.notify()
         } catch (e) {
-          console.error(`[PawchivePro] load ${this.storageKey} failed`, e)
+          console.error(`[Better Pawchive] load ${this.storageKey} failed`, e)
         }
       })()
     }

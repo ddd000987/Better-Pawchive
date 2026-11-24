@@ -203,7 +203,7 @@ class PreviewCreator {
       void snapshots
         .set(snapshotFromPosts(snapKey, posts))
         .catch((err) =>
-          console.warn('[PawchivePro] save watch snapshot failed', err)
+          console.warn('[Better Pawchive] save watch snapshot failed', err)
         )
     }
     if (this.countEl) {
@@ -317,7 +317,7 @@ class PreviewCreator {
                   .set(snapshotFromPosts(watchKey, this.loadedPosts))
                   .catch((err) =>
                     console.warn(
-                      '[PawchivePro] save watch snapshot failed',
+                      '[Better Pawchive] save watch snapshot failed',
                       err
                     )
                   )

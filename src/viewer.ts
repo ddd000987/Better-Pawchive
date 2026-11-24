@@ -100,7 +100,7 @@ async function start(): Promise<void> {
     showError()
     return
   }
-  document.title = image.title || 'PawchivePro'
+  document.title = image.title || 'Better Pawchive'
   const full = load(image.src)
   let shown = false
   let fullFailed = false
@@ -120,7 +120,7 @@ async function start(): Promise<void> {
     shown = true
     show(image.src, size)
   } catch (e) {
-    console.error('[PawchivePro]', e)
+    console.error('[Better Pawchive]', e)
     fullFailed = true
     if (natural) {
       showOriginalFailedNotice()
@@ -215,7 +215,7 @@ function sendMove(): void {
   moving = true
   chrome.windows
     .update(chrome.windows.WINDOW_ID_CURRENT, target)
-    .catch((e) => console.error('[PawchivePro] move window failed', e))
+    .catch((e) => console.error('[Better Pawchive] move window failed', e))
     .finally(() => {
       moving = false
       sendMove()

@@ -52,7 +52,7 @@ export function normalizePostIdBoundary(raw: string): string {
   }
   if (!warnedIdBoundaries.has(value)) {
     warnedIdBoundaries.add(value)
-    console.warn(`[PawchivePro] 非數字帖子 ID 篩選值已忽略：${value}`)
+    console.warn(`[Better Pawchive] 非數字帖子 ID 篩選值已忽略：${value}`)
   }
   return ''
 }

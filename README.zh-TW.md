@@ -1,4 +1,4 @@
-# PawchivePro
+# Better Pawchive
 
 [English](README.md) | 繁體中文
 
@@ -49,7 +49,7 @@ Chrome / Edge（Manifest V3）擴充功能，用來預覽與批次下載 Kemono 
 
 ## 隱私
 
-PawchivePro 不收集任何資料，沒有分析追蹤，也沒有遠端伺服器；設定與記錄只存在你的瀏覽器裡。用來比對已有檔案的下載資料夾授權屬於擴充功能，網站看不到。詳見 [PRIVACY.md](PRIVACY.md)。
+Better Pawchive 不收集任何資料，沒有分析追蹤，也沒有遠端伺服器；設定與記錄只存在你的瀏覽器裡。用來比對已有檔案的下載資料夾授權屬於擴充功能，網站看不到。詳見 [PRIVACY.md](PRIVACY.md)。
 
 ## 開發
 
@@ -82,7 +82,7 @@ PawchivePro 不收集任何資料，沒有分析追蹤，也沒有遠端伺服�
 
 ## 免責聲明
 
-PawchivePro 是獨立專案，與 Kemono、Pawchive 及任何創作者平台無關。請用於個人收藏，並尊重創作者與所用網站的條款。
+Better Pawchive 是獨立專案，與 Kemono、Pawchive 及任何創作者平台無關。請用於個人收藏，並尊重創作者與所用網站的條款。
 
 ## 衍生與致謝（GPL 合規）
 

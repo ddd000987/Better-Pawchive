@@ -1,6 +1,6 @@
 # Privacy Policy
 
-PawchivePro does not collect, transmit, or sell any personal data.
+Better Pawchive does not collect, transmit, or sell any personal data.
 
 ## What the extension stores
 

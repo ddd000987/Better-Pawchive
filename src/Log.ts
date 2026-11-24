@@ -82,7 +82,7 @@ class Log {
     if (!this.debugEnabled) {
       return
     }
-    console.debug(`[PawchivePro] ${msg}`)
+    console.debug(`[Better Pawchive] ${msg}`)
   }
 
   public log(msg: string, key = '') {
@@ -131,16 +131,16 @@ class Log {
   private print(level: LogLevel, msg: string) {
     switch (level) {
       case 'success':
-        console.log(`%c[PawchivePro] ${msg}`, 'color: green')
+        console.log(`%c[Better Pawchive] ${msg}`, 'color: green')
         break
       case 'warning':
-        console.warn(`[PawchivePro] ${msg}`)
+        console.warn(`[Better Pawchive] ${msg}`)
         break
       case 'error':
-        console.error(`[PawchivePro] ${msg}`)
+        console.error(`[Better Pawchive] ${msg}`)
         break
       default:
-        console.log(`[PawchivePro] ${msg}`)
+        console.log(`[Better Pawchive] ${msg}`)
     }
   }
 

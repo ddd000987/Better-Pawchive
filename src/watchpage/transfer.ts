@@ -91,7 +91,7 @@ export async function buildExportPayload(): Promise<ExportPayload> {
     try {
       covers[id] = await blobToDataUrl(blob)
     } catch (e) {
-      console.warn('[PawchivePro] failed to serialize cover', id, e)
+      console.warn('[Better Pawchive] failed to serialize cover', id, e)
     }
   }
 
@@ -158,7 +158,7 @@ export async function applyImportPayload(
 /** Export the current watchlist, favorites, and all referenced uploaded covers to a JSON file. */
 export async function exportWatchlist(): Promise<void> {
   const payload = await buildExportPayload()
-  saveJsonFile(`pawchivepro-watchlist-${todayStamp()}.json`, payload)
+  saveJsonFile(`better-pawchive-watchlist-${todayStamp()}.json`, payload)
 }
 
 /** Prompt the user for a watchlist JSON file, confirm replacement, and restore data + covers. */

@@ -1,4 +1,4 @@
-/* PawchivePro 圖示產生器：純 Node 內建模組手寫 PNG，繪製藍底圓角方形 + 白色肉球。
+/* Better Pawchive 圖示產生器：純 Node 內建模組手寫 PNG，繪製藍底圓角方形 + 白色肉球。
  * 用法：npm run make-icons
  * 輸出：src/icons/icon16.png、icon32.png、icon48.png、icon128.png
  */

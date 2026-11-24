@@ -116,7 +116,7 @@ async function idbGet(key: string): Promise<unknown> {
       req.onerror = () => reject(req.error)
     })
   } catch (e) {
-    console.error('[PawchivePro] read folder handle failed', e)
+    console.error('[Better Pawchive] read folder handle failed', e)
     return undefined
   } finally {
     db?.close()
@@ -136,7 +136,7 @@ async function idbPut(key: string, value: unknown): Promise<boolean> {
       tx.onabort = () => reject(tx.error)
     })
   } catch (e) {
-    console.error('[PawchivePro] save folder handle failed', e)
+    console.error('[Better Pawchive] save folder handle failed', e)
     return false
   } finally {
     db?.close()
@@ -176,7 +176,7 @@ export async function getFolderStatus(): Promise<FolderStatus> {
     const permission = await handle.queryPermission({ mode: 'read' })
     return { name: handle.name, permission }
   } catch (e) {
-    console.error('[PawchivePro] query folder permission failed', e)
+    console.error('[Better Pawchive] query folder permission failed', e)
     return { name: handle.name, permission: 'denied' }
   }
 }
@@ -237,7 +237,7 @@ export class FolderChecker {
       if (isMissingError(e)) {
         return { exists: false, mismatch: false }
       }
-      console.error('[PawchivePro] check local file failed', e)
+      console.error('[Better Pawchive] check local file failed', e)
       return { exists: null, mismatch: false }
     }
   }
@@ -302,7 +302,7 @@ export class FolderChecker {
           throw e
         }
         // 單一資料夾出錯不拖垮整批：該資料夾視為都不存在
-        console.error('[PawchivePro] check local folder failed', e)
+        console.error('[Better Pawchive] check local folder failed', e)
       }
     }
     return { found, mismatch }

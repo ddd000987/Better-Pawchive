@@ -174,7 +174,7 @@ async function pickFolder(): Promise<void> {
   } catch (e) {
     // 使用者取消選擇：不提示
     if ((e as { name?: string } | null)?.name !== 'AbortError') {
-      console.error('[PawchivePro] pick folder failed', e)
+      console.error('[Better Pawchive] pick folder failed', e)
       message = lang.transl(
         '_localFolderPickFailed',
         e instanceof Error ? e.message : String(e)
@@ -200,7 +200,7 @@ async function allowAccess(): Promise<void> {
       message = lang.transl('_localFolderNotReady')
     }
   } catch (e) {
-    console.error('[PawchivePro] request folder permission failed', e)
+    console.error('[Better Pawchive] request folder permission failed', e)
     message = lang.transl('_localFolderNotReady')
   } finally {
     setBusy(false)

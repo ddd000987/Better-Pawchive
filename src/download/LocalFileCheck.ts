@@ -27,12 +27,12 @@ async function send<T>(message: object): Promise<T | null> {
   try {
     const res = await chrome.runtime.sendMessage(message)
     if (res === undefined || res === null) {
-      console.error('[PawchivePro] folder message got no reply', message)
+      console.error('[Better Pawchive] folder message got no reply', message)
       return null
     }
     return res as T
   } catch (e) {
-    console.error('[PawchivePro] folder message failed', e)
+    console.error('[Better Pawchive] folder message failed', e)
     return null
   }
 }
@@ -132,7 +132,7 @@ class LocalFileCheck {
       return null
     }
     if (res.status !== 'ok') {
-      console.error('[PawchivePro] folder check failed', res)
+      console.error('[Better Pawchive] folder check failed', res)
       return null
     }
     if (res.mismatch) {
@@ -152,7 +152,7 @@ class LocalFileCheck {
       return null
     }
     if (res.status !== 'ok') {
-      console.error('[PawchivePro] folder check failed', res)
+      console.error('[Better Pawchive] folder check failed', res)
       return null
     }
     if (res.mismatch) {
@@ -179,7 +179,7 @@ function cleanupLegacyHandle(): void {
       }
     })
     .catch((e) =>
-      console.error('[PawchivePro] legacy handle cleanup failed', e)
+      console.error('[Better Pawchive] legacy handle cleanup failed', e)
     )
 }
 

@@ -1,5 +1,5 @@
 /*
- * PawchivePro content script entry.
+ * Better Pawchive content script entry.
  * Style: side-effect registry like PBD src/ts/content.ts — importing a
  * module starts it. Wires the preview, crawl/download pipeline, settings
  * center and hotkeys, plus dev-only page detection output.
@@ -76,7 +76,7 @@ function checkModules() {
     .filter(([, value]) => !value)
     .map(([name]) => name)
   if (missing.length > 0) {
-    console.error('[PawchivePro] 核心模組未初始化：' + missing.join(', '))
+    console.error('[Better Pawchive] 核心模組未初始化：' + missing.join(', '))
   }
 }
 
@@ -156,9 +156,9 @@ async function bootstrap() {
     await Promise.all([watchStore.ready(), favPosts.ready(), favImages.ready()])
     void watchStore
       .rememberHost(location.host)
-      .catch((e) => console.error('[PawchivePro] rememberHost failed', e))
+      .catch((e) => console.error('[Better Pawchive] rememberHost failed', e))
   } catch (e) {
-    console.error('[PawchivePro] watchStore.ready failed', e)
+    console.error('[Better Pawchive] watchStore.ready failed', e)
   }
   checkModules()
   reportPage()
@@ -183,7 +183,7 @@ function scheduleAutoScan() {
           watchNotice.show(result)
         }
       },
-    }).catch((e) => console.error('[PawchivePro] autoScan failed', e))
+    }).catch((e) => console.error('[Better Pawchive] autoScan failed', e))
   }, 5000)
 
   window.addEventListener(

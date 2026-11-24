@@ -202,7 +202,7 @@ class DownloadRecord {
             this.writeChain = this.writeChain.then(() => this.migrate())
           }
         } catch (e) {
-          console.error('[PawchivePro] load download record failed', e)
+          console.error('[Better Pawchive] load download record failed', e)
         } finally {
           this.loaded = true
         }
@@ -238,7 +238,7 @@ class DownloadRecord {
       }
       await chrome.storage.local.remove(LEGACY_KEY)
     } catch (e) {
-      console.error('[PawchivePro] migrate download record failed', e)
+      console.error('[Better Pawchive] migrate download record failed', e)
     }
   }
 
@@ -341,7 +341,7 @@ class DownloadRecord {
       if (reset) {
         this.resetPending = true
       }
-      console.error('[PawchivePro] save record failed', e)
+      console.error('[Better Pawchive] save record failed', e)
       if (!this.saveFailedNotified) {
         this.saveFailedNotified = true
         const msg = lang.transl('_recordStoreFailed')

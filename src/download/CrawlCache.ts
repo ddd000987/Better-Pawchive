@@ -425,7 +425,7 @@ class CrawlCache {
             this.adoptLegacy(index, normalizeEntries(data[LEGACY_KEY]))
           }
         } catch (e) {
-          console.error('[PawchivePro] load crawl cache failed', e)
+          console.error('[Better Pawchive] load crawl cache failed', e)
         } finally {
           this.loaded = true
         }
@@ -472,7 +472,7 @@ class CrawlCache {
       const data = await chrome.storage.local.get(key)
       return normalizeBody(data[key])
     } catch (e) {
-      console.error('[PawchivePro] load crawl cache entry failed', e)
+      console.error('[Better Pawchive] load crawl cache entry failed', e)
       return null
     }
   }
@@ -838,7 +838,7 @@ class CrawlCache {
       }
       // 常見於單筆過大（內文 textData 多）超過配額：
       // 本筆仍留記憶體可下載，只是重開瀏覽器後消失
-      console.error('[PawchivePro] save crawl cache failed', e)
+      console.error('[Better Pawchive] save crawl cache failed', e)
       toast.warning(lang.transl('_cacheStoreFailed'))
       log.warning(lang.transl('_cacheStoreFailed'))
     }

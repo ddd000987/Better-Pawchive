@@ -131,7 +131,7 @@ export function openFolderMenu(options: OpenFolderMenuOptions): () => void {
             if (options.onError) {
               options.onError(err)
             } else {
-              console.error('[PawchivePro] create folder failed', err)
+              console.error('[Better Pawchive] create folder failed', err)
             }
           }
         })()

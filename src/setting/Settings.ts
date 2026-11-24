@@ -290,7 +290,7 @@ function sanitizeComboMap<C extends string>(
         (o) => o && sameHotkeyCombo(o, fallback)
       )
     console.warn(
-      `[PawchivePro] hotkey for "${cmd}" duplicates another command; ` +
+      `[Better Pawchive] hotkey for "${cmd}" duplicates another command; ` +
         (free ? 'using its default' : 'left unbound')
     )
     if (free) {
@@ -333,7 +333,7 @@ function dropComboConflicts<C extends string>(
         )
       )
     console.warn(
-      `[PawchivePro] hotkey for "${cmd}" is already used by another table; ` +
+      `[Better Pawchive] hotkey for "${cmd}" is already used by another table; ` +
         (free ? 'using its default' : 'left unbound')
     )
     if (free) {
@@ -774,7 +774,7 @@ class Settings {
     } catch (e) {
       // Keep the keys dirty: the next change retries them, and a remote value
       // must not overwrite them in the meantime.
-      console.error('[PawchivePro] save settings failed', e)
+      console.error('[Better Pawchive] save settings failed', e)
       if (!this.saveFailedNotified) {
         this.saveFailedNotified = true
         EVT.fire('settingSaveBlocked', { reason: 'writeFailed' })
@@ -801,7 +801,7 @@ class Settings {
       }
       return true
     } catch (e) {
-      console.error('[PawchivePro] restore settings failed again', e)
+      console.error('[Better Pawchive] restore settings failed again', e)
       return false
     }
   }
@@ -816,7 +816,10 @@ class Settings {
         Object.assign(this.store, parseStoredSettings(raw, this.store))
       }
     } catch (e) {
-      console.error('[PawchivePro] restore settings failed, use defaults', e)
+      console.error(
+        '[Better Pawchive] restore settings failed, use defaults',
+        e
+      )
       this.loadFailed = true
     }
     // 快捷鍵表逐項校驗（舊存檔缺 hotkeys 鍵時沿用預設；同時斷開與

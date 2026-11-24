@@ -18,7 +18,7 @@ export const meta: LocaleMeta = {
 
 export const texts = {
   // ---------- 預覽面板 ----------
-  _previewSettings: `PawchivePro Preview Settings`,
+  _previewSettings: `Better Pawchive Preview Settings`,
   _f_PreviewWork: `Enable hover preview`,
   _f_previewWorkWait: `Hover delay (ms)`,
   _f_previewOriginalImage: `Use original images for preview`,
@@ -542,7 +542,7 @@ export const texts = {
   _localFolderMoved: `Folder access is now kept by the extension and the old one was cleared; please choose the folder again in settings`,
 
   // ---------- Watch page ----------
-  _w_title: `Watchlist – PawchivePro`,
+  _w_title: `Watchlist – Better Pawchive`,
   _w_subtitle: `Watchlist`,
   _w_allCreators: `All creators`,
   _w_unsorted: `Unsorted`,

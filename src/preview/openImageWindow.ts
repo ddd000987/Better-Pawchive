@@ -47,7 +47,7 @@ async function openImageWindow(
       throw new Error(res ? res.error : 'no reply')
     }
   } catch (e) {
-    console.error('[PawchivePro] open image window failed', e)
+    console.error('[Better Pawchive] open image window failed', e)
     toast.error(lang.transl('_viewerOpenFailed'))
   }
 }

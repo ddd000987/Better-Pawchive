@@ -62,7 +62,7 @@ export class WatchStore {
           this._data = validateWatchData(raw?.[STORE_KEY])
           this.notify()
         } catch (e) {
-          console.error('[PawchivePro] load watchlist failed', e)
+          console.error('[Better Pawchive] load watchlist failed', e)
         }
       })()
     }

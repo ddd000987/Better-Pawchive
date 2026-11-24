@@ -31,7 +31,7 @@ class ListenPageSwitch {
       s.src = chrome.runtime.getURL('lib/listen_history_change.js')
       document.head.appendChild(s)
     } catch (e) {
-      console.warn('[PawchivePro] listen_history_change inject failed', e)
+      console.warn('[Better Pawchive] listen_history_change inject failed', e)
     }
   }
 

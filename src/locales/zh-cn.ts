@@ -18,7 +18,7 @@ export const meta: LocaleMeta = {
 
 export const texts: LocaleTexts = {
   // ---------- 預覽面板 ----------
-  _previewSettings: `PawchivePro 预览设置`,
+  _previewSettings: `Better Pawchive 预览设置`,
   _f_PreviewWork: `启用悬停预览`,
   _f_previewWorkWait: `悬停延迟 (ms)`,
   _f_previewOriginalImage: `预览使用原图`,
@@ -542,7 +542,7 @@ export const texts: LocaleTexts = {
   _localFolderMoved: `文件夹授权已改由扩展程序保管，旧的授权已清除，请到设置重新选择一次文件夹`,
 
   // ---------- Watch page ----------
-  _w_title: `关注列表 – PawchivePro`,
+  _w_title: `关注列表 – Better Pawchive`,
   _w_subtitle: `关注列表`,
   _w_allCreators: `所有创作者`,
   _w_unsorted: `未分类`,

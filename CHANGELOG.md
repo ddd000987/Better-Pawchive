@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format is based on 
 - Card previews: pick up to 6 preview images for a creator (from saved images, post covers or uploads); resting on the creator's card on the watch page for half a second shows them.
 - Naming: the new `{creator_alias}` tag uses the custom name from the watchlist, or the creator's name when there is none.
 
+### Changed
+
+- Renamed to Better Pawchive. The repository moved to https://github.com/ddd000987/Better-Pawchive (old links redirect). Settings, download history, the watchlist and favorites are kept.
+
 ## [1.1.0] - 2026-11-18
 
 ### Added

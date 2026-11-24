@@ -159,7 +159,7 @@ class States {
       // 存檔讀取卡住時不能讓整個流程死等；10 秒後報錯放行，改用預設值
       if (Date.now() - start >= 10000) {
         console.error(
-          '[PawchivePro] waitSettingInitialized timeout, continue with defaults'
+          '[Better Pawchive] waitSettingInitialized timeout, continue with defaults'
         )
         return
       }

@@ -1,7 +1,7 @@
 /*
  * license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt
  * derived from: PixivBatchDownloader src/ts/EVT.ts (xuejianxianzun)
- * changes: event table replaced with the PawchivePro set;
+ * changes: event table replaced with the Better Pawchive set;
  *          PBD StoreType/MsgBox payload imports removed so this module
  *          stays dependency-free. fire() keeps CustomEvent semantics but
  *          dispatches on a private EventTarget instead of window.

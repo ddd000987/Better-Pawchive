@@ -42,7 +42,7 @@ async function openReadable(): Promise<
   try {
     permission = await handle.queryPermission({ mode: 'read' })
   } catch (e) {
-    console.error('[PawchivePro] query folder permission failed', e)
+    console.error('[Better Pawchive] query folder permission failed', e)
     permission = 'denied'
   }
   if (permission !== 'granted') {
@@ -147,7 +147,7 @@ chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
   dispatch(msg, payload)
     .then(sendResponse)
     .catch((e) => {
-      console.error('[PawchivePro] folder message failed', e)
+      console.error('[Better Pawchive] folder message failed', e)
       sendResponse(invalid(e instanceof Error ? e.message : String(e)))
     })
   return true

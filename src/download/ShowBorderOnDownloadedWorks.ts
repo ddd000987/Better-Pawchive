@@ -68,7 +68,7 @@ class ShowBorderOnDownloadedWorks {
     try {
       await this.scan()
     } catch (e) {
-      console.error('[PawchivePro] mark downloaded posts failed', e)
+      console.error('[Better Pawchive] mark downloaded posts failed', e)
     } finally {
       this.scanning = false
       if (this.again) {

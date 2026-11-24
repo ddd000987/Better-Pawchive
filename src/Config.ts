@@ -10,7 +10,7 @@
 // 預設配置與運行時常量（使用者無法經設定面板修改）
 class Config {
   /** 程序名 */
-  static readonly appName = 'PawchivePro'
+  static readonly appName = 'Better Pawchive'
   /** chrome.storage.local 儲存設定用的 key（避免與 PBD 的 xzSetting 衝突） */
   static readonly settingStoreName = 'pawchiveProSettings'
   /** 同時下載的檔案數量最大值 */

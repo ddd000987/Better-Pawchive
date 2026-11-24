@@ -18,7 +18,7 @@ export const meta: LocaleMeta = {
 
 export const texts: LocaleTexts = {
   // ---------- 預覽面板 ----------
-  _previewSettings: `PawchivePro プレビュー設定`,
+  _previewSettings: `Better Pawchive プレビュー設定`,
   _f_PreviewWork: `ホバープレビューを有効にする`,
   _f_previewWorkWait: `ホバー遅延 (ms)`,
   _f_previewOriginalImage: `プレビューに原寸画像を使用`,
@@ -542,7 +542,7 @@ export const texts: LocaleTexts = {
   _localFolderMoved: `フォルダーのアクセス権は拡張機能が保持する方式に変わり、古い認可は削除されました。設定でもう一度フォルダーを選択してください`,
 
   // ---------- Watch page ----------
-  _w_title: `ウォッチリスト – PawchivePro`,
+  _w_title: `ウォッチリスト – Better Pawchive`,
   _w_subtitle: `ウォッチリスト`,
   _w_allCreators: `すべてのクリエイター`,
   _w_unsorted: `未分類`,

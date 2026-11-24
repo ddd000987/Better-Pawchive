@@ -142,7 +142,7 @@ describe('log.debug', () => {
 
     log.setDebug(true)
     log.debug('shown')
-    expect(spy).toHaveBeenCalledWith('[PawchivePro] shown')
+    expect(spy).toHaveBeenCalledWith('[Better Pawchive] shown')
     expect(log.entries().length).toBe(0)
   })
 
