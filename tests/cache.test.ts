@@ -372,6 +372,149 @@ describe('crawlCache', () => {
   })
 })
 
+describe('cache files', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  let parseCacheFile: typeof import('../src/download/CrawlCache').parseCacheFile
+
+  beforeAll(async () => {
+    ;({ parseCacheFile } = await import('../src/download/CrawlCache'))
+  })
+
+  /** A file as exportFile writes it, around `entries` */
+  const fileOf = (entries: unknown[], extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      format: 'pawchive-cache',
+      version: 1,
+      exportedAt: 1,
+      entries,
+      ...extra,
+    })
+
+  function rawEntry(id: string, overrides: Record<string, unknown> = {}) {
+    return {
+      id,
+      title: 'saved title',
+      service: 'patreon',
+      creatorId: 'u1',
+      creator: 'artist',
+      host: 'kemono.su',
+      postCount: 1,
+      fileCount: 2,
+      createdAt: 5000,
+      results: [file('patreon/u1/999#0'), file('patreon/u1/999#1')],
+      metas: [file('patreon/u1/999', { id: 'patreon/u1/999' })],
+      ...overrides,
+    }
+  }
+
+  it('export then import gives the same entries back', async () => {
+    seedStore('artist', 3)
+    const saved = await crawlCache.autoSave({ silent: true })
+    const text = JSON.stringify(await crawlCache.exportFile())
+    const original = await crawlCache.loadEntry(saved!.id)
+    await crawlCache.remove(saved!.id)
+    expect(crawlCache.list()).toHaveLength(0)
+
+    const outcome = await crawlCache.importEntries(parseCacheFile(text))
+    expect(outcome).toMatchObject({ duplicates: 0, overflow: 0 })
+    expect(outcome.added.map((e) => e.id)).toEqual([saved!.id])
+    expect(await crawlCache.loadEntry(saved!.id)).toEqual(original)
+    expect(await crawlCache.mount(saved!.id)).toBe(true)
+    expect(store.result).toHaveLength(3)
+  })
+
+  it('exports one entry when given its id', async () => {
+    seedStore('a')
+    const a = await crawlCache.autoSave({ silent: true })
+    seedStore('b')
+    await crawlCache.autoSave({ silent: true })
+    const one = await crawlCache.exportFile([a!.id])
+    expect(one.format).toBe('pawchive-cache')
+    expect(one.entries.map((e) => e.id)).toEqual([a!.id])
+    expect((await crawlCache.exportFile()).entries).toHaveLength(2)
+  })
+
+  it('an imported entry is written to storage', async () => {
+    await crawlCache.importEntries(parseCacheFile(fileOf([rawEntry('X1')])))
+    await wait(400)
+    expect(mem['pawchiveProCrawlCache:index'].map((e: any) => e.id)).toEqual([
+      'X1',
+    ])
+    expect(mem['pawchiveProCrawlCache:entry:X1'].results).toHaveLength(2)
+  })
+
+  it('skips ids already in the cache and what does not fit', async () => {
+    const ids = Array.from({ length: MAX_ENTRIES + 2 }, (_, i) => `X${i}`)
+    const list = parseCacheFile(fileOf(ids.map((id) => rawEntry(id))))
+    const first = await crawlCache.importEntries(list.slice(0, 1))
+    expect(first.added).toHaveLength(1)
+    const rest = await crawlCache.importEntries(list)
+    expect(rest.duplicates).toBe(1)
+    expect(rest.added).toHaveLength(MAX_ENTRIES - 1)
+    expect(rest.overflow).toBe(2)
+    expect(crawlCache.list()).toHaveLength(MAX_ENTRIES)
+  })
+
+  it('keeps imported entries newest first', async () => {
+    seedStore()
+    const own = await crawlCache.autoSave({ silent: true })
+    await crawlCache.importEntries(
+      parseCacheFile(
+        fileOf([
+          rawEntry('OLD', { createdAt: 1000 }),
+          rawEntry('NEW', { createdAt: Date.now() + 60_000 }),
+        ])
+      )
+    )
+    expect(crawlCache.list().map((e) => e.id)).toEqual(['NEW', own!.id, 'OLD'])
+  })
+
+  it('rejects files that are not cache files', () => {
+    expect(() => parseCacheFile('not json')).toThrow()
+    expect(() => parseCacheFile('[]')).toThrow()
+    expect(() => parseCacheFile(fileOf([], { format: 'other' }))).toThrow()
+    expect(() => parseCacheFile(fileOf([], { version: 2 }))).toThrow()
+    expect(() => parseCacheFile(fileOf([{ id: 'X' }]))).toThrow()
+    expect(() =>
+      parseCacheFile(fileOf([rawEntry('X', { results: [] })]))
+    ).toThrow()
+  })
+
+  it('rejects an entry with a malformed result', () => {
+    const bad = (r: Record<string, unknown>) =>
+      fileOf([rawEntry('X', { results: [{ ...file('p#0'), ...r }] })])
+    expect(() => parseCacheFile(bad({ kind: 'script' }))).toThrow()
+    expect(() => parseCacheFile(bad({ id: 5 }))).toThrow()
+    expect(() =>
+      parseCacheFile(bad({ fileUrl: 'javascript:alert(1)' }))
+    ).toThrow()
+    expect(() => parseCacheFile(bad({ fileUrl: 'not a url' }))).toThrow()
+    // A text file has no URL
+    expect(() =>
+      parseCacheFile(bad({ kind: 'text', fileUrl: '', textData: 'hi' }))
+    ).not.toThrow()
+  })
+
+  it('keeps only known fields and recounts from the arrays', () => {
+    const [entry] = parseCacheFile(
+      fileOf([
+        rawEntry('X', {
+          postCount: 99,
+          fileCount: 99,
+          extra: 'dropped',
+          results: [{ ...file('p#0'), extra: 'dropped', picked: true }],
+        }),
+      ])
+    )
+    expect(entry).not.toHaveProperty('extra')
+    expect(entry.results[0]).not.toHaveProperty('extra')
+    expect(entry.results[0].picked).toBe(true)
+    expect(entry.postCount).toBe(1)
+    expect(entry.fileCount).toBe(1)
+    expect(entry.title).toBe('saved title')
+  })
+})
+
 describe('crawlCache 事件路徑', () => {
   const flush = () => new Promise((r) => setTimeout(r, 20))
 

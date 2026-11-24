@@ -1,13 +1,20 @@
 /* license: GPL-3.0-or-later; http://www.gnu.org/licenses/gpl-3.0.txt */
 /* 設定中心：抓取頁下方的抓取快取區塊（自動掛載開關、快取列表、掛載／卸載／重新命名／加入佇列／刪除） */
+/* Also exports caches to a JSON file and imports them back. */
 
-import { crawlCache } from '../../download/CrawlCache'
+import {
+  MAX_ENTRIES,
+  crawlCache,
+  parseCacheFile,
+} from '../../download/CrawlCache'
 import { downloadQueue } from '../../download/DownloadQueue'
 import { lang } from '../../Language'
+import { log } from '../../Log'
 import { LangTextKey } from '../../localeTypes'
 import { states } from '../../store/States'
 import { toast } from '../../Toast'
-import { checkRow, section, tipCard } from './controls'
+import { fileNamePart, pickJsonFile, saveJsonFile } from '../../utils/jsonFile'
+import { btnRow, checkRow, section, tipCard } from './controls'
 import type { CenterContext } from './context'
 
 export class CacheView {
@@ -19,6 +26,10 @@ export class CacheView {
     const body = section(host, '_secCache')
     tipCard(body, '_cacheTip')
     checkRow(body, 'autoMountCache', '_f_autoMountCache')
+    btnRow(body, [
+      { labelKey: '_cacheImport', onClick: () => this.importFile() },
+      { labelKey: '_cacheExportAll', onClick: () => void this.exportFile() },
+    ])
     this.cacheList = document.createElement('div')
     body.appendChild(this.cacheList)
     this.render()
@@ -114,6 +125,7 @@ export class CacheView {
       row.append(
         mkBtn('_cacheRename', () => this.promptRenameCache(e.id, e.title)),
         queueBtn,
+        mkBtn('_cacheExport', () => void this.exportFile(e.id, e.title)),
         delBtn
       )
       card.append(head, meta, row)
@@ -132,5 +144,49 @@ export class CacheView {
       return
     }
     void crawlCache.rename(id, name)
+  }
+
+  /** Save one entry (or every entry) to a JSON file */
+  private async exportFile(id?: string, title?: string): Promise<void> {
+    if (crawlCache.list().length === 0) {
+      toast.show(lang.transl('_cacheEmpty'))
+      return
+    }
+    const file = await crawlCache.exportFile(
+      id === undefined ? undefined : [id]
+    )
+    if (file.entries.length === 0) {
+      toast.error(lang.transl('_cacheEntryMissing'))
+      return
+    }
+    const name = (title !== undefined && fileNamePart(title)) || 'all'
+    saveJsonFile(`pawchive-cache-${name}-${Date.now()}.json`, file)
+    toast.show(lang.transl('_cacheExported', String(file.entries.length)))
+  }
+
+  /** Load the entries of a cache file the user picks */
+  private importFile(): void {
+    pickJsonFile((text) => {
+      void (async () => {
+        let entries
+        try {
+          entries = parseCacheFile(text)
+        } catch {
+          toast.error(lang.transl('_cacheImportFailed'))
+          return
+        }
+        const { added, duplicates, overflow } =
+          await crawlCache.importEntries(entries)
+        const msg = lang.transl('_cacheImported', String(added.length))
+        toast.success(msg)
+        log.success(msg)
+        if (duplicates > 0) {
+          toast.show(lang.transl('_cacheImportDuplicates', String(duplicates)))
+        }
+        if (overflow > 0) {
+          toast.warning(lang.transl('_cacheFull', String(MAX_ENTRIES)))
+        }
+      })()
+    })
   }
 }

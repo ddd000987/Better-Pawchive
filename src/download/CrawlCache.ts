@@ -16,7 +16,7 @@ import { log } from '../Log'
 import { settings } from '../setting/Settings'
 import { store } from '../store/Store'
 import { states } from '../store/States'
-import type { Result } from '../store/StoreType'
+import type { KemonoFileKind, Result } from '../store/StoreType'
 import { toast } from '../Toast'
 
 /** All entries in one array, before the index/body split (read to migrate) */
@@ -89,6 +89,137 @@ function normalizeBody(saved: unknown): CacheBody | null {
     return null
   }
   return { results: b.results, metas: Array.isArray(b.metas) ? b.metas : [] }
+}
+
+/** Marks a file written by exportFile */
+export const CACHE_FILE_FORMAT = 'pawchive-cache'
+const CACHE_FILE_VERSION = 1
+
+/** A cache file: entries in full, as exportFile writes them */
+export interface CacheFile {
+  format: typeof CACHE_FILE_FORMAT
+  version: number
+  exportedAt: number
+  entries: CacheEntry[]
+}
+
+const FILE_KINDS: readonly KemonoFileKind[] = [
+  'image',
+  'video',
+  'other',
+  'cover',
+  'text',
+]
+
+/** A result read from a cache file, keeping only the known fields; null
+ * when it is malformed. A non-empty file URL must be http(s). */
+function parseResult(v: unknown): Result | null {
+  if (!v || typeof v !== 'object') {
+    return null
+  }
+  const r = v as Record<string, unknown>
+  const str = (k: string) => (typeof r[k] === 'string' ? (r[k] as string) : '')
+  const num = (k: string) =>
+    typeof r[k] === 'number' && Number.isFinite(r[k]) ? (r[k] as number) : 0
+  const kind = r.kind as KemonoFileKind
+  if (!str('id') || !str('postKey') || !FILE_KINDS.includes(kind)) {
+    return null
+  }
+  const fileUrl = str('fileUrl')
+  if (fileUrl) {
+    try {
+      if (!/^https?:$/.test(new URL(fileUrl).protocol)) return null
+    } catch {
+      return null
+    }
+  }
+  return {
+    id: str('id'),
+    postKey: str('postKey'),
+    service: str('service'),
+    creator: str('creator'),
+    creatorId: str('creatorId'),
+    postId: str('postId'),
+    title: str('title'),
+    published: str('published'),
+    fileCount: num('fileCount'),
+    pending: r.pending === true,
+    fileUrl,
+    fileName: str('fileName'),
+    ext: str('ext'),
+    kind,
+    previewOnly: r.previewOnly === true,
+    textData: str('textData'),
+    fileIndex: num('fileIndex'),
+    ...(r.picked === true ? { picked: true } : {}),
+  }
+}
+
+/** An entry read from a cache file, or null when it is malformed (any bad
+ * result rejects the whole entry). Counts follow the arrays. */
+function parseEntry(v: unknown): CacheEntry | null {
+  if (!v || typeof v !== 'object') {
+    return null
+  }
+  const e = v as Record<string, unknown>
+  if (typeof e.id !== 'string' || !e.id || !Array.isArray(e.results)) {
+    return null
+  }
+  const results = e.results.map(parseResult)
+  const metas = Array.isArray(e.metas) ? e.metas.map(parseResult) : []
+  if (
+    results.length === 0 ||
+    results.some((r) => !r) ||
+    metas.some((r) => !r)
+  ) {
+    return null
+  }
+  const str = (k: string) => (typeof e[k] === 'string' ? (e[k] as string) : '')
+  const first = results[0]!
+  const createdAt = Number(e.createdAt)
+  return {
+    id: e.id,
+    title: str('title').trim() || first.creator || first.creatorId,
+    service: str('service') || first.service,
+    creatorId: str('creatorId') || first.creatorId,
+    creator: str('creator') || first.creator,
+    host: str('host'),
+    postCount: metas.length,
+    fileCount: results.length,
+    createdAt:
+      Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now(),
+    ...(e.incomplete === true ? { incomplete: true } : {}),
+    results: results as Result[],
+    metas: metas as Result[],
+  }
+}
+
+/** The entries of a cache file's text; throws when it is not a cache file */
+export function parseCacheFile(text: string): CacheEntry[] {
+  const data = JSON.parse(text) as Partial<CacheFile> | null
+  if (
+    !data ||
+    data.format !== CACHE_FILE_FORMAT ||
+    typeof data.version !== 'number' ||
+    data.version > CACHE_FILE_VERSION ||
+    !Array.isArray(data.entries)
+  ) {
+    throw new Error('not a cache file')
+  }
+  const entries = data.entries.map(parseEntry)
+  if (entries.some((e) => !e)) {
+    throw new Error('malformed cache entry')
+  }
+  return entries as CacheEntry[]
+}
+
+/** What importEntries did */
+export interface ImportOutcome {
+  added: CacheSummary[]
+  /** Already in the cache (same id) */
+  duplicates: number
+  /** Left out because the cache was full */
+  overflow: number
 }
 
 /** Merge this tab's changes into the entries another tab may have saved.
@@ -451,6 +582,57 @@ class CrawlCache {
       this.fireMountChange(false)
     }
     return true
+  }
+
+  /** A cache file holding the given entries (all when omitted), newest
+   * first; an entry whose results cannot be read is left out */
+  public async exportFile(ids?: string[]): Promise<CacheFile> {
+    await this.ensureLoaded()
+    const entries: CacheEntry[] = []
+    for (const id of ids ?? this.entries.map((e) => e.id)) {
+      const entry = await this.loadEntry(id)
+      if (entry) {
+        entries.push(entry)
+      }
+    }
+    return {
+      format: CACHE_FILE_FORMAT,
+      version: CACHE_FILE_VERSION,
+      exportedAt: Date.now(),
+      entries,
+    }
+  }
+
+  /** Add entries read from a cache file (see parseCacheFile). An id already
+   * in the cache is skipped, and so is everything past MAX_ENTRIES. */
+  public async importEntries(list: CacheEntry[]): Promise<ImportOutcome> {
+    await this.ensureLoaded()
+    const outcome: ImportOutcome = { added: [], duplicates: 0, overflow: 0 }
+    for (const entry of list) {
+      if (this.entries.some((e) => e.id === entry.id)) {
+        outcome.duplicates++
+        continue
+      }
+      if (this.entries.length >= MAX_ENTRIES) {
+        outcome.overflow++
+        continue
+      }
+      const { results, metas, ...summary } = entry
+      this.entries.push(summary)
+      this.bodies.set(
+        summary.id,
+        JSON.parse(JSON.stringify({ results, metas }))
+      )
+      this.markDirty(summary.id)
+      outcome.added.push({ ...summary })
+    }
+    if (outcome.added.length > 0) {
+      // Newest first, like every other list of entries
+      this.entries.sort((a, b) => b.createdAt - a.createdAt)
+      this.persist()
+      EVT.fire('cacheChange', { id: '' })
+    }
+    return outcome
   }
 
   /** 單筆摘要（拷貝）；不存在回 null */

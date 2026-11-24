@@ -15,7 +15,7 @@ License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)).
 - **Batch crawl**: crawl every post of a creator in one click, filtered by title, date, file type and more, or pick posts by hand.
 - **Reliable downloads**: pause, adjust concurrency, and retry failures automatically; files already downloaded or already in your folder are skipped.
 - **Custom file names**: build download paths from tags such as `{creator}`, `{post_id}` and `{title}`.
-- **Cache and history**: crawl results are saved for later downloads, and several caches can be queued to download one after another; download history can be exported and imported.
+- **Cache and history**: crawl results are saved for later downloads, and several caches can be queued to download one after another; caches and download history can be exported to a file and imported again.
 - **Hotkeys** and **four UI languages** (简体中文, 繁體中文, English, 日本語).
 
 <p align="center">
