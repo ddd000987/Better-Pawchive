@@ -142,6 +142,8 @@ class PreviewWork {
   /** 本次顯示的觸發座標：佔位圖（current 尚未建立）也用同一點夾回視窗 */
   private anchorX = 0
   private anchorY = 0
+  /** The card the preview is for: the float stays off it */
+  private anchorCard: HTMLAnchorElement | null = null
   /** 詳情載入中：浮層已可見（封面＋載入中）但 urls 還未知 */
   private dataLoading = false
   /** 已排入待顯示（pendingTimer 有效）：收斂迴圈看到它就跳過，避免重排 */
@@ -349,6 +351,7 @@ class PreviewWork {
     this.shownKey = postKey
     this.anchorX = mouseX
     this.anchorY = mouseY
+    this.anchorCard = el
     this.ensureWrap(mouseX, mouseY)
     states.previewWorkIsShow = true
     this.bindWheel(true)
@@ -640,7 +643,7 @@ class PreviewWork {
   }
 
   /** 選游標旁空間最大的一側，等比縮放塞進去（扣掉框線與資訊列），
-   * 浮層不會蓋住游標，也不會超出視窗（見 fitPreview）。 */
+   * 浮層不會蓋住游標和卡片，也不會超出視窗（見 fitPreview）。 */
   private fitImage(img: HTMLImageElement): void {
     // 佔位期（封面已載入、詳情未回）current 還是 null，仍要縮放並定位
     if (!this.wrap || img.parentElement !== this.wrap) return
@@ -656,6 +659,9 @@ class PreviewWork {
     const fit = fitPreview({
       mouseX: this.current?.mouseX ?? this.anchorX,
       mouseY: this.current?.mouseY ?? this.anchorY,
+      avoid: this.anchorCard?.isConnected
+        ? this.anchorCard.getBoundingClientRect()
+        : null,
       naturalW: img.naturalWidth,
       naturalH: img.naturalHeight,
       chromeW,

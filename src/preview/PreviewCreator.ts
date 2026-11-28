@@ -7,7 +7,7 @@
  *
  * Hover is tracked with delegated mouseover/mouseout on the document, so
  * cards the site renders later need no binding. The float sits beside the
- * cursor (fitPreview). With keepCreatorPreviewOnFloatHover on, it stays open
+ * hovered card, off the cursor (fitPreview). With keepCreatorPreviewOnFloatHover on, it stays open
  * while the cursor is on it: clicking a cover opens that post, clicking
  * anywhere else opens the creator's page. With it off, the float closes as
  * soon as the cursor leaves the avatar. */
@@ -357,8 +357,8 @@ class PreviewCreator {
   }
 
   /** Size and place the float for `count` covers: `rows` rows of `cols`
-   * covers before scaling, scaled down (never up) to fit beside the point
-   * where the preview opened */
+   * covers before scaling, scaled down (never up) to fit beside the hovered
+   * card (or the point where the preview opened) */
   private layout(count: number): void {
     if (!this.wrap || !this.grid) return
     const { cols, rows } = creatorGridShape(count)
@@ -370,6 +370,10 @@ class PreviewCreator {
     const fit = fitPreview({
       mouseX: c.x,
       mouseY: c.y,
+      // Stay off the hovered creator card too
+      avoid: this.trigger?.anchor.isConnected
+        ? this.trigger.anchor.getBoundingClientRect()
+        : null,
       naturalW,
       naturalH,
       chromeW: 2,

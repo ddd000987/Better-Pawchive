@@ -144,6 +144,50 @@ describe('fitPreview', () => {
   })
 })
 
+describe('fitPreview with a card to avoid', () => {
+  const base = { chromeW: 2, chromeH: 60, viewW: VW, viewH: VH }
+  const card = { left: 100, top: 300, right: 300, bottom: 550 }
+
+  it('places the float beside the card, not beside the cursor', () => {
+    const fit = fitPreview({
+      ...base,
+      mouseX: 150,
+      mouseY: 400,
+      naturalW: 200,
+      naturalH: 100,
+      avoid: card,
+    })
+    expect(fit.side).toBe('right')
+    expect(fit.x).toBe(card.right + 8)
+    const overlaps =
+      fit.x < card.right &&
+      fit.x + fit.imgW + 2 > card.left &&
+      fit.y < card.bottom &&
+      fit.y + fit.imgH + 60 > card.top
+    expect(overlaps).toBe(false)
+  })
+
+  it('falls back to the cursor when the card leaves too little room', () => {
+    const big = { left: 20, top: 20, right: 980, bottom: 780 }
+    const fit = fitPreview({
+      ...base,
+      mouseX: 100,
+      mouseY: 400,
+      naturalW: 800,
+      naturalH: 600,
+      avoid: big,
+    })
+    const plain = fitPreview({
+      ...base,
+      mouseX: 100,
+      mouseY: 400,
+      naturalW: 800,
+      naturalH: 600,
+    })
+    expect(fit).toEqual(plain)
+  })
+})
+
 describe('clampPreviewPosition', () => {
   it('優先放在游標右側並垂直置中', () => {
     expect(clampPreviewPosition(100, 400, 200, 100, VW, VH)).toEqual({
