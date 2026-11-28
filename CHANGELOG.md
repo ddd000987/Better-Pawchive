@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-28
+
+### Added
+
+- Radial favorite menu: hold or drag the ☆ button on a post card (or on an image of a post page) to open a ring menu. Pick a folder, and go on to the outer ring to rate the post or image 1–5 stars at the same time; download the whole post, see more folders or remove it from favorites. Options that cannot be used are left out. Let go in the center or outside the menu to cancel.
+- Favorited post cards on list pages keep a gold star at the corner.
+- Watch page: 1–5 star buttons at the top of the page filter by rating. Pick one or several ratings to show only those; with none picked everything is shown.
+
+### Changed
+
+- The button at a post card's corner is now a favorite button: click it to favorite the post into Unsorted (click again to remove), Shift+click to pick a folder. Downloading the whole post moved into its radial menu.
+- The ☆ button on post page images uses the same click, Shift+click and radial menu.
+- Hover previews no longer cover the post card or creator card under the cursor; they open beside the card when there is room.
+- Watch page: the star buttons replace the minimum rating in the filter menu. A minimum you had set becomes the matching buttons (for example 3 stars becomes 3, 4 and 5).
+
 ## [1.2.1] - 2026-11-25
 
 ### Added
