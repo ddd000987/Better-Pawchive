@@ -64,10 +64,27 @@ function loadLabelFilter(): LabelFilter {
   try {
     const raw = window.localStorage.getItem(FILTER_KEY)
     if (!raw) return { tags: [] }
-    const parsed = JSON.parse(raw) as { tags?: unknown; minRating?: unknown }
+    const parsed = JSON.parse(raw) as {
+      tags?: unknown
+      ratings?: unknown
+      minRating?: unknown
+    }
     const tags = normalizeTags(parsed?.tags) ?? []
-    const minRating = sanitizeRating(parsed?.minRating)
-    return minRating ? { tags, minRating } : { tags }
+    let ratings: number[] = []
+    if (Array.isArray(parsed?.ratings)) {
+      ratings = [
+        ...new Set(
+          parsed.ratings
+            .map((r) => sanitizeRating(r))
+            .filter((r): r is NonNullable<typeof r> => r !== undefined)
+        ),
+      ].sort((a, b) => a - b)
+    } else {
+      // Older saves kept a minimum rating: N becomes N..5
+      const min = sanitizeRating(parsed?.minRating)
+      if (min) for (let r = min; r <= 5; r++) ratings.push(r)
+    }
+    return ratings.length > 0 ? { tags, ratings } : { tags }
   } catch {
     return { tags: [] }
   }
@@ -403,7 +420,7 @@ export class WatchApp {
     if (this.labelFilter.tags.some((t) => t.toLowerCase() === lower)) return
     this.setLabelFilter({
       tags: [...this.labelFilter.tags, tag],
-      minRating: this.labelFilter.minRating,
+      ratings: this.labelFilter.ratings,
     })
   }
 
@@ -998,7 +1015,7 @@ export class WatchApp {
               ) ?? []
             this.labelFilter = {
               tags: nextTags,
-              minRating: this.labelFilter.minRating,
+              ratings: this.labelFilter.ratings,
             }
             saveLabelFilter(this.labelFilter)
           }
@@ -1011,7 +1028,7 @@ export class WatchApp {
               tags: this.labelFilter.tags.filter(
                 (t) => t.toLowerCase() !== lower
               ),
-              minRating: this.labelFilter.minRating,
+              ratings: this.labelFilter.ratings,
             }
             saveLabelFilter(this.labelFilter)
           }

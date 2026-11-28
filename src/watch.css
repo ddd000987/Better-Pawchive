@@ -1544,8 +1544,13 @@ textarea {
   gap: 6px;
 }
 
-.w-filter-rating-select {
-  width: 100%;
+.w-rating-filter .w-seg-btn {
+  padding: 6px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-rating-filter .w-seg-btn + .w-seg-btn {
+  border-left: 1px solid var(--border);
 }
 
 .w-filter-tag-list {

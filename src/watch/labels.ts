@@ -101,10 +101,11 @@ export function applyBulkLabelsPatch(
 
 export function matchesLabels(
   item: Labels,
-  filter: { tags?: string[]; minRating?: number }
+  filter: { tags?: string[]; ratings?: readonly number[] }
 ): boolean {
-  if (filter.minRating !== undefined && filter.minRating > 0) {
-    if (!item.rating || item.rating < filter.minRating) return false
+  // Any of the picked ratings (none picked: every rating, and unrated, pass)
+  if (filter.ratings && filter.ratings.length > 0) {
+    if (!item.rating || !filter.ratings.includes(item.rating)) return false
   }
   if (filter.tags && filter.tags.length > 0) {
     const itemTags = new Set((item.tags ?? []).map((t) => t.toLowerCase()))

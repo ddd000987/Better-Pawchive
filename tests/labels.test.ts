@@ -89,20 +89,22 @@ describe('labels', () => {
     expect(item).toEqual({})
   })
 
-  it('matchesLabels checks minRating and all filter tags case-insensitively', () => {
+  it('matchesLabels checks picked ratings and all filter tags case-insensitively', () => {
     const item: Labels = { rating: 4, tags: ['Landscape', 'Watercolor'] }
     expect(matchesLabels(item, {})).toBe(true)
-    expect(matchesLabels(item, { minRating: 4 })).toBe(true)
-    expect(matchesLabels(item, { minRating: 5 })).toBe(false)
+    expect(matchesLabels(item, { ratings: [4] })).toBe(true)
+    expect(matchesLabels(item, { ratings: [2, 4] })).toBe(true)
+    expect(matchesLabels(item, { ratings: [5] })).toBe(false)
+    expect(matchesLabels(item, { ratings: [3, 5] })).toBe(false)
     expect(matchesLabels(item, { tags: ['landscape', 'WATERCOLOR'] })).toBe(
       true
     )
     expect(matchesLabels(item, { tags: ['landscape', 'missing'] })).toBe(false)
 
-    // Unrated fails when minRating > 0, passes when minRating is 0 or omitted
+    // Unrated fails when any rating is picked, passes when none is
     const unrated: Labels = { tags: ['Solo'] }
-    expect(matchesLabels(unrated, { minRating: 1 })).toBe(false)
-    expect(matchesLabels(unrated, { minRating: 0 })).toBe(true)
+    expect(matchesLabels(unrated, { ratings: [1] })).toBe(false)
+    expect(matchesLabels(unrated, { ratings: [] })).toBe(true)
     expect(matchesLabels(unrated, { tags: ['solo'] })).toBe(true)
   })
 

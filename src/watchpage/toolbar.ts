@@ -10,6 +10,7 @@ import { el, folderLabel } from './dom'
 import type { FavSortMode } from './favModel'
 import {
   hasActiveLabelFilter,
+  toggleFilterRating,
   type LabelFilter,
   type SortMode,
 } from './listModel'
@@ -86,8 +87,35 @@ export interface FavToolbarRenderParams {
   callbacks: FavToolbarCallbacks
 }
 
-function formatMinRating(min: number): string {
-  return min >= 5 ? '★5' : `★${min}+`
+/** One toggle per rating, 1 to 5 stars. None on: show every rating; some
+ * on: show only those ratings. */
+function createRatingFilter(
+  labelFilter: LabelFilter,
+  onFilterChange: (next: LabelFilter) => void
+): HTMLElement {
+  const group = el('div', 'w-segmented w-rating-filter')
+  group.setAttribute('role', 'group')
+  group.setAttribute('aria-label', lang.transl('_lb_filterRatings'))
+  const picked = new Set(labelFilter.ratings ?? [])
+  for (let rating = 1; rating <= 5; rating++) {
+    const on = picked.has(rating)
+    const btn = el('button', on ? 'w-seg-btn is-active' : 'w-seg-btn')
+    btn.type = 'button'
+    btn.textContent = `★${rating}`
+    const label = lang.transl('_lb_filterRating', String(rating))
+    btn.title = label
+    btn.setAttribute('aria-label', label)
+    btn.setAttribute('aria-pressed', String(on))
+    btn.addEventListener('click', () => {
+      const ratings = toggleFilterRating(labelFilter.ratings, rating)
+      onFilterChange({
+        tags: [...labelFilter.tags],
+        ...(ratings.length > 0 ? { ratings } : {}),
+      })
+    })
+    group.appendChild(btn)
+  }
+  return group
 }
 
 function createFilterControl(
@@ -97,9 +125,9 @@ function createFilterControl(
   onFilterChange: (next: LabelFilter) => void
 ): HTMLElement {
   const filterAnchor = el('div', 'w-popover-anchor')
-  const filterActive = hasActiveLabelFilter(labelFilter)
-  const filterCount =
-    labelFilter.tags.length + ((labelFilter.minRating ?? 0) > 0 ? 1 : 0)
+  // Ratings have their own buttons in the toolbar: this one is for tags
+  const filterCount = labelFilter.tags.length
+  const filterActive = filterCount > 0
   const filterBtn = el(
     'button',
     filterActive || openPopover === 'filter'
@@ -121,43 +149,6 @@ function createFilterControl(
   if (openPopover === 'filter') {
     const panel = el('div', 'w-popover w-filter-panel')
     panel.addEventListener('click', (ev) => ev.stopPropagation())
-
-    const ratingSection = el('div', 'w-popover-section')
-    const ratingLabel = el(
-      'label',
-      'w-popover-label',
-      lang.transl('_lb_filterMinRating')
-    )
-    const minRatingSelect = el('select', 'w-select w-filter-rating-select')
-    minRatingSelect.setAttribute(
-      'aria-label',
-      lang.transl('_lb_filterMinRating')
-    )
-    const ratingOpts: Array<{ value: number; label: string }> = [
-      { value: 0, label: lang.transl('_lb_ratingAny') },
-      { value: 1, label: '★1+' },
-      { value: 2, label: '★2+' },
-      { value: 3, label: '★3+' },
-      { value: 4, label: '★4+' },
-      { value: 5, label: '★5' },
-    ]
-    const currentMin = labelFilter.minRating ?? 0
-    for (const opt of ratingOpts) {
-      const o = el('option', undefined, opt.label)
-      o.value = String(opt.value)
-      o.selected = opt.value === currentMin
-      minRatingSelect.appendChild(o)
-    }
-    minRatingSelect.addEventListener('change', () => {
-      const val = Number(minRatingSelect.value)
-      onFilterChange({
-        tags: [...labelFilter.tags],
-        minRating: val > 0 ? val : undefined,
-      })
-    })
-    ratingSection.appendChild(ratingLabel)
-    ratingSection.appendChild(minRatingSelect)
-    panel.appendChild(ratingSection)
 
     const tagsSection = el('div', 'w-popover-section')
     tagsSection.appendChild(
@@ -190,7 +181,7 @@ function createFilterControl(
             : [...labelFilter.tags, entry.tag]
           onFilterChange({
             tags: nextTags,
-            minRating: labelFilter.minRating,
+            ratings: labelFilter.ratings,
           })
         })
         chips.appendChild(chip)
@@ -211,24 +202,6 @@ function createActiveFiltersBar(
 ): HTMLElement {
   const bar = el('div', 'w-active-filters')
 
-  if ((labelFilter.minRating ?? 0) > 0) {
-    const chip = el('span', 'w-active-filter-chip')
-    chip.appendChild(
-      el('span', undefined, formatMinRating(labelFilter.minRating!))
-    )
-    const rm = el('button', 'w-tag-chip-rm', '×')
-    rm.type = 'button'
-    rm.setAttribute('aria-label', lang.transl('_lb_clearRating'))
-    rm.addEventListener('click', () => {
-      onFilterChange({
-        tags: [...labelFilter.tags],
-        minRating: undefined,
-      })
-    })
-    chip.appendChild(rm)
-    bar.appendChild(chip)
-  }
-
   for (const tag of labelFilter.tags) {
     const chip = el('span', 'w-active-filter-chip')
     chip.appendChild(el('span', undefined, tag))
@@ -239,7 +212,7 @@ function createActiveFiltersBar(
       const lower = tag.toLowerCase()
       onFilterChange({
         tags: labelFilter.tags.filter((t) => t.toLowerCase() !== lower),
-        minRating: labelFilter.minRating,
+        ratings: labelFilter.ratings,
       })
     })
     chip.appendChild(rm)
@@ -532,6 +505,9 @@ export function renderToolbar(
       callbacks.onFilterChange
     )
   )
+  controls.appendChild(
+    createRatingFilter(labelFilter, callbacks.onFilterChange)
+  )
 
   // Sort select
   const sortSelect = el('select', 'w-select')
@@ -721,6 +697,9 @@ export function renderFavToolbar(
       callbacks.onOpenPopoverChange,
       callbacks.onFilterChange
     )
+  )
+  controls.appendChild(
+    createRatingFilter(labelFilter, callbacks.onFilterChange)
   )
 
   const sortSelect = el('select', 'w-select')

@@ -12,7 +12,7 @@ function matchesTagsQuery(tags: string[] | undefined, q: string): boolean {
   return tags.some((t) => t.toLowerCase().includes(q))
 }
 
-/** Filter favorite posts by label filter (tags + minRating) and case-insensitive search on title, creatorName, note, tags. */
+/** Filter favorite posts by label filter (tags + ratings) and case-insensitive search on title, creatorName, note, tags. */
 export function filterFavPosts(
   list: FavPost[],
   query: string,
@@ -63,7 +63,7 @@ export function sortFavPosts(list: FavPost[], mode: FavSortMode): FavPost[] {
   })
 }
 
-/** Filter favorite images by label filter (tags + minRating) and case-insensitive search on postTitle, creatorName, fileName, note, tags. */
+/** Filter favorite images by label filter (tags + ratings) and case-insensitive search on postTitle, creatorName, fileName, note, tags. */
 export function filterFavImages(
   list: FavImage[],
   query: string,

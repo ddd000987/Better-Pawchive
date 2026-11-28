@@ -8,7 +8,8 @@ export type SortMode = 'name' | 'added' | 'latest' | 'unread' | 'rating'
 
 export interface LabelFilter {
   tags: string[]
-  minRating?: number
+  /** Show only these ratings (1-5); empty or missing shows all */
+  ratings?: number[]
 }
 
 export type WatchRoute =
@@ -28,12 +29,23 @@ export function displayName(c: WatchedCreator): string {
   return alias || c.name
 }
 
-/** Return true if any tag or minimum rating filter is active. */
+/** Return true if any tag or rating filter is active. */
 export function hasActiveLabelFilter(filter: LabelFilter): boolean {
-  return filter.tags.length > 0 || (filter.minRating ?? 0) > 0
+  return filter.tags.length > 0 || (filter.ratings?.length ?? 0) > 0
 }
 
-/** Filter creators by tags (AND) and minimum rating using matchesLabels. */
+/** Add or remove one rating from the picked ratings (kept sorted) */
+export function toggleFilterRating(
+  ratings: readonly number[] | undefined,
+  rating: number
+): number[] {
+  const set = new Set(ratings ?? [])
+  if (set.has(rating)) set.delete(rating)
+  else set.add(rating)
+  return [...set].sort((a, b) => a - b)
+}
+
+/** Filter creators by tags (AND) and picked ratings using matchesLabels. */
 export function filterCreatorsByLabels(
   list: WatchedCreator[],
   filter: LabelFilter

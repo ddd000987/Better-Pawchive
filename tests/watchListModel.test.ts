@@ -16,6 +16,7 @@ import {
   latestPublished,
   parseRoute,
   sortCreators,
+  toggleFilterRating,
 } from '../src/watchpage/listModel'
 
 function makeCreator(
@@ -103,7 +104,7 @@ describe('watchpage/listModel', () => {
       expect(filterCreators(list, 'nonexistent')).toEqual([])
     })
 
-    it('filters by tags (AND), minRating, and combines with search query', () => {
+    it('filters by tags (AND), ratings, and combines with search query', () => {
       const labeled: WatchedCreator[] = [
         makeCreator({
           key: 'kemono/patreon/1',
@@ -128,7 +129,8 @@ describe('watchpage/listModel', () => {
       ]
       expect(hasActiveLabelFilter({ tags: [] })).toBe(false)
       expect(hasActiveLabelFilter({ tags: ['anime'] })).toBe(true)
-      expect(hasActiveLabelFilter({ tags: [], minRating: 3 })).toBe(true)
+      expect(hasActiveLabelFilter({ tags: [], ratings: [3] })).toBe(true)
+      expect(hasActiveLabelFilter({ tags: [], ratings: [] })).toBe(false)
 
       expect(
         filterCreatorsByLabels(labeled, { tags: ['ANIME', 'color'] }).map(
@@ -136,12 +138,18 @@ describe('watchpage/listModel', () => {
         )
       ).toEqual(['1'])
       expect(
-        filterCreatorsByLabels(labeled, { tags: [], minRating: 3 }).map(
+        filterCreatorsByLabels(labeled, { tags: [], ratings: [3, 5] }).map(
           (c) => c.creatorId
         )
       ).toEqual(['1', '2'])
+      // Only the picked rating: 5 stars is not "at least 3"
       expect(
-        filterCreators(labeled, 'al', { tags: ['anime'], minRating: 4 }).map(
+        filterCreatorsByLabels(labeled, { tags: [], ratings: [3] }).map(
+          (c) => c.creatorId
+        )
+      ).toEqual(['2'])
+      expect(
+        filterCreators(labeled, 'al', { tags: ['anime'], ratings: [4, 5] }).map(
           (c) => c.creatorId
         )
       ).toEqual(['1'])
@@ -358,5 +366,14 @@ describe('watchpage/listModel', () => {
       expect(fitWithin(10000, 1, 800)).toEqual({ w: 800, h: 1 })
       expect(fitWithin(0, -5, 800)).toEqual({ w: 1, h: 1 })
     })
+  })
+})
+
+describe('toggleFilterRating', () => {
+  it('adds and removes a rating, keeping the list sorted', () => {
+    expect(toggleFilterRating(undefined, 3)).toEqual([3])
+    expect(toggleFilterRating([1, 4], 2)).toEqual([1, 2, 4])
+    expect(toggleFilterRating([1, 2, 4], 2)).toEqual([1, 4])
+    expect(toggleFilterRating([5], 5)).toEqual([])
   })
 })

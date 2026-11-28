@@ -121,20 +121,20 @@ describe('watchpage/favModel', () => {
       expect(filterFavPosts(posts, 'nonexistent')).toEqual([])
     })
 
-    it('combines search query with label filter (tags AND + minRating)', () => {
+    it('combines search query with label filter (tags AND + ratings)', () => {
       expect(
-        filterFavPosts(posts, '', { tags: ['landscape'], minRating: 4 }).map(
+        filterFavPosts(posts, '', { tags: ['landscape'], ratings: [4, 5] }).map(
           (p) => p.postId
         )
       ).toEqual(['10'])
       expect(
         filterFavPosts(posts, 'alice', {
           tags: ['color'],
-          minRating: 5,
+          ratings: [5],
         }).map((p) => p.postId)
       ).toEqual(['10'])
       expect(
-        filterFavPosts(posts, 'bob', { tags: ['sci-fi'], minRating: 4 })
+        filterFavPosts(posts, 'bob', { tags: ['sci-fi'], ratings: [4, 5] })
       ).toEqual([])
     })
   })
@@ -243,11 +243,11 @@ describe('watchpage/favModel', () => {
       expect(
         filterFavImages(images, 'summer', {
           tags: ['wallpaper'],
-          minRating: 4,
+          ratings: [4, 5],
         }).map((i) => i.key)
       ).toEqual(['kemono/aa/bb/1.jpg'])
       expect(
-        filterFavImages(images, '', { tags: ['cyberpunk'], minRating: 3 })
+        filterFavImages(images, '', { tags: ['cyberpunk'], ratings: [3, 4, 5] })
       ).toEqual([])
     })
   })
