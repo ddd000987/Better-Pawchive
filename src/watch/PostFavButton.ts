@@ -5,35 +5,22 @@ import { EVT } from '../EVT'
 import { lang } from '../Language'
 import { markTransient } from '../PageRoots'
 import { toast } from '../Toast'
-import type { KemonoService } from '../kemono/apiTypes'
 import { detectPage, MOUNT } from '../kemono/pages'
 import { favPosts } from './collectStore'
 import { openFolderMenu } from './folderMenu'
-import { resolvePostMeta } from './postMeta'
-import { sortedFolders } from './watchData'
-import { makeFavPostKey, siteOfHost } from './watchKey'
 import {
-  UNSORTED_FOLDER_ID,
-  type WatchFolder,
-  type WatchSite,
-} from './watchTypes'
+  folderDisplayName,
+  makeFavPostTarget,
+  removePostFromFav,
+  savePostToFolder,
+  type FavPostTarget,
+} from './favPostActions'
+import { sortedFolders } from './watchData'
+import { siteOfHost } from './watchKey'
 
 const MOUNT_WAIT_MS = 10_000
 
-interface PagePost {
-  site: WatchSite
-  service: KemonoService
-  creatorId: string
-  postId: string
-  key: string
-}
-
-function folderDisplayName(folder: WatchFolder | undefined): string {
-  if (!folder || folder.id === UNSORTED_FOLDER_ID) {
-    return lang.transl('_w_unsorted')
-  }
-  return folder.name
-}
+type PagePost = FavPostTarget
 
 class PostFavButton {
   private gen = 0
@@ -63,13 +50,12 @@ class PostFavButton {
     const site = siteOfHost(location.host)
     if (page.kind !== 'post' || !site) return
 
-    const target: PagePost = {
+    const target: PagePost = makeFavPostTarget(
       site,
-      service: page.service,
-      creatorId: page.creatorId,
-      postId: page.postId,
-      key: makeFavPostKey(site, page.service, page.creatorId, page.postId),
-    }
+      page.service,
+      page.creatorId,
+      page.postId
+    )
     this.current = target
     void favPosts.ready().then(() => {
       if (gen === this.gen) this.updateButton()
@@ -177,9 +163,9 @@ class PostFavButton {
       currentFolderId: saved?.folderId ?? null,
       unsortedLabel: lang.transl('_w_unsorted'),
       removeLabel: lang.transl('_fs_removeFav'),
-      onPick: (folderId, label) => this.saveToFolder(target, folderId, label),
+      onPick: (folderId, label) => savePostToFolder(target, folderId, label),
       onCreateFolder: async (name) => (await favPosts.addFolder(name)).id,
-      onRemove: saved ? () => this.removeFromFav(target) : undefined,
+      onRemove: saved ? () => removePostFromFav(target) : undefined,
       extraItems: [
         {
           label: lang.transl('_fs_openFavPosts'),
@@ -203,47 +189,6 @@ class PostFavButton {
   private closeMenu(): void {
     this.closeMenuFn?.()
     this.closeMenuFn = null
-  }
-
-  private async saveToFolder(
-    target: PagePost,
-    folderId: string,
-    folderLabel: string
-  ): Promise<void> {
-    try {
-      await favPosts.ready()
-      if (favPosts.has(target.key)) {
-        await favPosts.move([target.key], folderId)
-      } else {
-        const meta = await resolvePostMeta(target)
-        await favPosts.add(
-          {
-            key: target.key,
-            site: target.site,
-            service: target.service,
-            creatorId: target.creatorId,
-            postId: target.postId,
-            title: meta.title,
-            published: meta.published,
-            coverPath: meta.coverPath,
-            creatorName: meta.creatorName,
-          },
-          folderId
-        )
-      }
-      toast.success(lang.transl('_fs_postSaved', folderLabel))
-    } catch (err) {
-      toast.error(lang.transl('_ws_saveFailed', String(err)))
-    }
-  }
-
-  private async removeFromFav(target: PagePost): Promise<void> {
-    try {
-      await favPosts.remove([target.key])
-      toast.success(lang.transl('_fs_removed'))
-    } catch (err) {
-      toast.error(lang.transl('_ws_saveFailed', String(err)))
-    }
   }
 }
 

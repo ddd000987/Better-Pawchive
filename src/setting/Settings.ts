@@ -45,7 +45,8 @@ interface PreviewSettings {
   previewPreloadNext: number
   /** How many images before the current one the preview loads ahead of time */
   previewPreloadPrev: number
-  /** 在帖子縮圖上顯示下載按鈕*/
+  /** Show the favorite button at a post card's corner on hover (the key
+   * name is older than the button, which used to download) */
   showDownloadBtnOnThumb: boolean
   /** Hovering a creator avatar previews the covers of their latest posts */
   PreviewCreator: boolean

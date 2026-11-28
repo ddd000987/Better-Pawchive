@@ -141,9 +141,8 @@ export class HomeView {
     const quick = section(host, '_hm_quickTitle')
     checkRow(quick, 'PreviewWork', '_f_PreviewWork')
     checkRow(quick, 'PreviewCreator', '_f_PreviewCreator')
-    if (downloads) {
-      checkRow(quick, 'showDownloadBtnOnThumb', '_f_showDownloadBtnOnThumb')
-    }
+    // Favorites work on Kemono too
+    checkRow(quick, 'showDownloadBtnOnThumb', '_f_showDownloadBtnOnThumb')
     quick.appendChild(div('pwpSC-homeHint', '_hm_moreHint'))
 
     EVT.on(EVT.list.pageSwitch, () => this.refresh())

@@ -18,7 +18,8 @@ import { settingsCenter } from './setting/SettingsCenter'
 import { previewWork } from './preview/PreviewWork'
 import { previewCreator } from './preview/PreviewCreator'
 import { showOriginSizeImage } from './preview/ShowOriginSizeImage'
-import { thumbDownloadButton } from './preview/ThumbDownloadButton'
+import { thumbFavButton } from './preview/ThumbFavButton'
+import { savedCardMarks } from './preview/SavedCardMarks'
 import { hotkeyListener } from './HotkeyListener'
 // 抓取 + 下載管線（副作用註冊，見 PBD content.ts 風格）
 import './crawl/StopCrawl'
@@ -66,7 +67,8 @@ function checkModules() {
     previewWork,
     previewCreator,
     showOriginSizeImage,
-    thumbDownloadButton,
+    thumbFavButton,
+    savedCardMarks,
     hotkeyListener,
     watchButton,
     postFavButton,

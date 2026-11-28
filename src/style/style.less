@@ -1106,7 +1106,37 @@ a[href][data-pwp-picked]::after {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-// 縮圖下載鈕（移植 PBD .btnOnThumb；absolute 避免滾動時停留原地）
+// Favorited post card: a gold star where the hover button appears; the
+// button replaces it while shown (pwpFavBtnOn)
+a.pwpFavSavedCard {
+  position: relative;
+
+  &.pwpFavBtnOn::after {
+    visibility: hidden;
+  }
+
+  &::after {
+    content: '★';
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: #ffc83d;
+    font-size: 22px;
+    line-height: 1;
+    text-shadow:
+      0 0 2px rgba(0, 0, 0, 0.9),
+      0 1px 3px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+  }
+}
+
+// Card favorite button (from PBD .btnOnThumb; absolute so it scrolls with the page)
 .btnOnThumb {
   position: absolute;
   z-index: 99999;
@@ -1118,14 +1148,25 @@ a[href][data-pwp-picked]::after {
   border: none;
   padding: 0;
   text-align: center;
-  background-color: #0a84ff;
-  border-radius: 4px;
+  // Glyph only: a shadow keeps it readable on any cover
+  background: none;
   color: #fff;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 1px 3px rgba(0, 0, 0, 0.7);
   align-items: center;
   justify-content: center;
   cursor: pointer;
   overflow: hidden;
-  font-size: 18px;
+  font-size: 22px;
+  line-height: 1;
+  // Press-drag opens the radial menu: no touch scrolling or text selection
+  touch-action: none;
+  user-select: none;
+
+  &.is-saved {
+    color: #ffc83d;
+  }
 
   &:hover {
     opacity: 0.8;
@@ -1259,11 +1300,19 @@ a[href][data-pwp-picked]::after {
     outline-offset: 2px;
   }
 
-  &.is-saved {
+  &.is-saved,
+  &.is-open {
     opacity: 1;
+  }
+
+  &.is-saved {
     color: #f5c542;
     border-color: rgba(245, 197, 66, 0.55);
   }
+
+  // Press-drag opens the radial menu: no touch scrolling or text selection
+  touch-action: none;
+  user-select: none;
 }
 
 .pwpImgFavHost:hover .pwpImgFavBtn,
